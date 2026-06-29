@@ -1,0 +1,66 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    font-family: 'Inter', sans-serif;
+    background-color: #F9FAFB;
+  }
+}
+
+@layer components {
+  /* ── Sidebar nav (white sidebar) ── */
+  .nav-link {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150;
+    color: #6B7280;
+  }
+  .nav-link:hover {
+    background: #F3F4F6;
+    color: #1D2A3B;
+  }
+  .nav-link.active {
+    background: #EEF2FF;
+    color: #465FF1;
+  }
+
+  /* ── Buttons ── */
+  .btn-primary {
+    @apply inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-white text-sm font-semibold transition-all;
+    background: #465FF1;
+  }
+  .btn-primary:hover { background: #3A4FD4; }
+
+  .btn-teal {
+    @apply inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-white text-sm font-semibold transition-all;
+    background: #2EC4B6;
+  }
+  .btn-teal:hover { background: #25b0a3; }
+
+  .btn-navy {
+    @apply inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-white text-sm font-semibold transition-all;
+    background: #1D2A3B;
+  }
+  .btn-navy:hover { background: #111827; }
+
+  .btn-danger {
+    @apply inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-white text-sm font-semibold transition-all;
+    background: #EF476F;
+  }
+  .btn-danger:hover { background: #d63b5e; }
+
+  /* ── Cards ── */
+  .stat-card {
+    @apply bg-white rounded-xl p-5 border border-gray-200;
+  }
+  .page-card {
+    @apply bg-white rounded-xl border border-gray-200;
+  }
+
+  /* ── Engagement badges ── */
+  .badge-engaged    { @apply px-2.5 py-1 rounded-full text-xs font-semibold; background:#E5E8F9; color:#2D3CC8; }
+  .badge-attentive  { @apply px-2.5 py-1 rounded-full text-xs font-semibold; background:#D1FAE5; color:#064E3B; }
+  .badge-confused   { @apply px-2.5 py-1 rounded-full text-xs font-semibold; background:#FEF3C7; color:#78350F; }
+  .badge-bored      { @apply px-2.5 py-1 rounded-full text-xs font-semibold; background:#FFEDD5; color:#7C2D12; }
+  .badge-disengaged { @apply px-2.5 py-1 rounded-full text-xs font-semibold; background:#FDE8EE; color:#881337; }
+}
