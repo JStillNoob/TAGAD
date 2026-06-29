@@ -27,16 +27,9 @@ const isActive = (path) => route.path === path
       :class="sidebarOpen && !focusMode ? 'translate-x-0' : '-translate-x-full'">
 
       <!-- Logo -->
-      <div class="flex items-center gap-3 px-5 h-16 border-b border-gray-100 flex-shrink-0">
-        <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style="background:#465FF1;">
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9.5 4.5c-1.7 0-3 1.3-3 3 0 .4.1.8.2 1.1C5.6 9 5 10 5 11.2c0 .9.4 1.7 1 2.3-.5.5-.8 1.2-.8 2 0 1.5 1.2 2.7 2.7 2.8.2 1.3 1.3 2.2 2.6 2.2.7 0 1.4-.3 1.9-.8.5.5 1.2.8 1.9.8 1.3 0 2.4-.9 2.6-2.2 1.5-.1 2.7-1.3 2.7-2.8 0-.8-.3-1.5-.8-2 .6-.6 1-1.4 1-2.3 0-1.2-.6-2.2-1.7-2.6.1-.3.2-.7.2-1.1 0-1.7-1.3-3-3-3-.6 0-1.2.2-1.7.5-.4-.9-1.3-1.5-2.3-1.5s-1.9.6-2.3 1.5c-.5-.3-1.1-.5-1.7-.5Z" />
-          </svg>
-        </div>
-        <div>
-          <div class="font-bold text-gray-900 text-base leading-none">TAGAD</div>
-          <div class="text-gray-400 text-xs mt-0.5">AI Monitoring</div>
-        </div>
+      <div class="flex items-center justify-center gap-3 px-5 h-16 border-b border-gray-100 flex-shrink-0">
+        <img src="/tagad_logo.png" alt="TAGAD Logo" class="w-10 h-10 object-contain flex-shrink-0" />
+        <div class="font-bold text-gray-900 text-base leading-none">TAGAD</div>
       </div>
 
       <!-- Nav -->

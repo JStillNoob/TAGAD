@@ -4,13 +4,7 @@
     <!-- Left panel -->
     <div class="hidden md:flex flex-col items-center justify-center text-center px-12"
       style="background: linear-gradient(135deg, #0f2440 0%, #1E3A5F 60%, #1a4a6e 100%);">
-      <div class="w-28 h-28 rounded-full flex items-center justify-center mb-8"
-        style="background: rgba(70,95,241,0.2); border: 2px solid rgba(70,95,241,0.3);">
-        <svg xmlns="http://www.w3.org/2000/svg" class="w-14 h-14" fill="none" viewBox="0 0 24 24" stroke="#465FF1" stroke-width="1.4">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9.5 4.5c-1.7 0-3 1.3-3 3 0 .4.1.8.2 1.1C5.6 9 5 10 5 11.2c0 .9.4 1.7 1 2.3-.5.5-.8 1.2-.8 2 0 1.5 1.2 2.7 2.7 2.8.2 1.3 1.3 2.2 2.6 2.2.7 0 1.4-.3 1.9-.8.5.5 1.2.8 1.9.8 1.3 0 2.4-.9 2.6-2.2 1.5-.1 2.7-1.3 2.7-2.8 0-.8-.3-1.5-.8-2 .6-.6 1-1.4 1-2.3 0-1.2-.6-2.2-1.7-2.6.1-.3.2-.7.2-1.1 0-1.7-1.3-3-3-3-.6 0-1.2.2-1.7.5-.4-.9-1.3-1.5-2.3-1.5s-1.9.6-2.3 1.5c-.5-.3-1.1-.5-1.7-.5Z" />
-          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15M9 9.5c-1 0-1.8.8-1.8 1.8M15 9.5c1 0 1.8.8 1.8 1.8M8.9 15.3c.8.3 1.4 1 1.6 1.9M15.1 15.3c-.8.3-1.4 1-1.6 1.9" />
-        </svg>
-      </div>
+      <img src="/tagad_logo.png" alt="TAGAD Logo" class="w-64 mb-6 drop-shadow-xl" />
       <h1 class="text-4xl font-bold text-white tracking-widest mb-4">TAGAD</h1>
       <p class="text-xl font-medium mb-3" style="color:#7B92F5;">AI Classroom Monitoring System</p>
       <p class="text-sm leading-relaxed max-w-sm" style="color:rgba(255,255,255,0.5);">
