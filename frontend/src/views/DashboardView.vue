@@ -40,7 +40,7 @@ const engagementBars = [
 
       <div class="stat-card">
         <div class="flex items-center justify-between mb-5">
-          <p class="text-sm font-medium text-gray-500">Total Students</p>
+          <p class="text-sm font-medium text-gray-500">Students Detected</p>
           <div class="w-11 h-11 rounded-full flex items-center justify-center" style="background:rgba(70,95,241,0.1);">
             <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="#465FF1" stroke-width="1.8">
               <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
@@ -51,7 +51,7 @@ const engagementBars = [
         <p class="text-xs text-gray-400">Across 2 active classes</p>
         <div class="flex items-center gap-1.5 mt-4 pt-3 border-t border-gray-100">
           <span class="text-xs font-bold" style="color:#16a34a;">↑ +2</span>
-          <span class="text-xs text-gray-400">new this month</span>
+          <span class="text-xs text-gray-400">vs last session</span>
         </div>
       </div>
 

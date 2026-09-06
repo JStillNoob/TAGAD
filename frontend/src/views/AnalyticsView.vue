@@ -55,18 +55,18 @@ const sessions = [
 ]
 
 const tableRows = [
-  { n:'01', topic:'Introduction to Trees',    time:'10:30 AM', dur:'5:20',  eng:79, att:6,  conf:8,  bored:5, dis:2  },
-  { n:'02', topic:'Tree Terminology',          time:'10:35 AM', dur:'6:10',  eng:83, att:5,  conf:6,  bored:4, dis:2  },
-  { n:'03', topic:'Binary Trees Defined',      time:'10:41 AM', dur:'7:45',  eng:87, att:7,  conf:3,  bored:2, dis:1  },
-  { n:'04', topic:'Tree Representation',       time:'10:49 AM', dur:'8:30',  eng:74, att:5,  conf:12, bored:5, dis:4  },
-  { n:'05', topic:'Binary Trees & Traversal',  time:'10:57 AM', dur:'9:15',  eng:76, att:6,  conf:10, bored:4, dis:4  },
-  { n:'06', topic:'Inorder Traversal',         time:'11:07 AM', dur:'6:55',  eng:70, att:7,  conf:15, bored:5, dis:3  },
-  { n:'07', topic:'Preorder Traversal',        time:'11:14 AM', dur:'5:40',  eng:75, att:5,  conf:11, bored:6, dis:3  },
-  { n:'08', topic:'Postorder Traversal',       time:'11:19 AM', dur:'6:20',  eng:70, att:6,  conf:16, bored:5, dis:3  },
-  { n:'09', topic:'BST Operations',            time:'11:26 AM', dur:'10:05', eng:43, att:5,  conf:41, bored:7, dis:4  },
-  { n:'10', topic:'Binary Search Trees',       time:'11:36 AM', dur:'8:15',  eng:65, att:6,  conf:18, bored:7, dis:4  },
-  { n:'11', topic:'Tree Balancing Intro',      time:'11:44 AM', dur:'7:30',  eng:50, att:5,  conf:23, bored:0, dis:22 },
-  { n:'12', topic:'Summary & Q&A',             time:'11:52 AM', dur:'8:45',  eng:84, att:7,  conf:4,  bored:3, dis:2  },
+  { n:'01', topic:'Introduction to Trees',    time:'10:30 AM', dur:'5:20',  eng:79, att:6,  conf:8,  bored:5, dis:2, det:32  },
+  { n:'02', topic:'Tree Terminology',          time:'10:35 AM', dur:'6:10',  eng:83, att:5,  conf:6,  bored:4, dis:2, det:33  },
+  { n:'03', topic:'Binary Trees Defined',      time:'10:41 AM', dur:'7:45',  eng:87, att:7,  conf:3,  bored:2, dis:1, det:34  },
+  { n:'04', topic:'Tree Representation',       time:'10:49 AM', dur:'8:30',  eng:74, att:5,  conf:12, bored:5, dis:4, det:31  },
+  { n:'05', topic:'Binary Trees & Traversal',  time:'10:57 AM', dur:'9:15',  eng:76, att:6,  conf:10, bored:4, dis:4, det:33  },
+  { n:'06', topic:'Inorder Traversal',         time:'11:07 AM', dur:'6:55',  eng:70, att:7,  conf:15, bored:5, dis:3, det:30  },
+  { n:'07', topic:'Preorder Traversal',        time:'11:14 AM', dur:'5:40',  eng:75, att:5,  conf:11, bored:6, dis:3, det:32  },
+  { n:'08', topic:'Postorder Traversal',       time:'11:19 AM', dur:'6:20',  eng:70, att:6,  conf:16, bored:5, dis:3, det:31  },
+  { n:'09', topic:'BST Operations',            time:'11:26 AM', dur:'10:05', eng:43, att:5,  conf:41, bored:7, dis:4, det:34  },
+  { n:'10', topic:'Binary Search Trees',       time:'11:36 AM', dur:'8:15',  eng:65, att:6,  conf:18, bored:7, dis:4, det:33  },
+  { n:'11', topic:'Tree Balancing Intro',      time:'11:44 AM', dur:'7:30',  eng:50, att:5,  conf:23, bored:0, dis:22, det:32  },
+  { n:'12', topic:'Summary & Q&A',             time:'11:52 AM', dur:'8:45',  eng:84, att:7,  conf:4,  bored:3, dis:2, det:34  },
 ]
 
 const engColor = (v) => {
@@ -107,12 +107,15 @@ onMounted(() => {
 
     <!-- Session selector + download -->
     <div class="flex items-center justify-between mb-6">
-      <div class="flex items-center gap-3">
-        <label for="session-select" class="text-sm font-semibold text-gray-600">Session:</label>
-        <select id="session-select" class="border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none bg-white text-navy"
-          @focus="$event.target.style.borderColor='#465FF1'" @blur="$event.target.style.borderColor='#e2e8f0'">
-          <option v-for="s in sessions" :key="s">{{ s }}</option>
-        </select>
+      <div>
+        <div class="flex items-center gap-3">
+          <label for="session-select" class="text-sm font-semibold text-gray-600">Session:</label>
+          <select id="session-select" class="border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none bg-white text-navy"
+            @focus="$event.target.style.borderColor='#465FF1'" @blur="$event.target.style.borderColor='#e2e8f0'">
+            <option v-for="s in sessions" :key="s">{{ s }}</option>
+          </select>
+        </div>
+        <p class="text-xs text-gray-400 mt-2 ml-1">Started 10:30 AM · Ended 11:45 AM</p>
       </div>
       <a href="#" class="btn-primary">
         <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -123,11 +126,13 @@ onMounted(() => {
     </div>
 
     <!-- Summary stats -->
-    <div class="grid grid-cols-4 gap-5 mb-6">
-      <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Total Students</div><div class="text-3xl font-bold text-navy">34</div><div class="text-xs text-gray-400 mt-1">IT 301 class</div></div>
+    <div class="grid grid-cols-3 xl:grid-cols-6 gap-5 mb-6">
+      <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Students Detected</div><div class="text-3xl font-bold text-navy">34</div><div class="text-xs text-gray-400 mt-1">IT 301 class</div></div>
       <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Session Duration</div><div class="text-3xl font-bold text-navy">1h 15m</div><div class="text-xs text-gray-400 mt-1">12 slides covered</div></div>
       <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Avg. Engagement</div><div class="text-3xl font-bold" style="color:#2D3CC8">82%</div><div class="flex items-center gap-1 mt-1"><span class="text-xs font-medium" style="color:#2D3CC8">▲ 4%</span><span class="text-xs text-gray-400">vs last session</span></div></div>
       <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Most Confused Slide</div><div class="text-3xl font-bold" style="color:#7B92F5">Slide 9</div><div class="text-xs text-gray-400 mt-1">BST Operations — 41% confused</div></div>
+      <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Total Detections</div><div class="text-3xl font-bold text-navy">408</div><div class="text-xs text-gray-400 mt-1">Faces detected across slides</div></div>
+      <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Avg. Detection Confidence</div><div class="text-3xl font-bold text-navy">91.4%</div><div class="text-xs text-gray-400 mt-1">Model confidence score</div></div>
     </div>
 
     <!-- Chart + insights -->
@@ -191,6 +196,7 @@ onMounted(() => {
               <th class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Topic</th>
               <th class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Timestamp</th>
               <th class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Duration</th>
+              <th class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Detected</th>
               <th class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Engaged</th>
               <th class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Attentive</th>
               <th class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Confused</th>
@@ -204,6 +210,7 @@ onMounted(() => {
               <td class="px-6 py-3 font-medium" :style="{ color: row.conf >= 30 ? '#D97706' : row.dis >= 15 ? '#C73F62' : '#1D2A3B' }">{{ row.topic }}</td>
               <td class="px-6 py-3 text-gray-400 font-mono text-xs">{{ row.time }}</td>
               <td class="px-6 py-3 text-gray-500">{{ row.dur }}</td>
+              <td class="px-6 py-3 text-gray-500">{{ row.det }}</td>
               <td class="px-6 py-3 font-semibold" :style="{ color: engColor(row.eng) }">{{ row.eng }}%</td>
               <td class="px-6 py-3 text-gray-500">{{ row.att }}%</td>
               <td class="px-6 py-3" :style="row.conf >= 30 ? 'font-weight:600;color:#D97706' : 'color:#6b7280'">{{ row.conf }}%</td>

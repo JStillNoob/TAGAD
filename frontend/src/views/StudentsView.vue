@@ -3,15 +3,21 @@ import AppLayout from '../layouts/AppLayout.vue'
 
 const stats = [
   { value: '3',   label: 'Active Classes',      sub: 'This Semester',   color: '#465FF1', bg: '#ECEFFE' },
-  { value: '94',  label: 'Students Enrolled',   sub: 'Across All Classes', color: '#2D3CC8', bg: '#E5E8F9' },
+  { value: '94',  label: 'Students Detected',   sub: 'Across All Classes', color: '#2D3CC8', bg: '#E5E8F9' },
   { value: '77%', label: 'Avg. Engagement',     sub: 'All Classes',     color: '#10B981', bg: '#D1FAE5' },
   { value: '21',  label: 'Total Sessions',      sub: 'Conducted',       color: '#465FF1', bg: '#ECEFFE' },
 ]
 
+// Subject fields (subject_code, subject_name, teacher) are separate from
+// Classroom fields (room_code, building, capacity) — mirrors the backend split.
 const classes = [
   {
-    code: 'IT 301',
-    subject: 'Data Structures',
+    subjectCode: 'IT 301',
+    subjectName: 'Data Structures',
+    teacher: 'Dr. Santos',
+    roomCode: 'Room 201',
+    building: 'Main Building',
+    capacity: 40,
     enrolled: 34,
     sessions: 8,
     lastSession: 'Jun 25, 2026',
@@ -19,8 +25,12 @@ const classes = [
     breakdown: { eng: 62, att: 10, conf: 18, bored: 6, dis: 4 },
   },
   {
-    code: 'IT 302',
-    subject: 'Database Management',
+    subjectCode: 'IT 302',
+    subjectName: 'Database Management',
+    teacher: 'Dr. Santos',
+    roomCode: 'Room 105',
+    building: 'Annex Building',
+    capacity: 35,
     enrolled: 31,
     sessions: 7,
     lastSession: 'Jun 24, 2026',
@@ -28,8 +38,12 @@ const classes = [
     breakdown: { eng: 58, att: 12, conf: 20, bored: 6, dis: 4 },
   },
   {
-    code: 'IT 303',
-    subject: 'Operating Systems',
+    subjectCode: 'IT 303',
+    subjectName: 'Operating Systems',
+    teacher: 'Dr. Santos',
+    roomCode: 'Room 204',
+    building: 'Main Building',
+    capacity: 30,
     enrolled: 29,
     sessions: 6,
     lastSession: 'Jun 22, 2026',
@@ -63,16 +77,18 @@ const engColor = (v) => {
 
     <!-- Class cards -->
     <div class="grid grid-cols-3 gap-6">
-      <div v-for="cls in classes" :key="cls.code" class="page-card p-6 flex flex-col gap-5">
+      <div v-for="cls in classes" :key="cls.subjectCode" class="page-card p-6 flex flex-col gap-5">
 
         <!-- Header -->
         <div class="flex items-start justify-between">
           <div>
             <div class="flex items-center gap-2 mb-2">
-              <span class="text-xs font-bold px-2 py-0.5 rounded-md" style="background:#ECEFFE; color:#1E3A5F;">{{ cls.code }}</span>
+              <span class="text-xs font-bold px-2 py-0.5 rounded-md" style="background:#ECEFFE; color:#1E3A5F;">{{ cls.subjectCode }}</span>
               <span class="text-xs font-medium px-2 py-0.5 rounded-md" style="background:#D1FAE5; color:#065F46;">Active</span>
             </div>
-            <h3 class="text-base font-semibold text-navy">{{ cls.subject }}</h3>
+            <h3 class="text-base font-semibold text-navy">{{ cls.subjectName }}</h3>
+            <p class="text-xs text-gray-400 mt-1">Taught by {{ cls.teacher }}</p>
+            <p class="text-xs text-gray-400 mt-0.5">{{ cls.roomCode }}, {{ cls.building }} · Capacity {{ cls.capacity }}</p>
           </div>
           <div class="text-right">
             <p class="text-2xl font-bold" :style="{ color: engColor(cls.avgEng) }">{{ cls.avgEng }}%</p>

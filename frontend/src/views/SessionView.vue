@@ -6,6 +6,7 @@ import AppLayout from "../layouts/AppLayout.vue";
 const sessionState = ref("setup"); // 'setup' | 'starting' | 'active'
 const selectedClass = ref("IT 301 — Data Structures");
 const uploadedFile = ref(null);
+const uploadedAt = ref(null);
 const uploadStatus = ref("idle"); // 'idle' | 'processing' | 'ready'
 const startingStep = ref(0);
 const fileInput = ref(null);
@@ -24,17 +25,6 @@ const monitoringSettings = ref([
   { label: "Record session video", enabled: false },
 ]);
 
-const rosterPreview = [
-  { initials: "MR", color: "#2D3CC8" },
-  { initials: "JC", color: "#3A4FD4" },
-  { initials: "AL", color: "#465FF1" },
-  { initials: "RC", color: "#1E35A8" },
-  { initials: "SG", color: "#465FF1" },
-  { initials: "BT", color: "#2F42C0" },
-  { initials: "LV", color: "#2D3CC8" },
-  { initials: "KD", color: "#3A4FD4" },
-];
-
 const triggerUpload = () => fileInput.value?.click();
 
 const handleFile = (file) => {
@@ -43,6 +33,7 @@ const handleFile = (file) => {
   uploadStatus.value = "processing";
   setTimeout(() => {
     uploadStatus.value = "ready";
+    uploadedAt.value = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }, 1800);
 };
 
@@ -182,41 +173,37 @@ const nextSlide = () => {
   if (currentSlide.value < slideTopics.length) currentSlide.value++;
 };
 
-// ── Alerts & students ─────────────────────────────────────────
+// ── Alerts ────────────────────────────────────────────────────
 const alerts = ref([
   {
     id: 1,
     type: "danger",
+    alertType: "disengagement_spike",
     title: "Disengagement Spike",
     msg: "5 students disengaged on Slide 4",
+    createdAt: "10:49 AM",
   },
   {
     id: 2,
     type: "warning",
+    alertType: "high_confusion",
     title: "High Confusion",
     msg: "8 students showing confusion signals",
+    createdAt: "11:26 AM",
   },
   {
     id: 3,
     type: "danger",
+    alertType: "boredom_detected",
     title: "Boredom Detected",
     msg: "3 students showing boredom indicators",
+    createdAt: "11:44 AM",
   },
 ]);
 const dismissAlert = (id) => {
   alerts.value = alerts.value.filter((a) => a.id !== id);
 };
 
-const students = [
-  { initials: "MR", name: "Maria Reyes", status: "Engaged" },
-  { initials: "JC", name: "Juan Cruz", status: "Confused" },
-  { initials: "AL", name: "Ana Lim", status: "Engaged" },
-  { initials: "RC", name: "Ramon Capili", status: "Disengaged" },
-  { initials: "SG", name: "Sofia Garcia", status: "Attentive" },
-  { initials: "BT", name: "Ben Torres", status: "Bored" },
-  { initials: "LV", name: "Lena Villanueva", status: "Engaged" },
-  { initials: "KD", name: "Kyle Diaz", status: "Confused" },
-];
 const donutLegend = [
   { label: "Engaged", pct: 62, color: "#2D3CC8" },
   { label: "Attentive", pct: 10, color: "#10B981" },
@@ -224,22 +211,6 @@ const donutLegend = [
   { label: "Bored", pct: 6, color: "#F97316" },
   { label: "Disengaged", pct: 4, color: "#EF476F" },
 ];
-const badgeClass = (s) =>
-  ({
-    Engaged: "badge-engaged",
-    Attentive: "badge-attentive",
-    Confused: "badge-confused",
-    Bored: "badge-bored",
-    Disengaged: "badge-disengaged",
-  })[s] || "badge-bored";
-const avatarColor = (s) =>
-  ({
-    Engaged: "#2D3CC8",
-    Attentive: "#465FF1",
-    Confused: "#3A4FD4",
-    Bored: "#2F42C0",
-    Disengaged: "#1E35A8",
-  })[s] || "#465FF1";
 
 const showEngagement = ref(true);
 </script>
@@ -481,16 +452,19 @@ const showEngagement = ref(true);
                     />
                   </svg>
                 </div>
-                <div class="flex-1">
+                <div class="flex-1 min-w-0">
                   <p class="text-sm font-semibold text-navy">
                     {{ uploadedFile?.name }}
                   </p>
                   <p class="text-xs text-gray-400 mt-0.5">
-                    12 slides detected · Ready to present
+                    12 slides detected · Ready to present · Uploaded {{ uploadedAt }}
+                  </p>
+                  <p class="text-xs text-gray-300 font-mono mt-1 truncate">
+                    presentations/{{ uploadedFile?.name }}
                   </p>
                 </div>
                 <button
-                  class="text-xs text-gray-400 hover:text-gray-600 underline"
+                  class="text-xs text-gray-400 hover:text-gray-600 underline flex-shrink-0"
                   @click="
                     uploadStatus = 'idle';
                     uploadedFile = null;
@@ -548,23 +522,27 @@ const showEngagement = ref(true);
             </h3>
             <div class="space-y-3">
               <div class="flex items-center justify-between py-2 border-b border-gray-50">
-                <span class="text-xs text-gray-400">Class</span>
+                <span class="text-xs text-gray-400">Subject Code</span>
                 <span class="text-xs font-semibold text-navy">{{ selectedClass.split("—")[0].trim() }}</span>
               </div>
               <div class="flex items-center justify-between py-2 border-b border-gray-50">
-                <span class="text-xs text-gray-400">Subject</span>
+                <span class="text-xs text-gray-400">Subject Name</span>
                 <span class="text-xs font-semibold text-navy">{{ selectedClass.split("—")[1]?.trim() || "—" }}</span>
               </div>
+              <div class="flex items-center justify-between py-2 border-b border-gray-50">
+                <span class="text-xs text-gray-400">Room</span>
+                <span class="text-xs font-semibold text-navy">Room 201 — Lab A</span>
+              </div>
               <div class="flex items-center justify-between py-2">
-                <span class="text-xs text-gray-400">Students Enrolled</span>
+                <span class="text-xs text-gray-400">Students Detected</span>
                 <span class="text-xs font-semibold text-navy">34 students</span>
               </div>
             </div>
             <RouterLink to="/students" class="text-xs font-medium text-brand mt-3 block">View class details →</RouterLink>
           </div>
 
-          <!-- Monitoring settings -->
-          <div class="page-card p-5">
+          <!-- Monitoring settings (temporarily hidden) -->
+          <div v-if="false" class="page-card p-5">
             <h3
               class="text-sm font-semibold text-navy mb-4 flex items-center gap-2"
             >
@@ -888,9 +866,9 @@ const showEngagement = ref(true);
             <div v-if="showCameras" class="grid grid-cols-3 gap-3 mt-5">
               <div
                 v-for="cam in [
-                  { n: 1, label: 'Front View' },
-                  { n: 2, label: 'Left Side' },
-                  { n: 3, label: 'Right Side' },
+                  { n: 1, name: 'Cam A - Front', label: 'Front View', status: 'Active' },
+                  { n: 2, name: 'Cam B - Left', label: 'Left Side', status: 'Active' },
+                  { n: 3, name: 'Cam C - Right', label: 'Right Side', status: 'Inactive' },
                 ]"
                 :key="cam.n"
                 class="rounded-xl overflow-hidden flex flex-col items-center justify-center relative"
@@ -919,7 +897,7 @@ const showEngagement = ref(true);
                   class="text-xs font-medium"
                   style="color: rgba(255, 255, 255, 0.4)"
                 >
-                  Camera {{ cam.n }}
+                  {{ cam.name }}
                 </p>
                 <p class="text-xs" style="color: rgba(255, 255, 255, 0.2)">
                   {{ cam.label }}
@@ -931,9 +909,13 @@ const showEngagement = ref(true);
                   CAM {{ cam.n }}
                 </div>
                 <span
-                  class="absolute top-2.5 right-2.5 w-1.5 h-1.5 rounded-full animate-pulse"
-                  style="background: #465ff1"
-                ></span>
+                  class="absolute top-2 right-2 px-1.5 py-0.5 rounded text-xs font-bold"
+                  :style="cam.status === 'Active'
+                    ? 'background:rgba(16,185,129,0.15); color:#10B981'
+                    : 'background:rgba(148,163,184,0.2); color:#94a3b8'"
+                >
+                  {{ cam.status }}
+                </span>
               </div>
             </div>
         </div>
@@ -974,8 +956,15 @@ const showEngagement = ref(true);
                   :style="alert.type === 'danger' ? 'background:rgba(239,71,111,0.06)' : 'background:rgba(255,183,3,0.08)'">
                   <span class="mt-1 w-2 h-2 rounded-full flex-shrink-0" :style="{ background: alert.type === 'danger' ? '#EF476F' : '#FFB703' }"></span>
                   <div class="flex-1 min-w-0">
-                    <p class="text-xs font-semibold" :style="{ color: alert.type === 'danger' ? '#EF476F' : '#d97706' }">{{ alert.title }}</p>
+                    <div class="flex items-center justify-between gap-2">
+                      <p class="text-xs font-semibold" :style="{ color: alert.type === 'danger' ? '#EF476F' : '#d97706' }">{{ alert.title }}</p>
+                      <span class="text-xs text-gray-400 flex-shrink-0">{{ alert.createdAt }}</span>
+                    </div>
                     <p class="text-xs text-gray-500 mt-0.5">{{ alert.msg }}</p>
+                    <span class="inline-block mt-1 px-1.5 py-0.5 rounded text-xs font-mono"
+                      :style="alert.type === 'danger' ? 'background:rgba(239,71,111,0.12); color:#EF476F' : 'background:rgba(255,183,3,0.15); color:#d97706'">
+                      {{ alert.alertType }}
+                    </span>
                   </div>
                   <button @click="dismissAlert(alert.id)" class="text-gray-300 hover:text-gray-500 text-lg leading-none">&times;</button>
                 </div>

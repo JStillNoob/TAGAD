@@ -15,14 +15,18 @@
     <!-- Right panel -->
     <div class="flex items-center justify-center px-6 py-12" style="background:#F5F7FA;">
       <div class="w-full max-w-md">
-        <div class="bg-white rounded-2xl shadow-sm p-10">
+        <form class="bg-white rounded-2xl shadow-sm p-10" @submit.prevent="handleSubmit">
           <div class="mb-8">
             <h2 class="text-2xl font-bold mb-1 text-navy">Welcome Back</h2>
             <p class="text-sm text-gray-400">Sign in to start monitoring your classroom</p>
           </div>
 
+          <p v-if="route.query.registered === '1'" class="mb-5 rounded-lg bg-green-50 px-4 py-3 text-sm text-green-700" role="status">
+            Account created successfully. You can sign in now.
+          </p>
+
           <div class="mb-5">
-            <label class="block text-sm font-semibold mb-2 text-navy">Email Address</label>
+            <label class="block text-sm font-semibold mb-2 text-navy">Email or Username</label>
             <div class="relative">
               <span class="absolute inset-y-0 left-0 flex items-center pl-4 text-gray-400">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
@@ -30,10 +34,11 @@
                   <path stroke-linecap="round" stroke-linejoin="round" d="m3 7 7.5 6 7.5-6" />
                 </svg>
               </span>
-              <input v-model="email" type="email" placeholder="teacher@university.edu"
+              <input v-model="identity" type="text" placeholder="teacher@university.edu"
+                autocomplete="username" required
                 class="w-full rounded-xl border pl-12 pr-4 py-3 text-sm outline-none transition-all text-navy"
-                :style="emailFocused ? 'border-color:#465FF1; box-shadow:0 0 0 3px rgba(70,95,241,0.12)' : 'border-color:#e2e8f0'"
-                @focus="emailFocused=true" @blur="emailFocused=false">
+                :style="identityFocused ? 'border-color:#465FF1; box-shadow:0 0 0 3px rgba(70,95,241,0.12)' : 'border-color:#e2e8f0'"
+                @focus="identityFocused=true" @blur="identityFocused=false">
             </div>
           </div>
 
@@ -46,20 +51,29 @@
                 </svg>
               </span>
               <input v-model="password" type="password" placeholder="••••••••"
+                autocomplete="current-password" required
                 class="w-full rounded-xl border pl-12 pr-4 py-3 text-sm outline-none transition-all text-navy"
                 :style="passFocused ? 'border-color:#465FF1; box-shadow:0 0 0 3px rgba(70,95,241,0.12)' : 'border-color:#e2e8f0'"
                 @focus="passFocused=true" @blur="passFocused=false">
             </div>
           </div>
 
-          <RouterLink to="/dashboard" class="btn-primary w-full justify-center">
-            Start Session
-          </RouterLink>
+          <p v-if="errorMessage" class="mb-4 text-sm text-red-600" role="alert">
+            {{ errorMessage }}
+          </p>
+
+          <button type="submit" class="btn-primary w-full justify-center" :disabled="submitting">
+            {{ submitting ? 'Signing in…' : 'Start Session' }}
+          </button>
 
           <div class="text-center mt-5">
             <a href="#" class="text-sm font-medium" style="color:#465FF1;">Forgot password?</a>
           </div>
-        </div>
+          <div class="text-center mt-3 text-sm text-gray-500">
+            Need an account?
+            <RouterLink to="/register" class="font-medium" style="color:#465FF1;">Register</RouterLink>
+          </div>
+        </form>
       </div>
     </div>
   </div>
@@ -67,8 +81,34 @@
 
 <script setup>
 import { ref } from 'vue'
-const email = ref('')
+import { useRoute, useRouter } from 'vue-router'
+import { login } from '../auth'
+
+const route = useRoute()
+const router = useRouter()
+const identity = ref('')
 const password = ref('')
-const emailFocused = ref(false)
+const identityFocused = ref(false)
 const passFocused = ref(false)
+const submitting = ref(false)
+const errorMessage = ref('')
+
+async function handleSubmit() {
+  submitting.value = true
+  errorMessage.value = ''
+  try {
+    await login(identity.value, password.value)
+    const requestedPath = route.query.redirect
+    const destination = typeof requestedPath === 'string'
+      && requestedPath.startsWith('/')
+      && !requestedPath.startsWith('//')
+      ? requestedPath
+      : '/dashboard'
+    await router.replace(destination)
+  } catch (error) {
+    errorMessage.value = error.message
+  } finally {
+    submitting.value = false
+  }
+}
 </script>
