@@ -1,9 +1,11 @@
 from django.contrib.auth import authenticate, login, logout
-from django.db.models import Sum
+from django.db.models import Q, Sum
+from django.utils.dateparse import parse_date
 from django.utils.decorators import method_decorator
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 from rest_framework import generics, serializers, status
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -28,6 +30,7 @@ from .serializers import (
     ManagedUserWriteSerializer,
     RegistrationSerializer,
     SubjectSerializer,
+    SystemLogSerializer,
     UserSerializer,
 )
 
@@ -67,6 +70,7 @@ class LoginView(APIView):
             )
 
         login(request, user)
+        _log_activity(request, 'Logged in.')
         return Response(UserSerializer(user).data)
 
 
@@ -82,6 +86,7 @@ class LogoutView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        _log_activity(request, 'Logged out.')
         logout(request)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -105,6 +110,49 @@ def _log_activity(request, activity):
         activity=activity,
         ip_address=_request_ip(request),
     )
+
+
+class SystemLogPagination(PageNumberPagination):
+    page_size = 20
+
+
+class SystemLogListView(generics.ListAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = SystemLogSerializer
+    pagination_class = SystemLogPagination
+
+    def get_queryset(self):
+        logs = SystemLog.objects.select_related(
+            'user', 'user__organization',
+        ).order_by('-logged_at', '-id')
+        user = self.request.user
+        if user.role == User.Role.ORG_ADMIN:
+            logs = logs.filter(user__organization=user.organization)
+        elif user.role == User.Role.TEACHER:
+            logs = logs.filter(user=user)
+
+        search = self.request.query_params.get('search', '').strip()
+        if search:
+            logs = logs.filter(
+                Q(user__username__icontains=search)
+                | Q(user__first_name__icontains=search)
+                | Q(user__last_name__icontains=search)
+                | Q(activity__icontains=search)
+                | Q(ip_address__icontains=search)
+            )
+
+        for parameter, lookup in (
+            ('date_from', 'logged_at__date__gte'),
+            ('date_to', 'logged_at__date__lte'),
+        ):
+            value = self.request.query_params.get(parameter, '').strip()
+            if value:
+                parsed = parse_date(value)
+                if parsed is None:
+                    raise serializers.ValidationError({parameter: 'Use YYYY-MM-DD format.'})
+                logs = logs.filter(**{lookup: parsed})
+
+        return logs
 
 
 class UserManagementMixin:

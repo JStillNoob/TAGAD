@@ -3,7 +3,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
-from .models import Camera, Classroom, Organization, Subject
+from .models import Camera, Classroom, Organization, Subject, SystemLog
 
 
 User = get_user_model()
@@ -523,3 +523,30 @@ class CameraSerializer(serializers.ModelSerializer):
         if errors:
             raise serializers.ValidationError(errors)
         return attrs
+
+
+class SystemLogSerializer(serializers.ModelSerializer):
+    user_name = serializers.SerializerMethodField()
+    username = serializers.CharField(source='user.username', read_only=True)
+    organization_name = serializers.CharField(
+        source='user.organization.organization_name',
+        read_only=True,
+        default='',
+    )
+
+    class Meta:
+        model = SystemLog
+        fields = (
+            'id',
+            'user',
+            'user_name',
+            'username',
+            'organization_name',
+            'activity',
+            'ip_address',
+            'logged_at',
+        )
+        read_only_fields = fields
+
+    def get_user_name(self, obj):
+        return obj.user.get_full_name() or obj.user.username
