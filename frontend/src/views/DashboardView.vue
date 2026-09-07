@@ -1,199 +1,195 @@
 <script setup>
+import { computed, onMounted, ref } from 'vue'
+import { currentUser } from '../auth'
+import { fetchDashboardSummary } from '../dashboard'
 import AppLayout from '../layouts/AppLayout.vue'
 
-const sessions = [
-  { subject: 'Data Structures',         cls: 'IT 301', date: 'Jun 25, 2026', duration: '1h 15m', eng: 82 },
-  { subject: 'Database Management',     cls: 'IT 302', date: 'Jun 24, 2026', duration: '1h 30m', eng: 74 },
-  { subject: 'Algorithms & Complexity', cls: 'IT 301', date: 'Jun 23, 2026', duration: '1h 00m', eng: 61 },
-  { subject: 'Operating Systems',       cls: 'IT 303', date: 'Jun 22, 2026', duration: '1h 45m', eng: 79 },
-  { subject: 'Software Engineering',    cls: 'IT 302', date: 'Jun 21, 2026', duration: '1h 20m', eng: 55 },
-]
+const dashboard = ref({
+  counts: { classrooms: 0, subjects: 0, cameras: 0, sessions_today: 0 },
+  recent_sessions: [],
+  engagement: {
+    has_data: false,
+    total_detected: 0,
+    average_score: null,
+    distribution: { engaged: 0, attentive: 0, confused: 0, bored: 0, disengaged: 0 },
+  },
+  alerts_today: 0,
+})
+const loading = ref(true)
+const error = ref('')
 
-const engagementBars = [
-  { label: 'Engaged',    pct: 62, color: '#2D3CC8' },
-  { label: 'Attentive',  pct: 16, color: '#10B981' },
-  { label: 'Confused',   pct: 12, color: '#F59E0B' },
-  { label: 'Bored',      pct: 6,  color: '#F97316' },
-  { label: 'Disengaged', pct: 4,  color: '#EF476F' },
-]
+const displayName = computed(() => {
+  const fullName = [currentUser.value?.first_name, currentUser.value?.last_name]
+    .filter(Boolean)
+    .join(' ')
+  return fullName || currentUser.value?.username || 'User'
+})
+
+const greeting = computed(() => {
+  const hour = new Date().getHours()
+  if (hour < 12) return 'Good morning'
+  if (hour < 18) return 'Good afternoon'
+  return 'Good evening'
+})
+
+const statCards = computed(() => [
+  { label: 'Classrooms', value: dashboard.value.counts.classrooms, hint: 'Available to your account' },
+  { label: 'Subjects', value: dashboard.value.counts.subjects, hint: 'Available to your account' },
+  { label: 'Cameras', value: dashboard.value.counts.cameras, hint: 'Configured classroom cameras' },
+  { label: 'Sessions Today', value: dashboard.value.counts.sessions_today, hint: 'Recorded today' },
+])
+
+const engagementBars = computed(() => {
+  const distribution = dashboard.value.engagement.distribution
+  return [
+    { key: 'engaged', label: 'Engaged', color: '#2D3CC8' },
+    { key: 'attentive', label: 'Attentive', color: '#10B981' },
+    { key: 'confused', label: 'Confused', color: '#F59E0B' },
+    { key: 'bored', label: 'Bored', color: '#F97316' },
+    { key: 'disengaged', label: 'Disengaged', color: '#EF476F' },
+  ].map((item) => ({ ...item, percentage: distribution[item.key] }))
+})
+
+function formatDate(value) {
+  return new Intl.DateTimeFormat(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric',
+  }).format(new Date(`${value}T00:00:00`))
+}
+
+function formatDuration(minutes) {
+  if (minutes === null) return '—'
+  const hours = Math.floor(minutes / 60)
+  const remainder = minutes % 60
+  return hours ? `${hours}h ${String(remainder).padStart(2, '0')}m` : `${remainder}m`
+}
+
+async function loadDashboard() {
+  loading.value = true
+  error.value = ''
+  try {
+    dashboard.value = await fetchDashboardSummary()
+  } catch (requestError) {
+    error.value = requestError.message
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(loadDashboard)
 </script>
 
 <template>
   <AppLayout page-title="Dashboard">
-
-    <!-- Welcome -->
-    <div class="flex items-center justify-between mb-6">
+    <div class="flex items-center justify-between gap-4 mb-6">
       <div>
-        <h2 class="text-xl font-bold text-navy">Good morning, Dr. Santos 👋</h2>
-        <p class="text-sm text-gray-400 mt-0.5">Here's what's happening in your classroom today.</p>
+        <h2 class="text-xl font-bold text-navy">{{ greeting }}, {{ displayName }} 👋</h2>
+        <p class="text-sm text-gray-400 mt-0.5">Here is the latest data available to your account.</p>
       </div>
-      <RouterLink to="/session" class="btn-primary">
-        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z" />
-        </svg>
-        Start New Session
-      </RouterLink>
+      <RouterLink to="/session" class="btn-primary">Start New Session</RouterLink>
     </div>
 
-    <!-- Stat cards — TailAdmin format -->
-    <div class="grid grid-cols-2 xl:grid-cols-4 gap-5 mb-6">
-
-      <div class="stat-card">
-        <div class="flex items-center justify-between mb-5">
-          <p class="text-sm font-medium text-gray-500">Students Detected</p>
-          <div class="w-11 h-11 rounded-full flex items-center justify-center" style="background:rgba(70,95,241,0.1);">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="#465FF1" stroke-width="1.8">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
-            </svg>
-          </div>
-        </div>
-        <h3 class="text-3xl font-bold text-navy mb-1">34</h3>
-        <p class="text-xs text-gray-400">Across 2 active classes</p>
-        <div class="flex items-center gap-1.5 mt-4 pt-3 border-t border-gray-100">
-          <span class="text-xs font-bold" style="color:#16a34a;">↑ +2</span>
-          <span class="text-xs text-gray-400">vs last session</span>
-        </div>
-      </div>
-
-      <div class="stat-card">
-        <div class="flex items-center justify-between mb-5">
-          <p class="text-sm font-medium text-gray-500">Sessions Today</p>
-          <div class="w-11 h-11 rounded-full flex items-center justify-center" style="background:rgba(70,95,241,0.1);">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="#465FF1" stroke-width="1.8">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5l4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z" />
-            </svg>
-          </div>
-        </div>
-        <h3 class="text-3xl font-bold text-navy mb-1">2</h3>
-        <p class="text-xs text-gray-400">1 completed, 1 upcoming</p>
-        <div class="flex items-center gap-1.5 mt-4 pt-3 border-t border-gray-100">
-          <span class="text-xs font-bold" style="color:#16a34a;">↑ +1</span>
-          <span class="text-xs text-gray-400">vs yesterday</span>
-        </div>
-      </div>
-
-      <div class="stat-card">
-        <div class="flex items-center justify-between mb-5">
-          <p class="text-sm font-medium text-gray-500">Avg. Engagement</p>
-          <div class="w-11 h-11 rounded-full flex items-center justify-center" style="background:rgba(70,95,241,0.1);">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="#465FF1" stroke-width="1.8">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
-            </svg>
-          </div>
-        </div>
-        <h3 class="text-3xl font-bold text-navy mb-1">78%</h3>
-        <p class="text-xs text-gray-400">Last 30 days</p>
-        <div class="flex items-center gap-1.5 mt-4 pt-3 border-t border-gray-100">
-          <span class="text-xs font-bold" style="color:#16a34a;">↑ +4%</span>
-          <span class="text-xs text-gray-400">vs last session</span>
-        </div>
-      </div>
-
-      <div class="stat-card">
-        <div class="flex items-center justify-between mb-5">
-          <p class="text-sm font-medium text-gray-500">Alerts Today</p>
-          <div class="w-11 h-11 rounded-full flex items-center justify-center" style="background:rgba(239,71,111,0.1);">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="#EF476F" stroke-width="1.8">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
-            </svg>
-          </div>
-        </div>
-        <h3 class="text-3xl font-bold text-danger mb-1">3</h3>
-        <p class="text-xs text-gray-400">Disengagement detected</p>
-        <div class="flex items-center gap-1.5 mt-4 pt-3 border-t border-gray-100">
-          <span class="text-xs font-bold text-danger">↑ +1</span>
-          <span class="text-xs text-gray-400">vs yesterday</span>
-        </div>
-      </div>
+    <div v-if="error" class="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+      {{ error }}
+      <button type="button" class="ml-2 font-semibold underline" @click="loadDashboard">Try again</button>
     </div>
 
-    <!-- Lower section -->
-    <div class="grid grid-cols-3 gap-6">
+    <div v-if="loading" class="page-card p-10 text-center text-sm text-gray-500">
+      Loading dashboard…
+    </div>
 
-      <!-- Recent Sessions table -->
-      <div class="col-span-2 page-card">
-        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <div>
-            <h3 class="text-sm font-semibold text-navy">Recent Sessions</h3>
-            <p class="text-xs text-gray-400 mt-0.5">Last 5 classroom sessions</p>
-          </div>
-          <RouterLink to="/analytics" class="text-xs font-semibold text-brand">View all →</RouterLink>
+    <template v-else>
+      <div class="grid grid-cols-2 xl:grid-cols-4 gap-5 mb-6">
+        <div v-for="card in statCards" :key="card.label" class="stat-card">
+          <p class="text-sm font-medium text-gray-500 mb-5">{{ card.label }}</p>
+          <h3 class="text-3xl font-bold text-navy mb-1">{{ card.value }}</h3>
+          <p class="text-xs text-gray-400">{{ card.hint }}</p>
         </div>
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="border-b border-gray-100">
-              <th class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Subject</th>
-              <th class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Class</th>
-              <th class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Date</th>
-              <th class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Duration</th>
-              <th class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Avg. Eng.</th>
-              <th class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Status</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-gray-100">
-            <tr v-for="s in sessions" :key="s.subject" class="hover:bg-gray-50 transition-colors">
-              <td class="px-6 py-3.5 font-medium text-navy">{{ s.subject }}</td>
-              <td class="px-6 py-3.5 text-gray-500">{{ s.cls }}</td>
-              <td class="px-6 py-3.5 text-gray-500">{{ s.date }}</td>
-              <td class="px-6 py-3.5 text-gray-500">{{ s.duration }}</td>
-              <td class="px-6 py-3.5 font-semibold" :style="{ color: s.eng >= 70 ? '#2D3CC8' : s.eng >= 60 ? '#465FF1' : '#6B7280' }">{{ s.eng }}%</td>
-              <td class="px-6 py-3.5"><span class="badge-engaged">Completed</span></td>
-            </tr>
-          </tbody>
-        </table>
       </div>
 
-      <!-- Right column -->
-      <div class="flex flex-col gap-5">
-
-        <!-- Today's Engagement -->
-        <div class="page-card p-5">
-          <div class="flex items-center justify-between mb-4">
-            <h3 class="text-sm font-semibold text-navy">Today's Engagement</h3>
-            <button class="text-gray-400 hover:text-gray-600 transition-colors">
-              <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M10 3a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM10 8.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM11.5 15.5a1.5 1.5 0 1 0-3 0 1.5 1.5 0 0 0 3 0Z" />
-              </svg>
-            </button>
+      <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <div class="xl:col-span-2 page-card overflow-x-auto">
+          <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+            <div>
+              <h3 class="text-sm font-semibold text-navy">Recent Sessions</h3>
+              <p class="text-xs text-gray-400 mt-0.5">Your five most recent accessible sessions</p>
+            </div>
+            <RouterLink to="/analytics" class="text-xs font-semibold text-brand">View all →</RouterLink>
           </div>
-          <div class="space-y-3.5">
-            <div v-for="e in engagementBars" :key="e.label">
-              <div class="flex justify-between text-xs mb-1.5">
-                <span class="font-medium text-gray-600">{{ e.label }}</span>
-                <span class="font-semibold" :style="{ color: e.color }">{{ e.pct }}%</span>
+          <div v-if="!dashboard.recent_sessions.length" class="px-6 py-12 text-center text-sm text-gray-500">
+            No classroom sessions have been recorded yet.
+          </div>
+          <table v-else class="w-full min-w-[760px] text-sm">
+            <thead>
+              <tr class="border-b border-gray-100">
+                <th class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase">Subject</th>
+                <th class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase">Class</th>
+                <th class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase">Date</th>
+                <th class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase">Duration</th>
+                <th class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase">Avg. Eng.</th>
+                <th class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase">Status</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+              <tr v-for="session in dashboard.recent_sessions" :key="session.id" class="hover:bg-gray-50">
+                <td class="px-6 py-3.5 font-medium text-navy">
+                  {{ session.subject_name }}
+                  <span class="block text-xs font-normal text-gray-400">{{ session.subject_code }}</span>
+                </td>
+                <td class="px-6 py-3.5 text-gray-500">{{ session.classroom }}</td>
+                <td class="px-6 py-3.5 text-gray-500">{{ formatDate(session.date) }}</td>
+                <td class="px-6 py-3.5 text-gray-500">{{ formatDuration(session.duration_minutes) }}</td>
+                <td class="px-6 py-3.5 font-semibold text-brand">
+                  {{ session.average_engagement === null ? '—' : `${session.average_engagement}%` }}
+                </td>
+                <td class="px-6 py-3.5">
+                  <span :class="session.status === 'completed' ? 'badge-engaged' : 'badge-attentive'">
+                    {{ session.status === 'completed' ? 'Completed' : 'Ongoing' }}
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="flex flex-col gap-5">
+          <div class="page-card p-5">
+            <div class="flex items-start justify-between mb-4">
+              <div>
+                <h3 class="text-sm font-semibold text-navy">Today's Engagement</h3>
+                <p v-if="dashboard.engagement.has_data" class="text-xs text-gray-400 mt-1">
+                  {{ dashboard.engagement.total_detected }} detections · {{ dashboard.engagement.average_score }}% positive
+                </p>
               </div>
-              <div class="h-1.5 rounded-full bg-gray-100 overflow-hidden">
-                <div class="h-full rounded-full" :style="{ width: e.pct + '%', background: e.color }"></div>
+              <span class="rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-danger">
+                {{ dashboard.alerts_today }} alerts
+              </span>
+            </div>
+            <div v-if="dashboard.engagement.has_data" class="space-y-3.5">
+              <div v-for="item in engagementBars" :key="item.key">
+                <div class="flex justify-between text-xs mb-1.5">
+                  <span class="font-medium text-gray-600">{{ item.label }}</span>
+                  <span class="font-semibold" :style="{ color: item.color }">{{ item.percentage }}%</span>
+                </div>
+                <div class="h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                  <div class="h-full rounded-full" :style="{ width: `${item.percentage}%`, background: item.color }"></div>
+                </div>
               </div>
+            </div>
+            <p v-else class="py-8 text-center text-sm text-gray-500">
+              No engagement data has been recorded today.
+            </p>
+          </div>
+
+          <div class="page-card p-5">
+            <h3 class="text-sm font-semibold text-navy mb-4">Quick Actions</h3>
+            <div class="space-y-1 text-sm">
+              <RouterLink to="/session" class="block rounded-lg px-3 py-2.5 text-gray-600 hover:bg-gray-50">Start Monitoring</RouterLink>
+              <RouterLink to="/analytics" class="block rounded-lg px-3 py-2.5 text-gray-600 hover:bg-gray-50">View Reports</RouterLink>
+              <RouterLink to="/classes" class="block rounded-lg px-3 py-2.5 text-gray-600 hover:bg-gray-50">View Classes</RouterLink>
             </div>
           </div>
         </div>
-
-        <!-- Quick Actions -->
-        <div class="page-card p-5">
-          <h3 class="text-sm font-semibold text-navy mb-4">Quick Actions</h3>
-          <div class="space-y-1">
-            <RouterLink to="/session" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-gray-50 transition-colors group">
-              <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style="background:rgba(70,95,241,0.1);">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="#465FF1" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z" /></svg>
-              </div>
-              <span class="text-sm text-gray-600 group-hover:text-navy transition-colors">Start Monitoring</span>
-            </RouterLink>
-            <RouterLink to="/analytics" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-gray-50 transition-colors group">
-              <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style="background:rgba(70,95,241,0.1);">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="#465FF1" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
-              </div>
-              <span class="text-sm text-gray-600 group-hover:text-navy transition-colors">Download Report</span>
-            </RouterLink>
-            <RouterLink to="/classes" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-gray-50 transition-colors group">
-              <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style="background:rgba(70,95,241,0.1);">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="#465FF1" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" /></svg>
-              </div>
-              <span class="text-sm text-gray-600 group-hover:text-navy transition-colors">View Classes</span>
-            </RouterLink>
-          </div>
-        </div>
       </div>
-    </div>
+    </template>
   </AppLayout>
 </template>

@@ -5,6 +5,7 @@ frontend/.env
 frontend/.env.local
 
 # Python / Django
+backend/venv/
 backend/__pycache__/
 backend/**/__pycache__/
 backend/*.pyc

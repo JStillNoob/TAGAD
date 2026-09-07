@@ -6,6 +6,7 @@ from .views import (
     ClassManagementOptionsView,
     ClassroomDetailView,
     ClassroomListCreateView,
+    DashboardSummaryView,
     CsrfView,
     CurrentUserView,
     LoginView,
@@ -35,4 +36,5 @@ urlpatterns = [
     path('class-management/options/', ClassManagementOptionsView.as_view(), name='class-management-options'),
     path('cameras/', CameraListCreateView.as_view(), name='camera-list'),
     path('cameras/<int:pk>/', CameraDetailView.as_view(), name='camera-detail'),
+    path('dashboard/', DashboardSummaryView.as_view(), name='dashboard-summary'),
 ]

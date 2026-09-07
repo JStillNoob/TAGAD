@@ -1,12 +1,24 @@
 from django.contrib.auth import authenticate, login, logout
+from django.db.models import Sum
 from django.utils.decorators import method_decorator
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 from rest_framework import generics, serializers, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Camera, Classroom, Organization, Subject, SystemLog, User
+from .models import (
+    Camera,
+    Classroom,
+    ClassroomSession,
+    EngagementAlert,
+    EngagementSummary,
+    Organization,
+    Subject,
+    SystemLog,
+    User,
+)
 from .permissions import CanAccessClassManagement, CanManageUsers
 from .serializers import (
     CameraSerializer,
@@ -354,3 +366,103 @@ class CameraDetailView(CameraMixin, generics.RetrieveUpdateDestroyAPIView):
         camera.delete()
         _log_activity(request, description)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+def _engagement_snapshot(sessions):
+    totals = EngagementSummary.objects.filter(event__session__in=sessions).aggregate(
+        engaged=Sum('engaged_count'),
+        attentive=Sum('attentive_count'),
+        confused=Sum('confused_count'),
+        bored=Sum('bored_count'),
+        disengaged=Sum('disengaged_count'),
+        total_detected=Sum('total_detected'),
+    )
+    distribution_counts = {
+        key: totals[key] or 0
+        for key in ('engaged', 'attentive', 'confused', 'bored', 'disengaged')
+    }
+    total_detected = totals['total_detected'] or 0
+    if not total_detected:
+        return {
+            'has_data': False,
+            'total_detected': 0,
+            'average_score': None,
+            'distribution': {key: 0 for key in distribution_counts},
+        }
+
+    return {
+        'has_data': True,
+        'total_detected': total_detected,
+        'average_score': round(
+            100 * (distribution_counts['engaged'] + distribution_counts['attentive'])
+            / total_detected
+        ),
+        'distribution': {
+            key: round(100 * count / total_detected)
+            for key, count in distribution_counts.items()
+        },
+    }
+
+
+class DashboardSummaryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        if user.role == User.Role.SYSTEM_ADMIN:
+            classrooms = Classroom.objects.all()
+            subjects = Subject.objects.all()
+            cameras = Camera.objects.all()
+            sessions = ClassroomSession.objects.all()
+        elif user.role == User.Role.ORG_ADMIN:
+            classrooms = Classroom.objects.filter(organization=user.organization)
+            subjects = Subject.objects.filter(classroom__organization=user.organization)
+            cameras = Camera.objects.filter(classroom__organization=user.organization)
+            sessions = ClassroomSession.objects.filter(
+                subject__classroom__organization=user.organization,
+            )
+        else:
+            subjects = Subject.objects.filter(teacher=user)
+            classrooms = Classroom.objects.filter(subjects__teacher=user).distinct()
+            cameras = Camera.objects.filter(classroom__subjects__teacher=user).distinct()
+            sessions = ClassroomSession.objects.filter(user=user)
+
+        today = timezone.localdate()
+        today_sessions = sessions.filter(session_date=today)
+        recent_sessions = sessions.select_related(
+            'subject', 'subject__classroom',
+        ).order_by('-started_at')[:5]
+        recent_data = []
+        for session in recent_sessions:
+            engagement = _engagement_snapshot(
+                ClassroomSession.objects.filter(pk=session.pk),
+            )
+            duration = None
+            if session.ended_at:
+                duration = round((session.ended_at - session.started_at).total_seconds() / 60)
+            recent_data.append({
+                'id': session.pk,
+                'subject_name': session.subject.subject_name,
+                'subject_code': session.subject.subject_code,
+                'classroom': session.subject.classroom.room_code,
+                'date': session.session_date.isoformat(),
+                'started_at': session.started_at.isoformat(),
+                'duration_minutes': duration,
+                'average_engagement': engagement['average_score'],
+                'status': 'completed' if session.ended_at else 'ongoing',
+            })
+
+        return Response({
+            'counts': {
+                'classrooms': classrooms.count(),
+                'subjects': subjects.count(),
+                'cameras': cameras.count(),
+                'sessions_today': today_sessions.count(),
+            },
+            'recent_sessions': recent_data,
+            'engagement': _engagement_snapshot(today_sessions),
+            'alerts_today': EngagementAlert.objects.filter(
+                summary__event__session__in=today_sessions,
+                created_at__date=today,
+            ).count(),
+        })
