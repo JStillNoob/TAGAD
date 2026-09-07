@@ -1,7 +1,26 @@
+from pathlib import Path
+from uuid import uuid4
+
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.db.models import Q
 from django.db.models.functions import Lower
+
+
+def presentation_upload_path(instance, filename):
+    extension = Path(filename).suffix.lower()
+    return f'presentations/{instance.user_id}/originals/{uuid4().hex}{extension}'
+
+
+def presentation_preview_path(instance, filename):
+    return f'presentations/{instance.user_id}/previews/{uuid4().hex}.pdf'
+
+
+def presentation_slide_path(instance, filename):
+    return (
+        f'presentations/{instance.presentation.user_id}/slides/'
+        f'{instance.presentation_id}/{uuid4().hex}.png'
+    )
 
 
 class Organization(models.Model):
@@ -118,11 +137,33 @@ class Camera(models.Model):
 
 
 class Presentation(models.Model):
+    class FileType(models.TextChoices):
+        PDF = 'pdf', 'PDF'
+        PPTX = 'pptx', 'PowerPoint'
+
+    class ProcessingStatus(models.TextChoices):
+        PENDING = 'pending', 'Pending'
+        PROCESSING = 'processing', 'Processing'
+        READY = 'ready', 'Ready'
+        FAILED = 'failed', 'Failed'
+
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='presentations')
     title = models.CharField(max_length=150)
     file_name = models.CharField(max_length=255)
-    file_path = models.CharField(max_length=255)
-    total_slides = models.IntegerField()
+    file_path = models.FileField(upload_to=presentation_upload_path, max_length=500)
+    file_type = models.CharField(max_length=10, choices=FileType.choices, default=FileType.PDF)
+    preview_path = models.FileField(
+        upload_to=presentation_preview_path,
+        max_length=500,
+        blank=True,
+    )
+    processing_status = models.CharField(
+        max_length=20,
+        choices=ProcessingStatus.choices,
+        default=ProcessingStatus.PENDING,
+    )
+    processing_error = models.TextField(blank=True)
+    total_slides = models.PositiveIntegerField(default=0)
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -142,16 +183,34 @@ class ClassroomSession(models.Model):
 
     class Meta:
         db_table = 'classroom_sessions'
+        constraints = [
+            models.UniqueConstraint(
+                fields=('user',),
+                condition=Q(ended_at__isnull=True),
+                name='one_active_session_per_user',
+            ),
+        ]
 
 
 class PresentationSlide(models.Model):
     presentation = models.ForeignKey(Presentation, on_delete=models.CASCADE, related_name='slides')
     slide_number = models.IntegerField()
     slide_title = models.CharField(max_length=150, blank=True)
-    image_path = models.CharField(max_length=255, blank=True)
+    image_path = models.FileField(
+        upload_to=presentation_slide_path,
+        max_length=500,
+        blank=True,
+    )
 
     class Meta:
         db_table = 'presentation_slides'
+        ordering = ('slide_number',)
+        constraints = [
+            models.UniqueConstraint(
+                fields=('presentation', 'slide_number'),
+                name='presentation_slide_number_unique',
+            ),
+        ]
 
     def __str__(self):
         return f'{self.presentation.title} - Slide {self.slide_number}'
@@ -163,6 +222,12 @@ class SessionCamera(models.Model):
 
     class Meta:
         db_table = 'session_cameras'
+        constraints = [
+            models.UniqueConstraint(
+                fields=('session', 'camera'),
+                name='session_camera_unique',
+            ),
+        ]
 
 
 class SlideEvent(models.Model):

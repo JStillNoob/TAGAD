@@ -156,6 +156,21 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
+MEDIA_ROOT = BASE_DIR / 'media'
+MEDIA_URL = '/media/'
+PRESENTATION_MAX_UPLOAD_BYTES = config(
+    'PRESENTATION_MAX_UPLOAD_BYTES',
+    default=50 * 1024 * 1024,
+    cast=int,
+)
+PRESENTATION_MAX_EXPANDED_BYTES = config(
+    'PRESENTATION_MAX_EXPANDED_BYTES',
+    default=250 * 1024 * 1024,
+    cast=int,
+)
+PRESENTATION_MAX_SLIDES = config('PRESENTATION_MAX_SLIDES', default=300, cast=int)
+LIBREOFFICE_PATH = config('LIBREOFFICE_PATH', default='')
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 

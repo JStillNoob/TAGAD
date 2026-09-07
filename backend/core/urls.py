@@ -18,6 +18,17 @@ from .views import (
     UserListCreateView,
     UserOptionsView,
 )
+from .session_views import (
+    PresentationDetailView,
+    PresentationListCreateView,
+    PresentationPreviewView,
+    PresentationSlideImageView,
+    PresentationSourceView,
+    SessionEndView,
+    SessionEnterSlideView,
+    SessionListCreateView,
+    SessionOptionsView,
+)
 
 
 urlpatterns = [
@@ -37,4 +48,21 @@ urlpatterns = [
     path('cameras/', CameraListCreateView.as_view(), name='camera-list'),
     path('cameras/<int:pk>/', CameraDetailView.as_view(), name='camera-detail'),
     path('dashboard/', DashboardSummaryView.as_view(), name='dashboard-summary'),
+    path('presentations/', PresentationListCreateView.as_view(), name='presentation-list'),
+    path('presentations/<int:pk>/', PresentationDetailView.as_view(), name='presentation-detail'),
+    path('presentations/<int:pk>/source/', PresentationSourceView.as_view(), name='presentation-source'),
+    path('presentations/<int:pk>/preview/', PresentationPreviewView.as_view(), name='presentation-preview'),
+    path(
+        'presentations/<int:pk>/slides/<int:slide_pk>/image/',
+        PresentationSlideImageView.as_view(),
+        name='presentation-slide-image',
+    ),
+    path('session-options/', SessionOptionsView.as_view(), name='session-options'),
+    path('sessions/', SessionListCreateView.as_view(), name='session-list'),
+    path('sessions/<int:pk>/end/', SessionEndView.as_view(), name='session-end'),
+    path(
+        'sessions/<int:pk>/enter-slide/',
+        SessionEnterSlideView.as_view(),
+        name='session-enter-slide',
+    ),
 ]
