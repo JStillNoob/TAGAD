@@ -1,7 +1,7 @@
 import os
 
 os.environ.setdefault('SECRET_KEY', 'test-only-secret-key')
-os.environ['DEBUG'] = 'False'
+os.environ['DJANGO_DEBUG'] = 'False'
 os.environ.setdefault('DB_NAME', 'test')
 os.environ.setdefault('DB_USER', 'test')
 os.environ.setdefault('DB_PASSWORD', 'test')
