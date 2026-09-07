@@ -1,4 +1,4 @@
-from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
 from django.db.models import Q, Sum
 from django.utils.dateparse import parse_date
 from django.utils.decorators import method_decorator
@@ -28,7 +28,12 @@ from .serializers import (
     LoginSerializer,
     ManagedUserSerializer,
     ManagedUserWriteSerializer,
+    OrganizationSettingsSerializer,
+    PasswordSettingsSerializer,
+    ProfileSettingsSerializer,
     RegistrationSerializer,
+    SettingsOrganizationSerializer,
+    SettingsUserSerializer,
     SubjectSerializer,
     SystemLogSerializer,
     UserSerializer,
@@ -79,6 +84,73 @@ class CurrentUserView(APIView):
 
     def get(self, request):
         return Response(UserSerializer(request.user).data)
+
+
+class AccountSettingsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        organization = request.user.organization
+        return Response({
+            'user': SettingsUserSerializer(request.user).data,
+            'organization': (
+                SettingsOrganizationSerializer(organization).data
+                if organization else None
+            ),
+            'can_edit_organization': bool(
+                organization and request.user.role == User.Role.ORG_ADMIN
+            ),
+        })
+
+
+class ProfileSettingsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request):
+        serializer = ProfileSettingsSerializer(
+            request.user,
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        _log_activity(request, 'Updated own profile.')
+        return Response(SettingsUserSerializer(user).data)
+
+
+class OrganizationSettingsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request):
+        if request.user.role != User.Role.ORG_ADMIN or not request.user.organization_id:
+            return Response(
+                {'detail': 'Only an organization administrator can edit organization settings.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        serializer = OrganizationSettingsSerializer(
+            request.user.organization,
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        organization = serializer.save()
+        _log_activity(request, 'Updated organization contact details.')
+        return Response(SettingsOrganizationSerializer(organization).data)
+
+
+class PasswordSettingsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = PasswordSettingsSerializer(
+            data=request.data,
+            context={'request': request},
+        )
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        update_session_auth_hash(request, user)
+        _log_activity(request, 'Changed own password.')
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 @method_decorator(csrf_protect, name='dispatch')

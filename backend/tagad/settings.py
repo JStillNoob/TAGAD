@@ -131,6 +131,9 @@ AUTH_PASSWORD_VALIDATORS = [
         },
     },
     {
+        'NAME': 'core.validators.CharacterMixValidator',
+    },
+    {
         'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
     },
     {

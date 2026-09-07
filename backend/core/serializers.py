@@ -42,6 +42,86 @@ class UserSerializer(serializers.ModelSerializer):
         )
 
 
+class SettingsUserSerializer(serializers.ModelSerializer):
+    role_label = serializers.CharField(source='get_role_display', read_only=True)
+    status_label = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = User
+        fields = (
+            'id', 'username', 'email', 'first_name', 'middle_name', 'last_name',
+            'contact_no', 'role', 'role_label', 'status', 'status_label',
+            'organization', 'date_joined',
+        )
+        read_only_fields = fields
+
+
+class SettingsOrganizationSerializer(serializers.ModelSerializer):
+    status_label = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = Organization
+        fields = (
+            'id', 'organization_name', 'organization_code', 'address',
+            'contact_email', 'contact_no', 'status', 'status_label', 'created_at',
+        )
+        read_only_fields = fields
+
+
+class ProfileSettingsSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(required=False)
+
+    class Meta:
+        model = User
+        fields = ('first_name', 'middle_name', 'last_name', 'email', 'contact_no')
+        extra_kwargs = {
+            'first_name': {'allow_blank': False},
+            'last_name': {'allow_blank': False},
+        }
+
+    def validate_email(self, value):
+        value = value.strip().lower()
+        matches = User.objects.filter(email__iexact=value).exclude(pk=self.instance.pk)
+        if matches.exists():
+            raise serializers.ValidationError('A user with this email address already exists.')
+        return value
+
+
+class OrganizationSettingsSerializer(serializers.ModelSerializer):
+    contact_email = serializers.EmailField(required=False, allow_blank=True)
+
+    class Meta:
+        model = Organization
+        fields = ('address', 'contact_email', 'contact_no')
+
+
+class PasswordSettingsSerializer(serializers.Serializer):
+    current_password = serializers.CharField(write_only=True, trim_whitespace=False)
+    new_password = serializers.CharField(write_only=True, trim_whitespace=False)
+    password_confirmation = serializers.CharField(write_only=True, trim_whitespace=False)
+
+    def validate(self, attrs):
+        user = self.context['request'].user
+        errors = {}
+        if not user.check_password(attrs['current_password']):
+            errors['current_password'] = 'The current password is incorrect.'
+        if attrs['new_password'] != attrs['password_confirmation']:
+            errors['password_confirmation'] = 'The passwords do not match.'
+        try:
+            validate_password(attrs['new_password'], user=user)
+        except DjangoValidationError as error:
+            errors['new_password'] = list(error.messages)
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
+    def save(self):
+        user = self.context['request'].user
+        user.set_password(self.validated_data['new_password'])
+        user.save(update_fields=['password'])
+        return user
+
+
 class RegistrationSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(required=True)
     first_name = serializers.CharField(required=True)
