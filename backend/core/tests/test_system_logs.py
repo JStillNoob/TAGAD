@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as datetime_timezone
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -134,6 +134,23 @@ class SystemLogTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotIn(self.system_log.pk, {item['id'] for item in response.json()['results']})
         self.assertEqual(invalid.status_code, 400)
+
+    def test_date_filter_uses_philippine_local_date_near_utc_midnight(self):
+        SystemLog.objects.filter(pk=self.teacher_log.pk).update(
+            logged_at=datetime(2026, 9, 7, 16, 30, tzinfo=datetime_timezone.utc),
+        )
+        self.client.force_login(self.teacher)
+
+        response = self.client.get(self.url, {
+            'date_from': '2026-09-08',
+            'date_to': '2026-09-08',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [item['id'] for item in response.json()['results']],
+            [self.teacher_log.pk],
+        )
 
     def test_results_are_paginated(self):
         SystemLog.objects.bulk_create([
