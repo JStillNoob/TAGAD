@@ -8,6 +8,7 @@ import StudentsView from '../views/StudentsView.vue'
 import ReportsView from '../views/ReportsView.vue'
 import SystemLogsView from '../views/SystemLogsView.vue'
 import SettingsView from '../views/SettingsView.vue'
+import UserManagementView from '../views/UserManagementView.vue'
 import { fetchCurrentUser } from '../auth'
 
 export const router = createRouter({
@@ -22,6 +23,11 @@ export const router = createRouter({
     { path: '/reports',    component: ReportsView },
     { path: '/logs',       component: SystemLogsView },
     { path: '/settings',   component: SettingsView },
+    {
+      path: '/users',
+      component: UserManagementView,
+      meta: { roles: ['system_admin', 'org_admin'] },
+    },
   ],
 })
 
@@ -49,6 +55,10 @@ router.beforeEach(async (to) => {
 
   if (!user) {
     return { path: '/', query: { redirect: to.fullPath } }
+  }
+
+  if (to.meta.roles && !to.meta.roles.includes(user.role)) {
+    return { path: '/dashboard' }
   }
 
   return true

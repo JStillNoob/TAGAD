@@ -64,7 +64,10 @@ CSRF_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_SECURE = config('CSRF_COOKIE_SECURE', default=not DEBUG, cast=bool)
 CSRF_TRUSTED_ORIGINS = config(
     'CSRF_TRUSTED_ORIGINS',
-    default='http://localhost:5173,http://127.0.0.1:5173' if DEBUG else '',
+    default=(
+        'http://localhost:5173,http://127.0.0.1:5173,'
+        'http://localhost:5174,http://127.0.0.1:5174'
+    ) if DEBUG else '',
     cast=Csv(),
 )
 

@@ -34,6 +34,9 @@ const roleLabel = computed(() =>
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" "),
 );
+const canManageUsers = computed(() =>
+  ["system_admin", "org_admin"].includes(currentUser.value?.role),
+);
 
 watch(
   () => props.focusMode,
@@ -168,6 +171,28 @@ async function handleLogout() {
             />
           </svg>
           Classes
+        </RouterLink>
+
+        <RouterLink
+          v-if="canManageUsers"
+          to="/users"
+          :class="['nav-link', isActive('/users') ? 'active' : '']"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="w-5 h-5 flex-shrink-0"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            stroke-width="1.8"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M18 7.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM9 8.25a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0ZM3.75 18a5.25 5.25 0 0 1 10.5 0v.75h-10.5V18ZM14.25 18a5.23 5.23 0 0 0-1.086-3.2A4.5 4.5 0 0 1 21 17.85v.9h-6.75V18Z"
+            />
+          </svg>
+          User Management
         </RouterLink>
 
         <div class="pt-4 mt-3 border-t border-gray-100 space-y-0.5">

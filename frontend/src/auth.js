@@ -5,7 +5,7 @@ let sessionChecked = false
 
 export const currentUser = readonly(userState)
 
-function getCookie(name) {
+export function getCookie(name) {
   const prefix = `${name}=`
   const cookie = document.cookie
     .split(';')
@@ -19,7 +19,7 @@ async function parseResponse(response) {
   return response.json().catch(() => null)
 }
 
-async function ensureCsrfCookie() {
+export async function ensureCsrfCookie() {
   if (getCookie('csrftoken')) return
   const response = await fetch('/api/auth/csrf/', { credentials: 'same-origin' })
   if (!response.ok) throw new Error('Unable to initialize a secure session.')
