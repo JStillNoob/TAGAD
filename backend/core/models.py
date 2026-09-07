@@ -85,17 +85,33 @@ class Subject(models.Model):
 
 
 class Camera(models.Model):
+    class Position(models.TextChoices):
+        FRONT = 'front', 'Front'
+        LEFT = 'left', 'Left'
+        RIGHT = 'right', 'Right'
+
     class Status(models.TextChoices):
         ACTIVE = 'active', 'Active'
         INACTIVE = 'inactive', 'Inactive'
 
     classroom = models.ForeignKey(Classroom, on_delete=models.CASCADE, related_name='cameras')
     camera_name = models.CharField(max_length=50)
-    position = models.CharField(max_length=30)
+    position = models.CharField(max_length=30, choices=Position.choices)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
 
     class Meta:
         db_table = 'cameras'
+        constraints = [
+            models.UniqueConstraint(
+                Lower('camera_name'),
+                'classroom',
+                name='cameras_name_classroom_ci_unique',
+            ),
+            models.UniqueConstraint(
+                fields=('classroom', 'position'),
+                name='cameras_classroom_position_unique',
+            ),
+        ]
 
     def __str__(self):
         return self.camera_name

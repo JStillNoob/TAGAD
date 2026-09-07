@@ -538,7 +538,7 @@ const showEngagement = ref(true);
                 <span class="text-xs font-semibold text-navy">34 students</span>
               </div>
             </div>
-            <RouterLink to="/students" class="text-xs font-medium text-brand mt-3 block">View class details →</RouterLink>
+            <RouterLink to="/classes" class="text-xs font-medium text-brand mt-3 block">View class details →</RouterLink>
           </div>
 
           <!-- Monitoring settings (temporarily hidden) -->

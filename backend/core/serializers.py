@@ -3,7 +3,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
-from .models import Organization
+from .models import Camera, Classroom, Organization, Subject
 
 
 User = get_user_model()
@@ -282,3 +282,244 @@ class ManagedUserWriteSerializer(serializers.ModelSerializer):
         self._sync_access_flags(instance)
         instance.save()
         return instance
+
+
+class ClassroomSerializer(serializers.ModelSerializer):
+    organization_name = serializers.CharField(
+        source='organization.organization_name',
+        read_only=True,
+    )
+    subject_count = serializers.SerializerMethodField()
+    camera_count = serializers.SerializerMethodField()
+    capacity = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+
+    class Meta:
+        model = Classroom
+        fields = (
+            'id',
+            'organization',
+            'organization_name',
+            'room_code',
+            'building',
+            'capacity',
+            'subject_count',
+            'camera_count',
+        )
+        read_only_fields = ('id', 'organization_name', 'subject_count', 'camera_count')
+
+    def get_subject_count(self, classroom):
+        return classroom.subjects.count()
+
+    def get_camera_count(self, classroom):
+        return classroom.cameras.count()
+
+    def validate_room_code(self, value):
+        value = value.strip()
+        classrooms = Classroom.objects.filter(room_code__iexact=value)
+        if self.instance:
+            classrooms = classrooms.exclude(pk=self.instance.pk)
+        if classrooms.exists():
+            raise serializers.ValidationError('A classroom with this room code already exists.')
+        return value
+
+    def validate(self, attrs):
+        request_user = self.context['request'].user
+        organization = attrs.get(
+            'organization',
+            self.instance.organization if self.instance else None,
+        )
+        if request_user.role == User.Role.ORG_ADMIN:
+            if organization and organization != request_user.organization:
+                raise serializers.ValidationError({
+                    'organization': 'You can only manage classrooms in your organization.',
+                })
+            attrs['organization'] = request_user.organization
+            organization = request_user.organization
+        if organization is None:
+            raise serializers.ValidationError({'organization': 'An organization is required.'})
+        if organization.status != Organization.Status.ACTIVE:
+            raise serializers.ValidationError({'organization': 'Select an active organization.'})
+        if (
+            self.instance
+            and organization != self.instance.organization
+            and (self.instance.subjects.exists() or self.instance.cameras.exists())
+        ):
+            raise serializers.ValidationError({
+                'organization': 'A classroom with subjects or cameras cannot be moved to another organization.',
+            })
+        return attrs
+
+
+class SubjectSerializer(serializers.ModelSerializer):
+    classroom_room_code = serializers.CharField(source='classroom.room_code', read_only=True)
+    building = serializers.CharField(source='classroom.building', read_only=True)
+    capacity = serializers.IntegerField(source='classroom.capacity', read_only=True)
+    organization = serializers.IntegerField(source='classroom.organization_id', read_only=True)
+    organization_name = serializers.CharField(
+        source='classroom.organization.organization_name',
+        read_only=True,
+    )
+    teacher_name = serializers.SerializerMethodField()
+    session_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Subject
+        fields = (
+            'id',
+            'subject_code',
+            'subject_name',
+            'classroom',
+            'classroom_room_code',
+            'building',
+            'capacity',
+            'organization',
+            'organization_name',
+            'teacher',
+            'teacher_name',
+            'session_count',
+        )
+        read_only_fields = (
+            'id',
+            'classroom_room_code',
+            'building',
+            'capacity',
+            'organization',
+            'organization_name',
+            'teacher_name',
+            'session_count',
+        )
+
+    def get_teacher_name(self, subject):
+        return subject.teacher.get_full_name() or subject.teacher.username
+
+    def get_session_count(self, subject):
+        return subject.sessions.count()
+
+    def validate_subject_code(self, value):
+        value = value.strip()
+        subjects = Subject.objects.filter(subject_code__iexact=value)
+        if self.instance:
+            subjects = subjects.exclude(pk=self.instance.pk)
+        if subjects.exists():
+            raise serializers.ValidationError('A subject with this subject code already exists.')
+        return value
+
+    def validate(self, attrs):
+        request_user = self.context['request'].user
+        classroom = attrs.get(
+            'classroom',
+            self.instance.classroom if self.instance else None,
+        )
+        teacher = attrs.get(
+            'teacher',
+            self.instance.teacher if self.instance else None,
+        )
+        errors = {}
+
+        if classroom is None:
+            errors['classroom'] = 'A classroom is required.'
+        elif classroom.organization.status != Organization.Status.ACTIVE:
+            errors['classroom'] = 'Select a classroom from an active organization.'
+        elif (
+            request_user.role == User.Role.ORG_ADMIN
+            and classroom.organization_id != request_user.organization_id
+        ):
+            errors['classroom'] = 'You can only manage subjects in your organization.'
+
+        if teacher is None:
+            errors['teacher'] = 'A teacher is required.'
+        elif teacher.role != User.Role.TEACHER:
+            errors['teacher'] = 'The assigned user must have the Teacher role.'
+        elif teacher.status != User.Status.ACTIVE or not teacher.is_active:
+            errors['teacher'] = 'Select an active teacher.'
+        elif classroom and teacher.organization_id != classroom.organization_id:
+            errors['teacher'] = 'The teacher must belong to the classroom organization.'
+
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
+
+class CameraSerializer(serializers.ModelSerializer):
+    classroom_room_code = serializers.CharField(source='classroom.room_code', read_only=True)
+    organization = serializers.IntegerField(source='classroom.organization_id', read_only=True)
+    organization_name = serializers.CharField(
+        source='classroom.organization.organization_name',
+        read_only=True,
+    )
+    position_label = serializers.CharField(source='get_position_display', read_only=True)
+    status_label = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = Camera
+        fields = (
+            'id',
+            'classroom',
+            'classroom_room_code',
+            'organization',
+            'organization_name',
+            'camera_name',
+            'position',
+            'position_label',
+            'status',
+            'status_label',
+        )
+        read_only_fields = (
+            'id',
+            'classroom_room_code',
+            'organization',
+            'organization_name',
+            'position_label',
+            'status_label',
+        )
+        validators = []
+
+    def validate_camera_name(self, value):
+        return value.strip()
+
+    def validate(self, attrs):
+        request_user = self.context['request'].user
+        classroom = attrs.get(
+            'classroom',
+            self.instance.classroom if self.instance else None,
+        )
+        camera_name = attrs.get(
+            'camera_name',
+            self.instance.camera_name if self.instance else '',
+        )
+        position = attrs.get(
+            'position',
+            self.instance.position if self.instance else None,
+        )
+        errors = {}
+
+        if classroom is None:
+            errors['classroom'] = 'A classroom is required.'
+        elif classroom.organization.status != Organization.Status.ACTIVE:
+            errors['classroom'] = 'Select a classroom from an active organization.'
+        elif (
+            request_user.role == User.Role.ORG_ADMIN
+            and classroom.organization_id != request_user.organization_id
+        ):
+            errors['classroom'] = 'You can only manage cameras in your organization.'
+
+        if classroom:
+            matching_names = Camera.objects.filter(
+                classroom=classroom,
+                camera_name__iexact=camera_name,
+            )
+            matching_positions = Camera.objects.filter(
+                classroom=classroom,
+                position=position,
+            )
+            if self.instance:
+                matching_names = matching_names.exclude(pk=self.instance.pk)
+                matching_positions = matching_positions.exclude(pk=self.instance.pk)
+            if matching_names.exists():
+                errors['camera_name'] = 'A camera with this name already exists in the classroom.'
+            if matching_positions.exists():
+                errors['position'] = 'This camera position is already configured for the classroom.'
+
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs

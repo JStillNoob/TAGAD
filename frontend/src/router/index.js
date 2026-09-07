@@ -4,7 +4,7 @@ import RegisterView from '../views/RegisterView.vue'
 import DashboardView from '../views/DashboardView.vue'
 import SessionView  from '../views/SessionView.vue'
 import AnalyticsView from '../views/AnalyticsView.vue'
-import StudentsView from '../views/StudentsView.vue'
+import ClassesView from '../views/StudentsView.vue'
 import ReportsView from '../views/ReportsView.vue'
 import SystemLogsView from '../views/SystemLogsView.vue'
 import SettingsView from '../views/SettingsView.vue'
@@ -19,7 +19,8 @@ export const router = createRouter({
     { path: '/dashboard',  component: DashboardView },
     { path: '/session',    component: SessionView },
     { path: '/analytics',  component: AnalyticsView },
-    { path: '/students',   component: StudentsView },
+    { path: '/classes',    component: ClassesView },
+    { path: '/students',   redirect: '/classes' },
     { path: '/reports',    component: ReportsView },
     { path: '/logs',       component: SystemLogsView },
     { path: '/settings',   component: SettingsView },

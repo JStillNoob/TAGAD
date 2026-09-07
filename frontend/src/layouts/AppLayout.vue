@@ -153,8 +153,8 @@ async function handleLogout() {
         </RouterLink>
 
         <RouterLink
-          to="/students"
-          :class="['nav-link', isActive('/students') ? 'active' : '']"
+          to="/classes"
+          :class="['nav-link', isActive('/classes') ? 'active' : '']"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
