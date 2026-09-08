@@ -1,12 +1,4 @@
-import os
-
-os.environ.setdefault('SECRET_KEY', 'test-only-secret-key')
-os.environ['DJANGO_DEBUG'] = 'False'
-os.environ.setdefault('DB_NAME', 'test')
-os.environ.setdefault('DB_USER', 'test')
-os.environ.setdefault('DB_PASSWORD', 'test')
-
-from .settings import *  # noqa: E402,F403
+from .settings import *  # noqa: F403
 
 
 DATABASES = {
@@ -16,11 +8,9 @@ DATABASES = {
     },
 }
 
-CSRF_TRUSTED_ORIGINS = [
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
-    'http://localhost:5174',
-    'http://127.0.0.1:5174',
+PASSWORD_HASHERS = [
+    'django.contrib.auth.hashers.MD5PasswordHasher',
 ]
 
-PASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True

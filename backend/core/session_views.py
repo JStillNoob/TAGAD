@@ -1,6 +1,7 @@
 import mimetypes
 
 from django.db import IntegrityError, transaction
+from django.conf import settings
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -124,6 +125,7 @@ class SessionOptionsView(APIView):
         subjects = subjects_for_user(request.user).order_by('subject_code')
         presentations = presentations_for_user(request.user).order_by('-uploaded_at')
         return Response({
+            'simulator_enabled': bool(settings.DEBUG and settings.ENABLE_PIPELINE_SIMULATOR),
             'subjects': [
                 {
                     'id': subject.pk,

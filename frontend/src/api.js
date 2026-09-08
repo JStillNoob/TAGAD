@@ -1,4 +1,5 @@
 import { ensureCsrfCookie, getCookie } from './auth'
+import { request } from './http.js'
 
 export async function apiRequest(url, options = {}) {
   const method = options.method || 'GET'
@@ -6,7 +7,7 @@ export async function apiRequest(url, options = {}) {
   const formData = options.body instanceof FormData
   if (unsafe) await ensureCsrfCookie()
 
-  const response = await fetch(url, {
+  const response = await request(url, {
     ...options,
     credentials: 'same-origin',
     headers: {

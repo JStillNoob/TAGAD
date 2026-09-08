@@ -600,3 +600,111 @@ class ClassManagementTests(TestCase):
             {'value': 'active', 'label': 'Active'},
             {'value': 'inactive', 'label': 'Inactive'},
         ])
+
+    def test_org_admin_quick_setup_creates_room_cameras_and_subject_together(self):
+        self.client.force_login(self.org_admin)
+
+        response = self.client.post(
+            reverse('class-management-quick-setup'),
+            {
+                'classroom': {
+                    'organization': self.organization.pk,
+                    'room_code': 'ROOM-QUICK',
+                    'building': 'Technology Center',
+                    'capacity': 45,
+                },
+                'cameras': [
+                    {'camera_name': 'ROOM-QUICK Front Camera', 'position': 'front'},
+                    {'camera_name': 'ROOM-QUICK Left Camera', 'position': 'left'},
+                ],
+                'subject': {
+                    'subject_code': 'IT-QUICK',
+                    'subject_name': 'Quick Setup Subject',
+                    'teacher': self.teacher.pk,
+                },
+            },
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 201, response.json())
+        classroom = Classroom.objects.get(room_code='ROOM-QUICK')
+        self.assertEqual(classroom.organization, self.organization)
+        self.assertEqual(classroom.cameras.count(), 2)
+        self.assertTrue(Subject.objects.filter(
+            classroom=classroom,
+            teacher=self.teacher,
+            subject_code='IT-QUICK',
+        ).exists())
+        self.assertTrue(SystemLog.objects.filter(
+            user=self.org_admin,
+            activity__contains='Completed quick setup',
+        ).exists())
+
+    def test_quick_setup_rolls_back_everything_when_a_nested_record_is_invalid(self):
+        self.client.force_login(self.org_admin)
+
+        response = self.client.post(
+            reverse('class-management-quick-setup'),
+            {
+                'classroom': {
+                    'organization': self.organization.pk,
+                    'room_code': 'ROOM-ROLLBACK',
+                    'building': '',
+                    'capacity': 30,
+                },
+                'cameras': [
+                    {'camera_name': 'Rollback Front', 'position': 'front'},
+                    {'camera_name': 'Rollback Left', 'position': 'left'},
+                ],
+                'subject': {
+                    'subject_code': self.subject.subject_code,
+                    'subject_name': 'Duplicate Subject',
+                    'teacher': self.teacher.pk,
+                },
+            },
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('subject', response.json())
+        self.assertFalse(Classroom.objects.filter(room_code='ROOM-ROLLBACK').exists())
+        self.assertFalse(Camera.objects.filter(camera_name__startswith='Rollback').exists())
+
+    def test_quick_setup_adds_multiple_cameras_to_an_existing_room(self):
+        Camera.objects.create(
+            classroom=self.classroom,
+            camera_name='Existing Front Camera',
+            position='front',
+        )
+        self.client.force_login(self.org_admin)
+
+        response = self.client.post(
+            reverse('class-management-quick-setup'),
+            {
+                'classroom_id': self.classroom.pk,
+                'cameras': [
+                    {'camera_name': 'ROOM-101 Left Camera', 'position': 'left'},
+                    {'camera_name': 'ROOM-101 Right Camera', 'position': 'right'},
+                ],
+                'subject': None,
+            },
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 201, response.json())
+        self.assertFalse(response.json()['created_classroom'])
+        self.assertEqual(self.classroom.cameras.count(), 3)
+
+    def test_teacher_cannot_use_quick_setup(self):
+        self.client.force_login(self.teacher)
+
+        response = self.client.post(
+            reverse('class-management-quick-setup'),
+            {
+                'classroom_id': self.classroom.pk,
+                'cameras': [{'camera_name': 'Left Camera', 'position': 'left'}],
+            },
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 403)

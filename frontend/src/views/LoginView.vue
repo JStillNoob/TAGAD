@@ -1,5 +1,6 @@
 <template>
   <div class="min-h-screen grid md:grid-cols-2">
+    <ThemeToggle class="fixed right-5 top-5 z-20 bg-white shadow-sm" />
 
     <!-- Left panel -->
     <div class="hidden md:flex flex-col items-center justify-center text-center px-12"
@@ -13,7 +14,7 @@
     </div>
 
     <!-- Right panel -->
-    <div class="flex items-center justify-center px-6 py-12" style="background:#F5F7FA;">
+    <div class="auth-content flex items-center justify-center px-6 py-12">
       <div class="w-full max-w-md">
         <form class="bg-white rounded-2xl shadow-sm p-10" @submit.prevent="handleSubmit">
           <div class="mb-8">
@@ -23,6 +24,9 @@
 
           <p v-if="route.query.registered === '1'" class="mb-5 rounded-lg bg-green-50 px-4 py-3 text-sm text-green-700" role="status">
             Account created successfully. You can sign in now.
+          </p>
+          <p v-if="route.query.reset === '1'" class="mb-5 rounded-lg bg-green-50 px-4 py-3 text-sm text-green-700" role="status">
+            Password reset successfully. Sign in with your new password.
           </p>
 
           <div class="mb-5">
@@ -36,9 +40,7 @@
               </span>
               <input v-model="identity" type="text" placeholder="teacher@university.edu"
                 autocomplete="username" required
-                class="w-full rounded-xl border pl-12 pr-4 py-3 text-sm outline-none transition-all text-navy"
-                :style="identityFocused ? 'border-color:#465FF1; box-shadow:0 0 0 3px rgba(70,95,241,0.12)' : 'border-color:#e2e8f0'"
-                @focus="identityFocused=true" @blur="identityFocused=false">
+                class="w-full rounded-xl border border-gray-200 pl-12 pr-4 py-3 text-sm outline-none transition-all text-navy focus:border-brand">
             </div>
           </div>
 
@@ -52,9 +54,7 @@
               </span>
               <input v-model="password" type="password" placeholder="••••••••"
                 autocomplete="current-password" required
-                class="w-full rounded-xl border pl-12 pr-4 py-3 text-sm outline-none transition-all text-navy"
-                :style="passFocused ? 'border-color:#465FF1; box-shadow:0 0 0 3px rgba(70,95,241,0.12)' : 'border-color:#e2e8f0'"
-                @focus="passFocused=true" @blur="passFocused=false">
+                class="w-full rounded-xl border border-gray-200 pl-12 pr-4 py-3 text-sm outline-none transition-all text-navy focus:border-brand">
             </div>
           </div>
 
@@ -67,7 +67,7 @@
           </button>
 
           <div class="text-center mt-5">
-            <a href="#" class="text-sm font-medium" style="color:#465FF1;">Forgot password?</a>
+            <RouterLink to="/forgot-password" class="text-sm font-medium" style="color:#465FF1;">Forgot password?</RouterLink>
           </div>
           <div class="text-center mt-3 text-sm text-gray-500">
             Need an account?
@@ -83,13 +83,12 @@
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { login } from '../auth'
+import ThemeToggle from '../components/ThemeToggle.vue'
 
 const route = useRoute()
 const router = useRouter()
 const identity = ref('')
 const password = ref('')
-const identityFocused = ref(false)
-const passFocused = ref(false)
 const submitting = ref(false)
 const errorMessage = ref('')
 

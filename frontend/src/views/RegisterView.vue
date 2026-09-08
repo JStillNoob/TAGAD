@@ -1,5 +1,6 @@
 <template>
   <div class="min-h-screen grid md:grid-cols-2">
+    <ThemeToggle class="fixed right-5 top-5 z-20 bg-white shadow-sm" />
     <div
       class="hidden md:flex flex-col items-center justify-center text-center px-12"
       style="background: linear-gradient(135deg, #0f2440 0%, #1E3A5F 60%, #1a4a6e 100%);"
@@ -12,7 +13,7 @@
       </p>
     </div>
 
-    <div class="flex items-center justify-center px-6 py-10" style="background:#F5F7FA;">
+    <div class="auth-content flex items-center justify-center px-6 py-10">
       <div class="w-full max-w-xl">
         <form class="bg-white rounded-2xl shadow-sm p-8" @submit.prevent="handleSubmit">
           <div class="mb-6">
@@ -61,6 +62,7 @@
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import FormField from '../components/FormField.vue'
+import ThemeToggle from '../components/ThemeToggle.vue'
 import { register } from '../auth'
 
 const router = useRouter()

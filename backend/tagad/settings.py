@@ -32,6 +32,7 @@ ALLOWED_HOSTS = []
 # Application definition
 
 INSTALLED_APPS = [
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -39,6 +40,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'channels',
     'core',
 ]
 
@@ -100,6 +102,19 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'tagad.wsgi.application'
+ASGI_APPLICATION = 'tagad.asgi.application'
+
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels.layers.InMemoryChannelLayer',
+    },
+}
+
+ENABLE_PIPELINE_SIMULATOR = config('ENABLE_PIPELINE_SIMULATOR', default=False, cast=bool)
+PIPELINE_API_KEY = config('PIPELINE_API_KEY', default='')
+ENGAGEMENT_ALERT_CONSECUTIVE_WINDOWS = config(
+    'ENGAGEMENT_ALERT_CONSECUTIVE_WINDOWS', default=3, cast=int,
+)
 
 
 # Database
@@ -140,6 +155,19 @@ AUTH_PASSWORD_VALIDATORS = [
         'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
     },
 ]
+
+PASSWORD_RESET_TIMEOUT = config('PASSWORD_RESET_TIMEOUT_SECONDS', default=3600, cast=int)
+FRONTEND_URL = config('FRONTEND_URL', default='http://localhost:5173')
+EMAIL_BACKEND = config(
+    'EMAIL_BACKEND',
+    default='django.core.mail.backends.console.EmailBackend',
+)
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='TAGAD <noreply@localhost>')
+EMAIL_HOST = config('EMAIL_HOST', default='')
+EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
+EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
+EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
 
 
 # Internationalization

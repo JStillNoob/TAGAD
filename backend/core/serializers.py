@@ -14,6 +14,32 @@ class LoginSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True, trim_whitespace=False)
 
 
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+
+class PasswordResetTokenSerializer(serializers.Serializer):
+    uid = serializers.CharField()
+    token = serializers.CharField()
+
+
+class PasswordResetConfirmSerializer(PasswordResetTokenSerializer):
+    new_password = serializers.CharField(write_only=True, trim_whitespace=False)
+    password_confirmation = serializers.CharField(write_only=True, trim_whitespace=False)
+
+    def validate(self, attrs):
+        errors = {}
+        if attrs['new_password'] != attrs['password_confirmation']:
+            errors['password_confirmation'] = 'The passwords do not match.'
+        try:
+            validate_password(attrs['new_password'], user=self.context['user'])
+        except DjangoValidationError as error:
+            errors['new_password'] = list(error.messages)
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
+
 class UserSerializer(serializers.ModelSerializer):
     can_access_admin = serializers.SerializerMethodField()
 
@@ -600,6 +626,50 @@ class CameraSerializer(serializers.ModelSerializer):
             if matching_positions.exists():
                 errors['position'] = 'This camera position is already configured for the classroom.'
 
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
+
+class QuickSetupClassroomInputSerializer(serializers.Serializer):
+    organization = serializers.IntegerField(min_value=1)
+    room_code = serializers.CharField(max_length=30)
+    building = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    capacity = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+
+
+class QuickSetupCameraInputSerializer(serializers.Serializer):
+    camera_name = serializers.CharField(max_length=50)
+    position = serializers.ChoiceField(choices=Camera.Position.choices)
+
+
+class QuickSetupSubjectInputSerializer(serializers.Serializer):
+    subject_code = serializers.CharField(max_length=30)
+    subject_name = serializers.CharField(max_length=150)
+    teacher = serializers.IntegerField(min_value=1)
+
+
+class ClassManagementQuickSetupSerializer(serializers.Serializer):
+    classroom_id = serializers.IntegerField(required=False, min_value=1)
+    classroom = QuickSetupClassroomInputSerializer(required=False)
+    cameras = QuickSetupCameraInputSerializer(many=True, allow_empty=False)
+    subject = QuickSetupSubjectInputSerializer(required=False, allow_null=True)
+
+    def validate(self, attrs):
+        has_existing = 'classroom_id' in attrs
+        has_new = 'classroom' in attrs
+        if has_existing == has_new:
+            raise serializers.ValidationError(
+                'Choose one existing classroom or provide one new classroom.',
+            )
+
+        positions = [camera['position'] for camera in attrs['cameras']]
+        names = [camera['camera_name'].strip().lower() for camera in attrs['cameras']]
+        errors = {}
+        if len(positions) != len(set(positions)):
+            errors['cameras'] = 'Each camera position can only be selected once.'
+        elif len(names) != len(set(names)):
+            errors['cameras'] = 'Camera names must be unique within the classroom.'
         if errors:
             raise serializers.ValidationError(errors)
         return attrs

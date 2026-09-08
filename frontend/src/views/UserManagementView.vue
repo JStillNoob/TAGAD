@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import AppLayout from '../layouts/AppLayout.vue'
 import { currentUser } from '../auth'
 import {
@@ -9,6 +10,8 @@ import {
   fetchUserOptions,
   updateManagedUser,
 } from '../userManagement'
+
+const route = useRoute()
 
 const users = ref([])
 const options = ref({ roles: [], statuses: [], organizations: [] })
@@ -60,6 +63,9 @@ const filteredUsers = computed(() => {
 watch(() => form.role, (role) => {
   if (role === 'system_admin') form.organization = ''
 })
+watch(() => route.query.search, (value) => {
+  search.value = typeof value === 'string' ? value : ''
+}, { immediate: true })
 
 function labelFor(items, value) {
   return items.find((item) => item.value === value)?.label || value

@@ -1,4 +1,5 @@
 import { readonly, ref } from 'vue'
+import { request } from './http.js'
 
 const userState = ref(null)
 let sessionChecked = false
@@ -21,14 +22,14 @@ async function parseResponse(response) {
 
 export async function ensureCsrfCookie() {
   if (getCookie('csrftoken')) return
-  const response = await fetch('/api/auth/csrf/', { credentials: 'same-origin' })
+  const response = await request('/api/auth/csrf/', { credentials: 'same-origin' })
   if (!response.ok) throw new Error('Unable to initialize a secure session.')
 }
 
 export async function fetchCurrentUser({ force = false } = {}) {
   if (sessionChecked && !force) return userState.value
 
-  const response = await fetch('/api/auth/me/', { credentials: 'same-origin' })
+  const response = await request('/api/auth/me/', { credentials: 'same-origin' })
   if (response.ok) {
     userState.value = await response.json()
   } else if (response.status === 401 || response.status === 403) {
@@ -42,7 +43,7 @@ export async function fetchCurrentUser({ force = false } = {}) {
 
 export async function login(identity, password) {
   await ensureCsrfCookie()
-  const response = await fetch('/api/auth/login/', {
+  const response = await request('/api/auth/login/', {
     method: 'POST',
     credentials: 'same-origin',
     headers: {
@@ -62,7 +63,7 @@ export async function login(identity, password) {
 
 export async function register(account) {
   await ensureCsrfCookie()
-  const response = await fetch('/api/auth/register/', {
+  const response = await request('/api/auth/register/', {
     method: 'POST',
     credentials: 'same-origin',
     headers: {
@@ -82,7 +83,7 @@ export async function register(account) {
 
 export async function logout() {
   await ensureCsrfCookie()
-  const response = await fetch('/api/auth/logout/', {
+  const response = await request('/api/auth/logout/', {
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'X-CSRFToken': getCookie('csrftoken') },

@@ -1,5 +1,3 @@
-import csv
-
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from rest_framework.permissions import IsAuthenticated
@@ -7,6 +5,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .analytics import build_session_analytics
+from .report_generation import analytics_csv_content
 from .session_access import sessions_for_user
 from .views import _log_activity
 
@@ -66,25 +65,6 @@ class SessionAnalyticsCsvView(AnalyticsSessionMixin, APIView):
         analytics = self.get_analytics(request, session)
         response = HttpResponse(content_type='text/csv')
         response['Content-Disposition'] = f'attachment; filename="analytics-session-{session.pk}.csv"'
-        writer = csv.writer(response)
-        writer.writerow([
-            'Slide', 'Topic', 'Timestamp', 'Duration Seconds', 'Detected',
-            'Engaged %', 'Attentive %', 'Confused %', 'Bored %',
-            'Disengaged %', 'Average Confidence %',
-        ])
-        for slide in analytics['slides']:
-            writer.writerow([
-                slide['slide_number'],
-                slide['title'],
-                slide['entered_at'],
-                slide['duration_seconds'],
-                slide['detected'],
-                slide['engaged'] if slide['engaged'] is not None else '',
-                slide['attentive'] if slide['attentive'] is not None else '',
-                slide['confused'] if slide['confused'] is not None else '',
-                slide['bored'] if slide['bored'] is not None else '',
-                slide['disengaged'] if slide['disengaged'] is not None else '',
-                slide['average_confidence'] if slide['average_confidence'] is not None else '',
-            ])
+        response.write(analytics_csv_content(analytics))
         _log_activity(request, f'Downloaded analytics CSV for classroom session {session.pk}.')
         return response

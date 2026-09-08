@@ -1,4 +1,5 @@
 from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
+from django.db import transaction
 from django.db.models import Q, Sum
 from django.utils.dateparse import parse_date
 from django.utils.decorators import method_decorator
@@ -24,6 +25,7 @@ from .models import (
 from .permissions import CanAccessClassManagement, CanManageUsers
 from .serializers import (
     CameraSerializer,
+    ClassManagementQuickSetupSerializer,
     ClassroomSerializer,
     LoginSerializer,
     ManagedUserSerializer,
@@ -441,6 +443,84 @@ class ClassManagementOptionsView(APIView):
                 for value, label in Camera.Status.choices
             ],
         })
+
+
+class ClassManagementQuickSetupView(APIView):
+    permission_classes = [CanAccessClassManagement]
+
+    @staticmethod
+    def _nested_save(serializer_class, data, request, field, index=None):
+        serializer = serializer_class(data=data, context={'request': request})
+        try:
+            serializer.is_valid(raise_exception=True)
+        except serializers.ValidationError as error:
+            detail = error.detail if index is None else {str(index): error.detail}
+            raise serializers.ValidationError({field: detail}) from error
+        return serializer.save()
+
+    @transaction.atomic
+    def post(self, request):
+        input_serializer = ClassManagementQuickSetupSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        setup = input_serializer.validated_data
+
+        if 'classroom_id' in setup:
+            classrooms = Classroom.objects.select_related('organization')
+            if request.user.role == User.Role.ORG_ADMIN:
+                classrooms = classrooms.filter(organization=request.user.organization)
+            classroom = classrooms.filter(pk=setup['classroom_id']).first()
+            if classroom is None:
+                raise serializers.ValidationError({
+                    'classroom_id': 'Select a classroom you are permitted to manage.',
+                })
+            created_classroom = False
+        else:
+            classroom = self._nested_save(
+                ClassroomSerializer,
+                setup['classroom'],
+                request,
+                'classroom',
+            )
+            created_classroom = True
+
+        cameras = []
+        for index, camera_data in enumerate(setup['cameras']):
+            cameras.append(self._nested_save(
+                CameraSerializer,
+                {
+                    **camera_data,
+                    'classroom': classroom.pk,
+                    'status': Camera.Status.ACTIVE,
+                },
+                request,
+                'cameras',
+                index,
+            ))
+
+        subject = None
+        if setup.get('subject'):
+            subject = self._nested_save(
+                SubjectSerializer,
+                {**setup['subject'], 'classroom': classroom.pk},
+                request,
+                'subject',
+            )
+
+        _log_activity(
+            request,
+            f'Completed quick setup for classroom {classroom.pk} '
+            f'({classroom.room_code}): {len(cameras)} camera(s) and '
+            f'{1 if subject else 0} subject(s).',
+        )
+        return Response({
+            'classroom': ClassroomSerializer(classroom, context={'request': request}).data,
+            'cameras': CameraSerializer(cameras, many=True, context={'request': request}).data,
+            'subject': (
+                SubjectSerializer(subject, context={'request': request}).data
+                if subject else None
+            ),
+            'created_classroom': created_classroom,
+        }, status=status.HTTP_201_CREATED)
 
 
 class CameraMixin:

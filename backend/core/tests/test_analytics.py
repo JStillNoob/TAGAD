@@ -263,7 +263,7 @@ class AnalyticsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response['Content-Type'], 'text/csv')
         self.assertIn(f'attachment; filename="analytics-session-{self.session.pk}.csv"', response['Content-Disposition'])
-        self.assertIn('Slide,Topic,Timestamp,Duration Seconds,Detected,Engaged %,Attentive %,Confused %,Bored %,Disengaged %,Average Confidence %', content)
+        self.assertIn('Slide,Topic,Timestamp,Duration Seconds,Detected,Unclassified,Engaged %,Attentive %,Confused %,Bored %,Disengaged %,Average Confidence %', content)
         self.assertIn('1,Introduction to Trees', content)
         self.assertIn('2,Binary Search Trees', content)
         self.assertTrue(SystemLog.objects.filter(

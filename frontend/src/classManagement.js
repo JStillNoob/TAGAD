@@ -48,6 +48,13 @@ export function fetchClassManagementOptions() {
   return apiRequest('/api/auth/class-management/options/')
 }
 
+export function createQuickSetup(setup) {
+  return apiRequest('/api/auth/class-management/quick-setup/', {
+    method: 'POST',
+    body: JSON.stringify(setup),
+  })
+}
+
 export function fetchCameras() {
   return apiRequest('/api/auth/cameras/')
 }

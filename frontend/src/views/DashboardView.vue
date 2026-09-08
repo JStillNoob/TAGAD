@@ -184,7 +184,7 @@ onMounted(loadDashboard)
             <h3 class="text-sm font-semibold text-navy mb-4">Quick Actions</h3>
             <div class="space-y-1 text-sm">
               <RouterLink to="/session" class="block rounded-lg px-3 py-2.5 text-gray-600 hover:bg-gray-50">Start Monitoring</RouterLink>
-              <RouterLink to="/analytics" class="block rounded-lg px-3 py-2.5 text-gray-600 hover:bg-gray-50">View Reports</RouterLink>
+              <RouterLink to="/reports" class="block rounded-lg px-3 py-2.5 text-gray-600 hover:bg-gray-50">View Reports</RouterLink>
               <RouterLink to="/classes" class="block rounded-lg px-3 py-2.5 text-gray-600 hover:bg-gray-50">View Classes</RouterLink>
             </div>
           </div>

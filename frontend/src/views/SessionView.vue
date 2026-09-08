@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { currentUser } from '../auth'
 import AppLayout from '../layouts/AppLayout.vue'
 import {
@@ -8,8 +9,12 @@ import {
   fetchSessionOptions,
   fetchSessions,
   startClassroomSession,
+  simulateEngagement,
   uploadPresentation,
 } from '../sessions'
+
+const route = useRoute()
+const router = useRouter()
 
 const loading = ref(true)
 const error = ref('')
@@ -25,7 +30,22 @@ const fileInput = ref(null)
 const activeSession = ref(null)
 const currentSlideIndex = ref(0)
 const elapsedSeconds = ref(0)
+const latestEngagement = ref(null)
+const liveAlert = ref(null)
+const socketStatus = ref('disconnected')
+const simulationRunning = ref(false)
 let timer = null
+let simulationTimer = null
+let engagementSocket = null
+let socketReconnectTimer = null
+
+const engagementCategories = [
+  { key: 'engaged', label: 'Engaged', color: '#2D3CC8' },
+  { key: 'attentive', label: 'Attentive', color: '#10B981' },
+  { key: 'confused', label: 'Confused', color: '#F59E0B' },
+  { key: 'bored', label: 'Bored', color: '#F97316' },
+  { key: 'disengaged', label: 'Disengaged', color: '#EF476F' },
+]
 
 const selectedSubject = computed(() => options.value.subjects.find(
   (subject) => subject.id === Number(selectedSubjectId.value),
@@ -66,6 +86,80 @@ function startTimer() {
   timer = setInterval(update, 1000)
 }
 
+function applyEngagement(summary) {
+  if (!summary || latestEngagement.value?.id === summary.id) return
+  latestEngagement.value = summary
+  if (summary.alert) liveAlert.value = summary.alert
+  else if (summary.distribution.disengaged <= 50) liveAlert.value = null
+}
+
+function connectEngagement(sessionId) {
+  clearTimeout(socketReconnectTimer)
+  const previousSocket = engagementSocket
+  engagementSocket = null
+  previousSocket?.close()
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const socket = new WebSocket(`${protocol}//${window.location.host}/ws/sessions/${sessionId}/engagement/`)
+  engagementSocket = socket
+  socketStatus.value = 'connecting'
+  socket.onopen = () => { socketStatus.value = 'connected' }
+  socket.onclose = () => {
+    if (engagementSocket !== socket) return
+    socketStatus.value = 'disconnected'
+    if (activeSession.value?.id === sessionId) {
+      socketReconnectTimer = setTimeout(() => connectEngagement(sessionId), 2000)
+    }
+  }
+  socket.onerror = () => { socketStatus.value = 'error' }
+  socket.onmessage = (event) => {
+    try {
+      const message = JSON.parse(event.data)
+      if (message.type === 'engagement.summary') applyEngagement(message.data)
+    } catch {
+      error.value = 'A live engagement update could not be read.'
+    }
+  }
+}
+
+async function emitSimulation() {
+  if (!activeSession.value || actionBusy.value) return
+  try {
+    applyEngagement(await simulateEngagement(activeSession.value.id))
+  } catch (requestError) {
+    stopSimulation()
+    error.value = messageFrom(requestError)
+  }
+}
+
+function startSimulation() {
+  if (simulationRunning.value) return
+  simulationRunning.value = true
+  emitSimulation()
+  simulationTimer = setInterval(emitSimulation, 2000)
+}
+
+function stopSimulation() {
+  simulationRunning.value = false
+  clearInterval(simulationTimer)
+  simulationTimer = null
+}
+
+function disconnectEngagement() {
+  stopSimulation()
+  clearTimeout(socketReconnectTimer)
+  const socket = engagementSocket
+  engagementSocket = null
+  socket?.close()
+  socketStatus.value = 'disconnected'
+}
+
+function applyRouteSelection() {
+  const subject = options.value.subjects.find(item => item.id === Number(route.query.subject))
+  const presentation = options.value.presentations.find(item => item.id === Number(route.query.presentation))
+  if (subject) selectedSubjectId.value = subject.id
+  if (presentation) selectedPresentationId.value = presentation.id
+}
+
 async function loadPage() {
   loading.value = true
   error.value = ''
@@ -76,6 +170,7 @@ async function loadPage() {
     ])
     options.value = sessionOptions
     sessions.value = sessionHistory
+    applyRouteSelection()
     const ongoing = sessionHistory.find((session) => (
       session.user === currentUser.value?.id && session.status === 'ongoing'
     ))
@@ -86,6 +181,7 @@ async function loadPage() {
       )
       currentSlideIndex.value = savedIndex >= 0 ? savedIndex : 0
       startTimer()
+      connectEngagement(ongoing.id)
     }
   } catch (requestError) {
     error.value = messageFrom(requestError)
@@ -137,6 +233,7 @@ async function beginSession() {
     })
     currentSlideIndex.value = 0
     startTimer()
+    connectEngagement(activeSession.value.id)
   } catch (requestError) {
     error.value = messageFrom(requestError)
   } finally {
@@ -165,9 +262,10 @@ async function finishSession() {
   try {
     const ended = await endClassroomSession(activeSession.value.id)
     clearInterval(timer)
+    disconnectEngagement()
     activeSession.value = null
     sessions.value = [ended, ...sessions.value.filter((session) => session.id !== ended.id)]
-    await loadPage()
+    await router.push({ path: '/analytics', query: { session: String(ended.id) } })
   } catch (requestError) {
     error.value = messageFrom(requestError)
   } finally {
@@ -184,9 +282,13 @@ function formatDate(value) {
 watch(selectedSubjectId, () => {
   selectedCameraIds.value = []
 })
+watch(() => [route.query.subject, route.query.presentation], applyRouteSelection)
 
 onMounted(loadPage)
-onUnmounted(() => clearInterval(timer))
+onUnmounted(() => {
+  clearInterval(timer)
+  disconnectEngagement()
+})
 </script>
 
 <template>
@@ -369,7 +471,26 @@ onUnmounted(() => clearInterval(timer))
 
           <section class="page-card p-5">
             <h3 class="text-sm font-semibold text-navy">Engagement Monitoring</h3>
-            <p class="mt-3 text-xs leading-5 text-gray-500">No engagement values or alerts are generated until CCTV and detection models are connected.</p>
+            <div class="mt-2 flex items-center justify-between text-xs text-gray-500">
+              <span>Live updates</span>
+              <span :class="socketStatus === 'connected' ? 'text-emerald-600' : 'text-amber-600'">{{ socketStatus }}</span>
+            </div>
+            <div v-if="liveAlert" class="mt-3 rounded-lg bg-red-50 p-3 text-xs text-red-700" role="alert">
+              {{ liveAlert.message }}
+            </div>
+            <div v-if="latestEngagement" class="mt-4 space-y-3">
+              <div v-for="category in engagementCategories" :key="category.key">
+                <div class="mb-1 flex justify-between text-xs"><span class="text-gray-600">{{ category.label }}</span><span class="font-semibold" :style="{ color: category.color }">{{ latestEngagement.distribution[category.key] }}%</span></div>
+                <div class="h-1.5 overflow-hidden rounded-full bg-gray-100"><div class="h-full rounded-full" :style="{ width: `${latestEngagement.distribution[category.key]}%`, background: category.color }"></div></div>
+              </div>
+              <p class="text-xs text-gray-400">{{ latestEngagement.total_detected }} detected · {{ latestEngagement.unclassified_count }} unclassified · Slide {{ latestEngagement.slide_number }}</p>
+            </div>
+            <p v-else class="mt-3 text-xs leading-5 text-gray-500">Waiting for the first aggregated monitoring window.</p>
+            <div v-if="options.simulator_enabled" class="mt-4 border-t border-gray-100 pt-4">
+              <button v-if="!simulationRunning" type="button" class="btn-primary w-full justify-center" @click="startSimulation">Start Simulation</button>
+              <button v-else type="button" class="w-full rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50" @click="stopSimulation">Stop Simulation</button>
+              <p class="mt-2 text-xs text-gray-400">Development only · one result every two seconds</p>
+            </div>
           </section>
         </aside>
       </div>

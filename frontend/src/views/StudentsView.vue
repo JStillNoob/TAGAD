@@ -1,10 +1,12 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import AppLayout from '../layouts/AppLayout.vue'
 import { currentUser } from '../auth'
 import {
   createCamera,
   createClassroom,
+  createQuickSetup,
   createSubject,
   deleteCamera,
   deleteClassroom,
@@ -17,6 +19,8 @@ import {
   updateCamera,
   updateSubject,
 } from '../classManagement'
+
+const route = useRoute()
 
 const classrooms = ref([])
 const subjects = ref([])
@@ -34,6 +38,19 @@ const editingId = ref(null)
 const classroomForm = reactive({ organization: '', room_code: '', building: '', capacity: '' })
 const subjectForm = reactive({ subject_code: '', subject_name: '', classroom: '', teacher: '' })
 const cameraForm = reactive({ classroom: '', camera_name: '', position: 'front', status: 'active' })
+const quickForm = reactive({
+  mode: 'new',
+  classroom_id: '',
+  organization: '',
+  room_code: '',
+  building: '',
+  capacity: '',
+  cameras: [],
+  include_subject: true,
+  subject_code: '',
+  subject_name: '',
+  teacher: '',
+})
 
 const canManage = computed(() => ['system_admin', 'org_admin'].includes(currentUser.value?.role))
 const isSystemAdmin = computed(() => currentUser.value?.role === 'system_admin')
@@ -51,6 +68,15 @@ const filteredSubjects = computed(() => {
     subject.organization_name,
   ].join(' ').toLowerCase().includes(term))
 })
+const filteredClassrooms = computed(() => {
+  const term = search.value.trim().toLowerCase()
+  if (!term) return classrooms.value
+  return classrooms.value.filter((classroom) => [
+    classroom.room_code,
+    classroom.building,
+    classroom.organization_name,
+  ].join(' ').toLowerCase().includes(term))
+})
 const selectedClassroom = computed(() => classrooms.value.find(
   (item) => item.id === Number(subjectForm.classroom),
 ))
@@ -60,16 +86,43 @@ const availableTeachers = computed(() => {
     ? options.value.teachers.filter((teacher) => teacher.organization === organization)
     : []
 })
+const quickClassroom = computed(() => classrooms.value.find(
+  (item) => item.id === Number(quickForm.classroom_id),
+))
+const quickOrganizationId = computed(() => (
+  quickForm.mode === 'existing'
+    ? quickClassroom.value?.organization
+    : Number(quickForm.organization)
+))
+const quickTeachers = computed(() => options.value.teachers.filter(
+  (teacher) => teacher.organization === quickOrganizationId.value,
+))
+const quickSelectedCameras = computed(() => quickForm.cameras.filter((camera) => camera.selected))
 
 watch(() => subjectForm.classroom, () => {
   if (!availableTeachers.value.some((teacher) => teacher.id === Number(subjectForm.teacher))) {
     subjectForm.teacher = ''
   }
 })
+watch(() => route.query.search, (value) => {
+  search.value = typeof value === 'string' ? value : ''
+}, { immediate: true })
+watch(() => [quickForm.mode, quickForm.classroom_id], resetQuickCameras)
+watch(quickOrganizationId, () => {
+  if (!quickTeachers.value.some((teacher) => teacher.id === Number(quickForm.teacher))) {
+    quickForm.teacher = ''
+  }
+})
 
 function firstError(field) {
   const value = fieldErrors.value[field]
   return Array.isArray(value) ? value[0] : value
+}
+
+function nestedError(...path) {
+  let value = fieldErrors.value
+  for (const part of path) value = value?.[part]
+  return Array.isArray(value) ? value[0] : (typeof value === 'string' ? value : '')
 }
 
 function resetErrors() {
@@ -87,6 +140,57 @@ function openClassroomCreate() {
   })
   resetErrors()
   modal.value = 'classroom'
+}
+
+function quickRoomCode() {
+  return quickForm.mode === 'existing'
+    ? quickClassroom.value?.room_code || 'Classroom'
+    : quickForm.room_code.trim() || 'Classroom'
+}
+
+function generatedCameraName(camera) {
+  return `${quickRoomCode()} ${camera.label} Camera`
+}
+
+function quickCameraError(camera, field) {
+  const index = quickSelectedCameras.value.indexOf(camera)
+  return index < 0 ? '' : nestedError('cameras', String(index), field)
+}
+
+function resetQuickCameras() {
+  const configured = new Set(
+    quickForm.mode === 'existing'
+      ? cameras.value.filter((camera) => camera.classroom === Number(quickForm.classroom_id)).map((camera) => camera.position)
+      : [],
+  )
+  quickForm.cameras = options.value.camera_positions.map((position) => ({
+    position: position.value,
+    label: position.label,
+    selected: false,
+    configured: configured.has(position.value),
+    camera_name: '',
+  }))
+  const firstAvailable = quickForm.cameras.find((camera) => !camera.configured)
+  if (firstAvailable) firstAvailable.selected = true
+}
+
+function openQuickSetup() {
+  Object.assign(quickForm, {
+    mode: classrooms.value.length ? 'existing' : 'new',
+    classroom_id: classrooms.value[0]?.id || '',
+    organization: options.value.organizations[0]?.id || '',
+    room_code: '',
+    building: '',
+    capacity: '',
+    include_subject: true,
+    subject_code: '',
+    subject_name: '',
+    teacher: '',
+  })
+  resetQuickCameras()
+  resetErrors()
+  editingId.value = null
+  modal.value = 'quick'
 }
 
 function openClassroomEdit(classroom) {
@@ -250,6 +354,44 @@ async function saveCamera() {
   }
 }
 
+async function saveQuickSetup() {
+  saving.value = true
+  resetErrors()
+  const selectedCameras = quickSelectedCameras.value.map((camera) => ({
+    position: camera.position,
+    camera_name: camera.camera_name.trim() || generatedCameraName(camera),
+  }))
+  const payload = {
+    cameras: selectedCameras,
+    subject: quickForm.include_subject ? {
+      subject_code: quickForm.subject_code,
+      subject_name: quickForm.subject_name,
+      teacher: Number(quickForm.teacher),
+    } : null,
+  }
+  if (quickForm.mode === 'existing') {
+    payload.classroom_id = Number(quickForm.classroom_id)
+  } else {
+    payload.classroom = {
+      organization: Number(quickForm.organization),
+      room_code: quickForm.room_code,
+      building: quickForm.building,
+      capacity: quickForm.capacity === '' ? null : Number(quickForm.capacity),
+    }
+  }
+
+  try {
+    await createQuickSetup(payload)
+    modal.value = null
+    await loadPage()
+  } catch (error) {
+    formError.value = error.message
+    fieldErrors.value = error.fields || {}
+  } finally {
+    saving.value = false
+  }
+}
+
 async function refreshClassroomCounts() {
   classrooms.value = await fetchClassrooms()
 }
@@ -301,8 +443,9 @@ onMounted(loadPage)
           <p class="text-sm text-gray-500 mt-1">Real classroom and subject records from TAGAD.</p>
         </div>
         <div v-if="canManage" class="flex flex-wrap gap-2">
+          <button type="button" class="btn-primary justify-center" @click="openQuickSetup">Quick Setup</button>
           <button type="button" class="btn-navy justify-center" @click="openClassroomCreate">Add Classroom</button>
-          <button type="button" class="btn-primary justify-center" :disabled="!classrooms.length" @click="openSubjectCreate">Add Subject</button>
+          <button type="button" class="rounded-xl border border-gray-300 bg-white px-5 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50" :disabled="!classrooms.length" @click="openSubjectCreate">Add Subject</button>
           <button type="button" class="btn-teal justify-center" :disabled="!classrooms.length" @click="openCameraCreate">Add Camera</button>
         </div>
       </div>
@@ -319,7 +462,7 @@ onMounted(loadPage)
       <section class="page-card overflow-hidden">
         <div class="flex flex-col gap-3 border-b border-gray-200 p-5 sm:flex-row sm:items-center sm:justify-between">
           <div><h2 class="font-bold text-gray-900">Subjects</h2><p class="text-xs text-gray-500 mt-1">Teachers see only subjects assigned to them.</p></div>
-          <input v-model="search" type="search" placeholder="Search subjects…" class="w-full sm:w-72 rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-indigo-500" />
+          <input v-model="search" type="search" placeholder="Search classes and subjects…" class="w-full sm:w-72 rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-indigo-500" />
         </div>
         <div v-if="loading" class="p-10 text-center text-sm text-gray-500">Loading classes…</div>
         <div v-else-if="!filteredSubjects.length" class="p-10 text-center text-sm text-gray-500">No subjects found.</div>
@@ -345,12 +488,12 @@ onMounted(loadPage)
 
       <section class="page-card overflow-hidden">
         <div class="border-b border-gray-200 p-5"><h2 class="font-bold text-gray-900">Classrooms</h2><p class="text-xs text-gray-500 mt-1">Rooms must be empty before they can be deleted.</p></div>
-        <div v-if="!loading && !classrooms.length" class="p-10 text-center text-sm text-gray-500">No classrooms found.</div>
+        <div v-if="!loading && !filteredClassrooms.length" class="p-10 text-center text-sm text-gray-500">No classrooms found.</div>
         <div v-else class="overflow-x-auto">
           <table class="w-full text-left text-sm">
             <thead class="bg-gray-50 text-xs uppercase text-gray-500"><tr><th class="px-5 py-3">Room</th><th class="px-5 py-3">Building</th><th class="px-5 py-3">Capacity</th><th class="px-5 py-3">Subjects</th><th class="px-5 py-3">Cameras</th><th v-if="isSystemAdmin" class="px-5 py-3">Organization</th><th v-if="canManage" class="px-5 py-3 text-right">Actions</th></tr></thead>
             <tbody class="divide-y divide-gray-100">
-              <tr v-for="classroom in classrooms" :key="classroom.id">
+              <tr v-for="classroom in filteredClassrooms" :key="classroom.id">
                 <td class="px-5 py-4 font-semibold text-gray-900">{{ classroom.room_code }}</td>
                 <td class="px-5 py-4 text-gray-600">{{ classroom.building || '—' }}</td>
                 <td class="px-5 py-4 text-gray-600">{{ classroom.capacity || '—' }}</td>
@@ -391,7 +534,77 @@ onMounted(loadPage)
     </div>
 
     <div v-if="modal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4" @click.self="closeModal">
-      <form v-if="modal === 'classroom'" class="w-full max-w-xl rounded-2xl bg-white shadow-xl" @submit.prevent="saveClassroom">
+      <form v-if="modal === 'quick'" class="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white shadow-xl" @submit.prevent="saveQuickSetup">
+        <div class="sticky top-0 z-10 flex items-center justify-between border-b bg-white px-6 py-4">
+          <div><h2 class="text-lg font-bold text-gray-900">Quick Classroom Setup</h2><p class="mt-0.5 text-xs text-gray-500">Configure the room, cameras, and first subject in one save.</p></div>
+          <button type="button" class="text-gray-400" aria-label="Close quick setup" @click="closeModal">✕</button>
+        </div>
+
+        <div class="space-y-6 p-6">
+          <div v-if="formError" class="rounded-lg bg-red-50 p-3 text-sm text-red-700">{{ formError }}</div>
+
+          <section>
+            <div class="mb-3 flex items-center gap-3"><span class="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-100 text-xs font-bold text-indigo-700">1</span><h3 class="font-bold text-gray-900">Classroom</h3></div>
+            <div v-if="classrooms.length" class="mb-4 inline-flex rounded-xl bg-gray-100 p-1 text-sm">
+              <button type="button" class="rounded-lg px-4 py-2 font-semibold" :class="quickForm.mode === 'existing' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500'" @click="quickForm.mode = 'existing'">Use existing</button>
+              <button type="button" class="rounded-lg px-4 py-2 font-semibold" :class="quickForm.mode === 'new' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500'" @click="quickForm.mode = 'new'">Create new</button>
+            </div>
+            <label v-if="quickForm.mode === 'existing'" class="block text-sm font-medium text-gray-700">Classroom *
+              <select v-model="quickForm.classroom_id" required class="mt-1.5 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5">
+                <option value="">Select classroom</option>
+                <option v-for="classroom in classrooms" :key="classroom.id" :value="classroom.id">{{ classroom.room_code }}<template v-if="classroom.building"> — {{ classroom.building }}</template> · {{ classroom.camera_count }} camera(s)</option>
+              </select>
+              <span v-if="nestedError('classroom_id')" class="mt-1 block text-xs text-red-600">{{ nestedError('classroom_id') }}</span>
+            </label>
+            <div v-else class="grid gap-4 md:grid-cols-2">
+              <label v-if="isSystemAdmin" class="md:col-span-2 text-sm font-medium text-gray-700">Organization *
+                <select v-model="quickForm.organization" required class="mt-1.5 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5"><option value="">Select organization</option><option v-for="organization in options.organizations" :key="organization.id" :value="organization.id">{{ organization.name }}</option></select>
+                <span v-if="nestedError('classroom', 'organization')" class="mt-1 block text-xs text-red-600">{{ nestedError('classroom', 'organization') }}</span>
+              </label>
+              <label class="text-sm font-medium text-gray-700">Room code *<input v-model.trim="quickForm.room_code" required placeholder="e.g. ROOM-204" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="nestedError('classroom', 'room_code')" class="mt-1 block text-xs text-red-600">{{ nestedError('classroom', 'room_code') }}</span></label>
+              <label class="text-sm font-medium text-gray-700">Building<input v-model.trim="quickForm.building" placeholder="e.g. Main Building" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"></label>
+              <label class="md:col-span-2 text-sm font-medium text-gray-700">Capacity<input v-model="quickForm.capacity" type="number" min="1" placeholder="Optional" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="nestedError('classroom', 'capacity')" class="mt-1 block text-xs text-red-600">{{ nestedError('classroom', 'capacity') }}</span></label>
+            </div>
+          </section>
+
+          <section class="border-t border-gray-200 pt-6">
+            <div class="mb-1 flex items-center gap-3"><span class="flex h-7 w-7 items-center justify-center rounded-full bg-teal-100 text-xs font-bold text-teal-700">2</span><h3 class="font-bold text-gray-900">Cameras</h3></div>
+            <p class="mb-4 ml-10 text-xs text-gray-500">Select every position you want to configure. Names are generated automatically unless you enter your own.</p>
+            <div class="grid gap-3 md:grid-cols-3">
+              <label v-for="camera in quickForm.cameras" :key="camera.position" class="rounded-xl border p-4" :class="camera.configured ? 'border-gray-200 bg-gray-50 opacity-60' : camera.selected ? 'border-teal-400 bg-teal-50/40' : 'border-gray-200'">
+                <span class="flex items-center gap-2 text-sm font-semibold text-gray-800"><input v-model="camera.selected" type="checkbox" :disabled="camera.configured" class="h-4 w-4 rounded border-gray-300 text-teal-600">{{ camera.label }}<span v-if="camera.configured" class="ml-auto text-xs font-normal text-gray-500">Configured</span></span>
+                <input v-if="camera.selected" v-model.trim="camera.camera_name" :placeholder="generatedCameraName(camera)" maxlength="50" class="mt-3 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm">
+                <span v-if="quickCameraError(camera, 'camera_name')" class="mt-1 block text-xs text-red-600">{{ quickCameraError(camera, 'camera_name') }}</span>
+                <span v-if="quickCameraError(camera, 'position')" class="mt-1 block text-xs text-red-600">{{ quickCameraError(camera, 'position') }}</span>
+              </label>
+            </div>
+            <span v-if="nestedError('cameras')" class="mt-2 block text-xs text-red-600">{{ nestedError('cameras') }}</span>
+          </section>
+
+          <section class="border-t border-gray-200 pt-6">
+            <div class="flex items-center justify-between gap-4">
+              <div><div class="flex items-center gap-3"><span class="flex h-7 w-7 items-center justify-center rounded-full bg-violet-100 text-xs font-bold text-violet-700">3</span><h3 class="font-bold text-gray-900">First subject</h3></div><p class="ml-10 mt-1 text-xs text-gray-500">Optional—you can add more subjects later.</p></div>
+              <label class="flex items-center gap-2 text-sm font-medium text-gray-700"><input v-model="quickForm.include_subject" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-indigo-600">Add subject</label>
+            </div>
+            <div v-if="quickForm.include_subject" class="mt-4 grid gap-4 md:grid-cols-2">
+              <label class="text-sm font-medium text-gray-700">Subject code *<input v-model.trim="quickForm.subject_code" required placeholder="e.g. IT-301" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="nestedError('subject', 'subject_code')" class="mt-1 block text-xs text-red-600">{{ nestedError('subject', 'subject_code') }}</span></label>
+              <label class="text-sm font-medium text-gray-700">Subject name *<input v-model.trim="quickForm.subject_name" required placeholder="e.g. Data Structures" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="nestedError('subject', 'subject_name')" class="mt-1 block text-xs text-red-600">{{ nestedError('subject', 'subject_name') }}</span></label>
+              <label class="md:col-span-2 text-sm font-medium text-gray-700">Teacher *
+                <select v-model="quickForm.teacher" required class="mt-1.5 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5"><option value="">Select teacher</option><option v-for="teacher in quickTeachers" :key="teacher.id" :value="teacher.id">{{ teacher.name }}</option></select>
+                <span v-if="!quickTeachers.length" class="mt-1 block text-xs text-amber-600">No active teacher belongs to this organization. Turn off “Add subject” or create a teacher first.</span>
+                <span v-if="nestedError('subject', 'teacher')" class="mt-1 block text-xs text-red-600">{{ nestedError('subject', 'teacher') }}</span>
+              </label>
+            </div>
+          </section>
+        </div>
+
+        <div class="sticky bottom-0 flex items-center justify-between gap-3 border-t bg-white px-6 py-4">
+          <p class="text-xs text-gray-500">{{ quickSelectedCameras.length }} camera(s) selected<span v-if="quickForm.include_subject"> · 1 subject</span></p>
+          <div class="flex gap-3"><button type="button" class="rounded-xl border px-5 py-2.5 text-sm font-semibold" @click="closeModal">Cancel</button><button class="btn-primary" :disabled="saving || !quickSelectedCameras.length">{{ saving ? 'Saving everything…' : 'Complete Setup' }}</button></div>
+        </div>
+      </form>
+
+      <form v-else-if="modal === 'classroom'" class="w-full max-w-xl rounded-2xl bg-white shadow-xl" @submit.prevent="saveClassroom">
         <div class="flex items-center justify-between border-b px-6 py-4"><h2 class="text-lg font-bold">{{ isEditing ? 'Edit Classroom' : 'Add Classroom' }}</h2><button type="button" class="text-gray-400" @click="closeModal">✕</button></div>
         <div class="grid gap-4 p-6 sm:grid-cols-2">
           <div v-if="formError" class="sm:col-span-2 rounded-lg bg-red-50 p-3 text-sm text-red-700">{{ formError }}</div>

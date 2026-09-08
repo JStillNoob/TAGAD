@@ -15,9 +15,12 @@ def _percentage(count, total):
 def _session_engagement(session):
     counts = defaultdict(int)
     for summary in EngagementSummary.objects.filter(event__session=session):
+        classified = 0
         for category in CATEGORIES:
-            counts[category] += getattr(summary, f'{category}_count')
-        counts['total'] += summary.total_detected
+            count = getattr(summary, f'{category}_count')
+            counts[category] += count
+            classified += count
+        counts['total'] += classified
     return _percentage(counts['engaged'], counts['total'])
 
 
@@ -40,6 +43,8 @@ def build_session_analytics(session, previous_session=None):
     overall_counts = defaultdict(int)
     confidence_weighted_total = 0.0
     students_detected = 0
+    total_detections = 0
+    unclassified_detections = 0
 
     for index, event in enumerate(events):
         boundary = events[index + 1].entered_at if index + 1 < len(events) else effective_end
@@ -52,21 +57,27 @@ def build_session_analytics(session, previous_session=None):
             'duration_seconds': 0,
             'counts': defaultdict(int),
             'total': 0,
+            'unclassified': 0,
             'detected': 0,
             'confidence_weighted_total': 0.0,
         })
         row['duration_seconds'] += duration
 
         for summary in event.summaries.all():
+            classified = 0
             for category in CATEGORIES:
                 count = getattr(summary, f'{category}_count')
                 row['counts'][category] += count
                 overall_counts[category] += count
-            row['total'] += summary.total_detected
-            overall_counts['total'] += summary.total_detected
+                classified += count
+            row['total'] += classified
+            overall_counts['total'] += classified
+            row['unclassified'] += summary.unclassified_count
+            total_detections += summary.total_detected
+            unclassified_detections += summary.unclassified_count
             row['detected'] = max(row['detected'], summary.total_detected)
             students_detected = max(students_detected, summary.total_detected)
-            weighted_confidence = float(summary.average_confidence) * summary.total_detected
+            weighted_confidence = float(summary.average_confidence) * classified
             row['confidence_weighted_total'] += weighted_confidence
             confidence_weighted_total += weighted_confidence
 
@@ -82,8 +93,8 @@ def build_session_analytics(session, previous_session=None):
             row[category] = _percentage(counts[category], total)
         slides.append(row)
 
-    total_detections = overall_counts['total']
-    average_engagement = _percentage(overall_counts['engaged'], total_detections)
+    classified_detections = overall_counts['total']
+    average_engagement = _percentage(overall_counts['engaged'], classified_detections)
     previous_engagement = _session_engagement(previous_session) if previous_session else None
     engagement_change = (
         round(average_engagement - previous_engagement, 1)
@@ -121,19 +132,21 @@ def build_session_analytics(session, previous_session=None):
             'duration_seconds': duration_seconds,
             'slides_covered': len(slides),
         },
-        'has_data': bool(total_detections),
+        'has_data': bool(classified_detections),
         'summary': {
             'students_detected': students_detected,
             'total_detections': total_detections,
+            'classified_detections': classified_detections,
+            'unclassified_detections': unclassified_detections,
             'average_engagement': average_engagement,
             'average_confidence': (
-                round(confidence_weighted_total / total_detections, 1)
-                if total_detections else None
+                round(confidence_weighted_total / classified_detections, 1)
+                if classified_detections else None
             ),
             'engagement_change': engagement_change,
         },
         'distribution': {
-            category: _percentage(overall_counts[category], total_detections) or 0
+            category: _percentage(overall_counts[category], classified_detections) or 0
             for category in CATEGORIES
         },
         'insights': insights,

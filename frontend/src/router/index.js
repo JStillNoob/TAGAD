@@ -9,6 +9,9 @@ import ReportsView from '../views/ReportsView.vue'
 import SystemLogsView from '../views/SystemLogsView.vue'
 import SettingsView from '../views/SettingsView.vue'
 import UserManagementView from '../views/UserManagementView.vue'
+import ForgotPasswordView from '../views/ForgotPasswordView.vue'
+import ResetPasswordView from '../views/ResetPasswordView.vue'
+import NotFoundView from '../views/NotFoundView.vue'
 import { fetchCurrentUser } from '../auth'
 
 export const router = createRouter({
@@ -16,6 +19,8 @@ export const router = createRouter({
   routes: [
     { path: '/',           component: LoginView, meta: { public: true } },
     { path: '/register',   component: RegisterView, meta: { public: true } },
+    { path: '/forgot-password', component: ForgotPasswordView, meta: { public: true } },
+    { path: '/reset-password/:uid/:token', component: ResetPasswordView, meta: { public: true, allowAuthenticated: true } },
     { path: '/dashboard',  component: DashboardView },
     { path: '/session',    component: SessionView },
     { path: '/analytics',  component: AnalyticsView },
@@ -29,6 +34,7 @@ export const router = createRouter({
       component: UserManagementView,
       meta: { roles: ['system_admin', 'org_admin'] },
     },
+    { path: '/:pathMatch(.*)*', component: NotFoundView, meta: { public: true, allowAuthenticated: true } },
   ],
 })
 
@@ -50,7 +56,7 @@ router.beforeEach(async (to) => {
   }
 
   if (to.meta.public) {
-    if (user) return safeRedirect(to.query.redirect)
+    if (user && !to.meta.allowAuthenticated) return safeRedirect(to.query.redirect)
     return true
   }
 

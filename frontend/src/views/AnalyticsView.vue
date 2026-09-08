@@ -1,10 +1,14 @@
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { Chart, registerables } from 'chart.js'
 import AppLayout from '../layouts/AppLayout.vue'
 import { analyticsCsvUrl, fetchAnalyticsSessions, fetchSessionAnalytics } from '../analytics'
+import { currentTheme } from '../theme'
 
 Chart.register(...registerables)
+
+const route = useRoute()
 
 const categories = [
   { key: 'engaged', label: 'Engaged', color: '#2D3CC8' },
@@ -65,6 +69,9 @@ async function renderChart() {
   if (!analytics.value?.has_data || !analytics.value.slides.length) return
   await nextTick()
   if (!chartCanvas.value) return
+  const dark = currentTheme.value === 'dark'
+  const labelColor = dark ? '#CBD5E1' : '#94A3B8'
+  const gridColor = dark ? '#293548' : '#F1F5F9'
   chart = new Chart(chartCanvas.value, {
     type: 'bar',
     data: {
@@ -82,8 +89,8 @@ async function renderChart() {
       maintainAspectRatio: false,
       plugins: { legend: { display: false } },
       scales: {
-        x: { stacked: true, grid: { display: false }, ticks: { color: '#94a3b8' } },
-        y: { stacked: true, max: 100, grid: { color: '#f1f5f9' }, ticks: { color: '#94a3b8', callback: value => `${value}%` } },
+        x: { stacked: true, grid: { display: false }, ticks: { color: labelColor } },
+        y: { stacked: true, max: 100, grid: { color: gridColor }, ticks: { color: labelColor, callback: value => `${value}%` } },
       },
     },
   })
@@ -93,9 +100,10 @@ async function loadAnalytics() {
   if (!selectedSessionId.value) return
   loading.value = true
   error.value = ''
+  let shouldRender = false
   try {
     analytics.value = await fetchSessionAnalytics(selectedSessionId.value)
-    await renderChart()
+    shouldRender = true
   } catch (requestError) {
     analytics.value = null
     destroyChart()
@@ -103,6 +111,7 @@ async function loadAnalytics() {
   } finally {
     loading.value = false
   }
+  if (shouldRender) await renderChart()
 }
 
 async function loadSessions() {
@@ -111,7 +120,8 @@ async function loadSessions() {
   try {
     sessions.value = await fetchAnalyticsSessions()
     if (sessions.value.length) {
-      selectedSessionId.value = String(sessions.value[0].id)
+      const requested = sessions.value.find(session => session.id === Number(route.query.session))
+      selectedSessionId.value = String(requested?.id || sessions.value[0].id)
       await loadAnalytics()
     } else {
       analytics.value = null
@@ -122,6 +132,15 @@ async function loadSessions() {
     loading.value = false
   }
 }
+
+watch(() => route.query.session, async (value) => {
+  const requested = sessions.value.find(session => session.id === Number(value))
+  if (requested && String(requested.id) !== selectedSessionId.value) {
+    selectedSessionId.value = String(requested.id)
+    await loadAnalytics()
+  }
+})
+watch(currentTheme, renderChart)
 
 onMounted(loadSessions)
 onBeforeUnmount(destroyChart)
@@ -200,9 +219,9 @@ onBeforeUnmount(destroyChart)
         <div class="page-card p-5">
           <h3 class="font-semibold text-sm mb-4 text-navy">Key Insights</h3>
           <div class="space-y-3">
-            <div class="p-3 rounded-xl border-l-4" style="border-color:#2D3CC8;background:#E5E8F9"><p class="text-xs font-semibold" style="color:#2D3CC8">Highest Engagement</p><p class="text-sm font-bold mt-0.5 text-navy">Slide {{ analytics.insights.highest_engagement.slide_number }} — {{ analytics.insights.highest_engagement.percentage }}%</p><p class="text-xs text-gray-400 mt-0.5">{{ analytics.insights.highest_engagement.title }}</p></div>
-            <div class="p-3 rounded-xl border-l-4" style="border-color:#F59E0B;background:#FEF9EE"><p class="text-xs font-semibold" style="color:#D97706">Most Confusion</p><p class="text-sm font-bold mt-0.5 text-navy">Slide {{ analytics.insights.most_confusion.slide_number }} — {{ analytics.insights.most_confusion.percentage }}%</p><p class="text-xs text-gray-400 mt-0.5">{{ analytics.insights.most_confusion.title }}</p></div>
-            <div class="p-3 rounded-xl border-l-4" style="border-color:#EF476F;background:#FEF0F3"><p class="text-xs font-semibold" style="color:#C73F62">Most Disengaged</p><p class="text-sm font-bold mt-0.5 text-navy">Slide {{ analytics.insights.most_disengaged.slide_number }} — {{ analytics.insights.most_disengaged.percentage }}%</p><p class="text-xs text-gray-400 mt-0.5">{{ analytics.insights.most_disengaged.title }}</p></div>
+            <div class="insight-card-engaged p-3 rounded-xl border-l-4" style="border-color:#2D3CC8"><p class="text-xs font-semibold" style="color:#7083FF">Highest Engagement</p><p class="text-sm font-bold mt-0.5 text-navy">Slide {{ analytics.insights.highest_engagement.slide_number }} — {{ analytics.insights.highest_engagement.percentage }}%</p><p class="text-xs text-gray-400 mt-0.5">{{ analytics.insights.highest_engagement.title }}</p></div>
+            <div class="insight-card-confused p-3 rounded-xl border-l-4" style="border-color:#F59E0B"><p class="text-xs font-semibold text-amber-600">Most Confusion</p><p class="text-sm font-bold mt-0.5 text-navy">Slide {{ analytics.insights.most_confusion.slide_number }} — {{ analytics.insights.most_confusion.percentage }}%</p><p class="text-xs text-gray-400 mt-0.5">{{ analytics.insights.most_confusion.title }}</p></div>
+            <div class="insight-card-disengaged p-3 rounded-xl border-l-4" style="border-color:#EF476F"><p class="text-xs font-semibold text-rose-600">Most Disengaged</p><p class="text-sm font-bold mt-0.5 text-navy">Slide {{ analytics.insights.most_disengaged.slide_number }} — {{ analytics.insights.most_disengaged.percentage }}%</p><p class="text-xs text-gray-400 mt-0.5">{{ analytics.insights.most_disengaged.title }}</p></div>
             <div class="p-3 rounded-xl border-l-4 border-gray-200 bg-gray-50"><p class="text-xs font-semibold text-gray-400">Recommendation</p><p class="text-xs text-gray-600 mt-1">{{ analytics.insights.recommendation }}</p></div>
           </div>
         </div>

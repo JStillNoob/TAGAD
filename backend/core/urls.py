@@ -4,6 +4,7 @@ from .views import (
     CameraDetailView,
     CameraListCreateView,
     ClassManagementOptionsView,
+    ClassManagementQuickSetupView,
     ClassroomDetailView,
     ClassroomListCreateView,
     DashboardSummaryView,
@@ -39,13 +40,25 @@ from .analytics_views import (
     SessionAnalyticsCsvView,
     SessionAnalyticsView,
 )
+from .report_views import ReportDownloadView, ReportListCreateView, ReportOptionsView
+from .password_reset_views import (
+    PasswordResetConfirmView,
+    PasswordResetRequestView,
+    PasswordResetValidateView,
+)
+from .search_views import GlobalSearchView
+from .engagement_views import EngagementIngestionView, EngagementSimulatorView
 
 
 urlpatterns = [
     path('csrf/', CsrfView.as_view(), name='csrf'),
     path('login/', LoginView.as_view(), name='login'),
+    path('password-reset/request/', PasswordResetRequestView.as_view(), name='password-reset-request'),
+    path('password-reset/validate/', PasswordResetValidateView.as_view(), name='password-reset-validate'),
+    path('password-reset/confirm/', PasswordResetConfirmView.as_view(), name='password-reset-confirm'),
     path('logout/', LogoutView.as_view(), name='logout'),
     path('me/', CurrentUserView.as_view(), name='current-user'),
+    path('search/', GlobalSearchView.as_view(), name='global-search'),
     path('settings/', AccountSettingsView.as_view(), name='account-settings'),
     path('settings/profile/', ProfileSettingsView.as_view(), name='profile-settings'),
     path('settings/organization/', OrganizationSettingsView.as_view(), name='organization-settings'),
@@ -59,10 +72,14 @@ urlpatterns = [
     path('subjects/', SubjectListCreateView.as_view(), name='subject-list'),
     path('subjects/<int:pk>/', SubjectDetailView.as_view(), name='subject-detail'),
     path('class-management/options/', ClassManagementOptionsView.as_view(), name='class-management-options'),
+    path('class-management/quick-setup/', ClassManagementQuickSetupView.as_view(), name='class-management-quick-setup'),
     path('cameras/', CameraListCreateView.as_view(), name='camera-list'),
     path('cameras/<int:pk>/', CameraDetailView.as_view(), name='camera-detail'),
     path('dashboard/', DashboardSummaryView.as_view(), name='dashboard-summary'),
     path('logs/', SystemLogListView.as_view(), name='system-log-list'),
+    path('reports/', ReportListCreateView.as_view(), name='report-list-create'),
+    path('reports/options/', ReportOptionsView.as_view(), name='report-options'),
+    path('reports/<int:pk>/download/', ReportDownloadView.as_view(), name='report-download'),
     path('presentations/', PresentationListCreateView.as_view(), name='presentation-list'),
     path('presentations/<int:pk>/', PresentationDetailView.as_view(), name='presentation-detail'),
     path('presentations/<int:pk>/source/', PresentationSourceView.as_view(), name='presentation-source'),
@@ -75,6 +92,8 @@ urlpatterns = [
     path('session-options/', SessionOptionsView.as_view(), name='session-options'),
     path('sessions/', SessionListCreateView.as_view(), name='session-list'),
     path('sessions/<int:pk>/end/', SessionEndView.as_view(), name='session-end'),
+    path('pipeline/engagement/', EngagementIngestionView.as_view(), name='engagement-ingestion'),
+    path('sessions/<int:pk>/simulate-engagement/', EngagementSimulatorView.as_view(), name='engagement-simulator'),
     path('analytics/sessions/', AnalyticsSessionListView.as_view(), name='analytics-session-list'),
     path('analytics/sessions/<int:pk>/', SessionAnalyticsView.as_view(), name='session-analytics'),
     path(

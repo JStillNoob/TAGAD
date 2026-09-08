@@ -32,3 +32,7 @@ export function enterSessionSlide(sessionId, slideId) {
 export function endClassroomSession(sessionId) {
   return apiRequest(`/api/auth/sessions/${sessionId}/end/`, { method: 'POST' })
 }
+
+export function simulateEngagement(sessionId) {
+  return apiRequest(`/api/auth/sessions/${sessionId}/simulate-engagement/`, { method: 'POST' })
+}

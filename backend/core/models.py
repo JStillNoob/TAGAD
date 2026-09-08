@@ -5,6 +5,7 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.db.models import Q
 from django.db.models.functions import Lower
+from django.utils import timezone
 
 
 def presentation_upload_path(instance, filename):
@@ -234,6 +235,7 @@ class SlideEvent(models.Model):
     session = models.ForeignKey(ClassroomSession, on_delete=models.CASCADE, related_name='slide_events')
     slide = models.ForeignKey(PresentationSlide, on_delete=models.CASCADE, related_name='slide_events')
     entered_at = models.DateTimeField()
+    disengagement_alert_active = models.BooleanField(default=False)
 
     class Meta:
         db_table = 'slide_events'
@@ -247,7 +249,12 @@ class EngagementSummary(models.Model):
     bored_count = models.IntegerField(default=0)
     disengaged_count = models.IntegerField(default=0)
     total_detected = models.IntegerField(default=0)
+    unclassified_count = models.IntegerField(default=0)
     average_confidence = models.DecimalField(max_digits=5, decimal_places=2)
+    captured_at = models.DateTimeField(default=timezone.now)
+    ingestion_id = models.UUIDField(default=uuid4, unique=True, editable=False)
+    schema_version = models.PositiveSmallIntegerField(default=1)
+    pipeline_version = models.CharField(max_length=50, default='legacy')
 
     class Meta:
         db_table = 'engagement_summaries'

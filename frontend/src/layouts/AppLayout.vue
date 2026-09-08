@@ -2,6 +2,8 @@
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { currentUser, logout } from "../auth";
+import GlobalSearch from "../components/GlobalSearch.vue";
+import ThemeToggle from "../components/ThemeToggle.vue";
 
 const props = defineProps({
   pageTitle: String,
@@ -280,7 +282,7 @@ async function handleLogout() {
     >
       <!-- Topbar — slides up and out in focus mode -->
       <header
-        class="bg-white border-b border-gray-200 flex items-center px-6 gap-4 sticky top-0 z-20 flex-shrink-0 overflow-hidden transition-all duration-500 ease-in-out"
+        class="bg-white border-b border-gray-200 flex items-center px-6 gap-4 sticky top-0 z-20 flex-shrink-0 overflow-visible transition-all duration-500 ease-in-out"
         :class="
           focusMode
             ? 'h-0 opacity-0 border-0 pointer-events-none'
@@ -326,43 +328,7 @@ async function handleLogout() {
         </button>
 
         <!-- Search -->
-        <div class="flex-1 max-w-xs">
-          <div class="relative">
-            <span
-              class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class="w-4 h-4 text-gray-400"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"
-                />
-              </svg>
-            </span>
-            <label for="topbar-search" class="sr-only">Search</label>
-            <input
-              id="topbar-search"
-              type="text"
-              placeholder="Search or type command..."
-              class="w-full pl-9 pr-12 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg outline-none text-gray-600 placeholder-gray-400 focus:border-brand focus:bg-white transition-colors"
-            />
-            <div
-              class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none"
-            >
-              <kbd
-                class="text-xs text-gray-400 font-medium bg-gray-100 border border-gray-200 px-1.5 py-0.5 rounded"
-                >⌘K</kbd
-              >
-            </div>
-          </div>
-        </div>
+        <GlobalSearch />
 
         <div class="flex-1"></div>
 
@@ -376,86 +342,29 @@ async function handleLogout() {
           >
             Admin Console
           </a>
-          <button
-            class="p-2 rounded-lg hover:bg-gray-100 transition-colors text-gray-500"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="w-5 h-5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              stroke-width="1.8"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z"
-              />
-            </svg>
-          </button>
-
-          <button
-            class="relative p-2 rounded-lg hover:bg-gray-100 transition-colors text-gray-500"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="w-5 h-5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              stroke-width="1.8"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0"
-              />
-            </svg>
-            <span
-              class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-danger"
-            ></span>
-          </button>
+          <ThemeToggle />
 
           <div class="w-px h-6 bg-gray-200 mx-2"></div>
 
-          <div class="flex items-center gap-2.5">
-            <div
-              class="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-              style="background: #465ff1"
-            >
-              {{ initials }}
-            </div>
-            <div class="hidden md:block">
-              <div class="text-sm font-semibold text-gray-800 leading-none">
-                {{ displayName }}
+          <details class="relative">
+            <summary class="flex cursor-pointer list-none items-center gap-2.5 rounded-lg p-1.5 hover:bg-gray-100 [&::-webkit-details-marker]:hidden" aria-label="Open account menu">
+              <div class="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0" style="background: #465ff1">
+                {{ initials }}
               </div>
-              <div class="text-xs text-gray-400 mt-0.5">{{ roleLabel }}</div>
+              <div class="hidden md:block text-left">
+                <div class="text-sm font-semibold text-gray-800 leading-none">{{ displayName }}</div>
+                <div class="text-xs text-gray-400 mt-0.5">{{ roleLabel }}</div>
+              </div>
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
+            </summary>
+            <div class="absolute right-0 top-full mt-2 w-52 rounded-xl border border-gray-200 bg-white p-2 shadow-lg">
+              <RouterLink to="/settings" class="block rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">Account settings</RouterLink>
+              <button type="button" class="mt-1 w-full rounded-lg px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 disabled:opacity-50" :disabled="logoutPending" @click="handleLogout">
+                {{ logoutPending ? "Signing out…" : "Sign out" }}
+              </button>
+              <p v-if="logoutError" class="px-3 py-2 text-xs text-red-600" role="alert">{{ logoutError }}</p>
             </div>
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="w-4 h-4 text-gray-400"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                d="m19.5 8.25-7.5 7.5-7.5-7.5"
-              />
-            </svg>
-          </div>
-          <button
-            type="button"
-            class="ml-2 px-3 py-2 text-sm font-medium text-gray-500 rounded-lg hover:bg-gray-100 disabled:opacity-50"
-            :disabled="logoutPending"
-            :title="logoutError || 'Sign out'"
-            @click="handleLogout"
-          >
-            {{ logoutPending ? "Signing out…" : "Logout" }}
-          </button>
+          </details>
         </div>
       </header>
 
