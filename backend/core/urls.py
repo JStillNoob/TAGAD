@@ -34,6 +34,11 @@ from .session_views import (
     SessionListCreateView,
     SessionOptionsView,
 )
+from .analytics_views import (
+    AnalyticsSessionListView,
+    SessionAnalyticsCsvView,
+    SessionAnalyticsView,
+)
 
 
 urlpatterns = [
@@ -70,6 +75,13 @@ urlpatterns = [
     path('session-options/', SessionOptionsView.as_view(), name='session-options'),
     path('sessions/', SessionListCreateView.as_view(), name='session-list'),
     path('sessions/<int:pk>/end/', SessionEndView.as_view(), name='session-end'),
+    path('analytics/sessions/', AnalyticsSessionListView.as_view(), name='analytics-session-list'),
+    path('analytics/sessions/<int:pk>/', SessionAnalyticsView.as_view(), name='session-analytics'),
+    path(
+        'analytics/sessions/<int:pk>/csv/',
+        SessionAnalyticsCsvView.as_view(),
+        name='session-analytics-csv',
+    ),
     path(
         'sessions/<int:pk>/enter-slide/',
         SessionEnterSlideView.as_view(),
