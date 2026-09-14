@@ -2,12 +2,25 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { currentUser } from '../auth'
+import { availableCameraIds, cameraReadinessLabel } from '../cameraSelection'
+import {
+  createUploadRequestId,
+  presentationDirectionForKey,
+} from '../presentationControls'
+import {
+  endSessionWithRecovery,
+  findOwnActiveSession,
+  restoreSlideIndex,
+  startSessionWithRecovery,
+} from '../sessionReliability'
 import AppLayout from '../layouts/AppLayout.vue'
 import {
+  deletePresentation as deletePresentationRequest,
   endClassroomSession,
   enterSessionSlide,
   fetchSessionOptions,
   fetchSessions,
+  retryPresentation as retryPresentationRequest,
   startClassroomSession,
   simulateEngagement,
   uploadPresentation,
@@ -26,8 +39,13 @@ const selectedPresentationId = ref('')
 const selectedCameraIds = ref([])
 const uploadTitle = ref('')
 const uploadFile = ref(null)
+const uploadRequestId = ref(null)
+const uploadProgress = ref(null)
 const fileInput = ref(null)
+const presentationBusyId = ref(null)
 const activeSession = ref(null)
+const presentationStage = ref(null)
+const isFullscreen = ref(false)
 const currentSlideIndex = ref(0)
 const elapsedSeconds = ref(0)
 const latestEngagement = ref(null)
@@ -38,6 +56,8 @@ let timer = null
 let simulationTimer = null
 let engagementSocket = null
 let socketReconnectTimer = null
+let socketReconnectAttempts = 0
+const maximumSocketReconnectAttempts = 5
 
 const engagementCategories = [
   { key: 'engaged', label: 'Engaged', color: '#2D3CC8' },
@@ -53,6 +73,7 @@ const selectedSubject = computed(() => options.value.subjects.find(
 const selectedPresentation = computed(() => options.value.presentations.find(
   (presentation) => presentation.id === Number(selectedPresentationId.value),
 ))
+const availableCameras = computed(() => selectedSubject.value?.cameras || [])
 const slides = computed(() => activeSession.value?.presentation?.slides || [])
 const currentSlide = computed(() => slides.value[currentSlideIndex.value] || null)
 const canStart = computed(() => (
@@ -65,6 +86,13 @@ const elapsedDisplay = computed(() => {
   const minutes = Math.floor((elapsedSeconds.value % 3600) / 60)
   const seconds = elapsedSeconds.value % 60
   return [hours, minutes, seconds].map((value) => String(value).padStart(2, '0')).join(':')
+})
+const uploadStatusText = computed(() => {
+  if (!uploadProgress.value) return ''
+  if (uploadProgress.value.phase === 'processing') {
+    return 'Upload complete. Generating slide images…'
+  }
+  return `Uploading file… ${uploadProgress.value.percent}%`
 })
 
 function messageFrom(errorObject) {
@@ -93,7 +121,7 @@ function applyEngagement(summary) {
   else if (summary.distribution.disengaged <= 50) liveAlert.value = null
 }
 
-function connectEngagement(sessionId) {
+function connectEngagement(sessionId, reconnecting = false) {
   clearTimeout(socketReconnectTimer)
   const previousSocket = engagementSocket
   engagementSocket = null
@@ -101,16 +129,29 @@ function connectEngagement(sessionId) {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const socket = new WebSocket(`${protocol}//${window.location.host}/ws/sessions/${sessionId}/engagement/`)
   engagementSocket = socket
-  socketStatus.value = 'connecting'
-  socket.onopen = () => { socketStatus.value = 'connected' }
+  socketStatus.value = reconnecting ? 'reconnecting' : 'connecting'
+  socket.onopen = () => {
+    socketReconnectAttempts = 0
+    socketStatus.value = 'connected'
+  }
   socket.onclose = () => {
     if (engagementSocket !== socket) return
-    socketStatus.value = 'disconnected'
-    if (activeSession.value?.id === sessionId) {
-      socketReconnectTimer = setTimeout(() => connectEngagement(sessionId), 2000)
+    if (activeSession.value?.id !== sessionId) {
+      socketStatus.value = 'disconnected'
+      return
     }
+    if (socketReconnectAttempts >= maximumSocketReconnectAttempts) {
+      socketStatus.value = 'unavailable'
+      return
+    }
+    socketReconnectAttempts += 1
+    socketStatus.value = 'reconnecting'
+    const delay = Math.min(1000 * (2 ** (socketReconnectAttempts - 1)), 8000)
+    socketReconnectTimer = setTimeout(() => connectEngagement(sessionId, true), delay)
   }
-  socket.onerror = () => { socketStatus.value = 'error' }
+  socket.onerror = () => {
+    if (engagementSocket === socket) socketStatus.value = 'reconnecting'
+  }
   socket.onmessage = (event) => {
     try {
       const message = JSON.parse(event.data)
@@ -119,6 +160,12 @@ function connectEngagement(sessionId) {
       error.value = 'A live engagement update could not be read.'
     }
   }
+}
+
+function retryEngagementConnection() {
+  if (!activeSession.value) return
+  socketReconnectAttempts = 0
+  connectEngagement(activeSession.value.id)
 }
 
 async function emitSimulation() {
@@ -150,7 +197,15 @@ function disconnectEngagement() {
   const socket = engagementSocket
   engagementSocket = null
   socket?.close()
+  socketReconnectAttempts = 0
   socketStatus.value = 'disconnected'
+}
+
+function activateSession(session) {
+  activeSession.value = session
+  currentSlideIndex.value = restoreSlideIndex(session)
+  startTimer()
+  connectEngagement(session.id)
 }
 
 function applyRouteSelection() {
@@ -158,6 +213,14 @@ function applyRouteSelection() {
   const presentation = options.value.presentations.find(item => item.id === Number(route.query.presentation))
   if (subject) selectedSubjectId.value = subject.id
   if (presentation) selectedPresentationId.value = presentation.id
+}
+
+function selectAllCameras() {
+  selectedCameraIds.value = availableCameraIds(selectedSubject.value)
+}
+
+function clearCameraSelection() {
+  selectedCameraIds.value = []
 }
 
 async function loadPage() {
@@ -171,17 +234,9 @@ async function loadPage() {
     options.value = sessionOptions
     sessions.value = sessionHistory
     applyRouteSelection()
-    const ongoing = sessionHistory.find((session) => (
-      session.user === currentUser.value?.id && session.status === 'ongoing'
-    ))
+    const ongoing = findOwnActiveSession(sessionHistory, currentUser.value?.id)
     if (ongoing) {
-      activeSession.value = ongoing
-      const savedIndex = ongoing.presentation.slides.findIndex(
-        (slide) => slide.id === ongoing.current_slide,
-      )
-      currentSlideIndex.value = savedIndex >= 0 ? savedIndex : 0
-      startTimer()
-      connectEngagement(ongoing.id)
+      activateSession(ongoing)
     }
   } catch (requestError) {
     error.value = messageFrom(requestError)
@@ -192,6 +247,7 @@ async function loadPage() {
 
 function chooseFile(event) {
   uploadFile.value = event.target.files?.[0] || null
+  uploadRequestId.value = uploadFile.value ? createUploadRequestId() : null
   if (uploadFile.value && !uploadTitle.value) {
     uploadTitle.value = uploadFile.value.name.replace(/\.(pdf|pptx)$/i, '')
   }
@@ -201,15 +257,22 @@ async function submitUpload() {
   if (!uploadFile.value || !uploadTitle.value.trim()) return
   actionBusy.value = true
   error.value = ''
+  uploadProgress.value = { phase: 'uploading', percent: 0 }
   try {
     const presentation = await uploadPresentation({
       title: uploadTitle.value.trim(),
       file: uploadFile.value,
+      requestId: uploadRequestId.value || createUploadRequestId(),
+      onProgress: (progress) => { uploadProgress.value = progress },
     })
-    options.value.presentations.unshift(presentation)
+    options.value.presentations = [
+      presentation,
+      ...options.value.presentations.filter((item) => item.id !== presentation.id),
+    ]
     selectedPresentationId.value = presentation.id
     uploadTitle.value = ''
     uploadFile.value = null
+    uploadRequestId.value = null
     if (fileInput.value) fileInput.value.value = ''
     if (presentation.processing_status === 'failed') {
       error.value = presentation.processing_error || 'The presentation could not be converted.'
@@ -218,6 +281,50 @@ async function submitUpload() {
     error.value = messageFrom(requestError)
   } finally {
     actionBusy.value = false
+    uploadProgress.value = null
+  }
+}
+
+function replacePresentation(updated) {
+  options.value.presentations = options.value.presentations.map(
+    (presentation) => presentation.id === updated.id ? updated : presentation,
+  )
+}
+
+async function retryPresentation(presentation) {
+  if (presentationBusyId.value) return
+  presentationBusyId.value = presentation.id
+  error.value = ''
+  try {
+    const updated = await retryPresentationRequest(presentation.id)
+    replacePresentation(updated)
+    if (updated.processing_status === 'failed') {
+      error.value = updated.processing_error || 'The presentation could not be converted.'
+    }
+  } catch (requestError) {
+    error.value = messageFrom(requestError)
+  } finally {
+    presentationBusyId.value = null
+  }
+}
+
+async function deletePresentation(presentation) {
+  if (presentationBusyId.value || presentation.in_use) return
+  if (!window.confirm(`Delete “${presentation.title}” and all of its generated files?`)) return
+  presentationBusyId.value = presentation.id
+  error.value = ''
+  try {
+    await deletePresentationRequest(presentation.id)
+    options.value.presentations = options.value.presentations.filter(
+      (item) => item.id !== presentation.id,
+    )
+    if (Number(selectedPresentationId.value) === presentation.id) {
+      selectedPresentationId.value = ''
+    }
+  } catch (requestError) {
+    error.value = messageFrom(requestError)
+  } finally {
+    presentationBusyId.value = null
   }
 }
 
@@ -226,14 +333,17 @@ async function beginSession() {
   actionBusy.value = true
   error.value = ''
   try {
-    activeSession.value = await startClassroomSession({
-      subject: Number(selectedSubjectId.value),
-      presentation: Number(selectedPresentationId.value),
-      cameras: selectedCameraIds.value,
+    const started = await startSessionWithRecovery({
+      start: () => startClassroomSession({
+        subject: Number(selectedSubjectId.value),
+        presentation: Number(selectedPresentationId.value),
+        cameras: selectedCameraIds.value,
+      }),
+      fetchSessions,
+      userId: currentUser.value?.id,
     })
-    currentSlideIndex.value = 0
-    startTimer()
-    connectEngagement(activeSession.value.id)
+    sessions.value = [started, ...sessions.value.filter((session) => session.id !== started.id)]
+    activateSession(started)
   } catch (requestError) {
     error.value = messageFrom(requestError)
   } finally {
@@ -255,12 +365,45 @@ async function changeSlide(nextIndex) {
   }
 }
 
+function handlePresentationKey(event) {
+  const direction = presentationDirectionForKey(event, Boolean(activeSession.value))
+  if (!direction) return
+  event.preventDefault()
+  changeSlide(currentSlideIndex.value + direction)
+}
+
+function syncFullscreenState() {
+  isFullscreen.value = document.fullscreenElement === presentationStage.value
+}
+
+async function toggleFullscreen() {
+  error.value = ''
+  try {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen()
+      return
+    }
+    if (!presentationStage.value?.requestFullscreen) {
+      throw new Error('Fullscreen presentation is not supported by this browser.')
+    }
+    await presentationStage.value.requestFullscreen()
+  } catch (requestError) {
+    error.value = requestError.message || 'Fullscreen presentation could not be opened.'
+  }
+}
+
 async function finishSession() {
   if (!activeSession.value || actionBusy.value) return
+  if (!window.confirm('End this classroom session? You will be taken to its analytics report.')) return
+  const sessionId = activeSession.value.id
   actionBusy.value = true
   error.value = ''
   try {
-    const ended = await endClassroomSession(activeSession.value.id)
+    const ended = await endSessionWithRecovery({
+      sessionId,
+      end: () => endClassroomSession(sessionId),
+      fetchSessions,
+    })
     clearInterval(timer)
     disconnectEngagement()
     activeSession.value = null
@@ -279,13 +422,17 @@ function formatDate(value) {
   }).format(new Date(value))
 }
 
-watch(selectedSubjectId, () => {
-  selectedCameraIds.value = []
-})
+watch(selectedSubjectId, selectAllCameras)
 watch(() => [route.query.subject, route.query.presentation], applyRouteSelection)
 
-onMounted(loadPage)
+onMounted(() => {
+  document.addEventListener('keydown', handlePresentationKey)
+  document.addEventListener('fullscreenchange', syncFullscreenState)
+  loadPage()
+})
 onUnmounted(() => {
+  document.removeEventListener('keydown', handlePresentationKey)
+  document.removeEventListener('fullscreenchange', syncFullscreenState)
   clearInterval(timer)
   disconnectEngagement()
 })
@@ -338,18 +485,29 @@ onUnmounted(() => {
           <div class="mt-5 rounded-xl border border-gray-200 p-4">
             <div class="flex items-center justify-between gap-3">
               <div>
-                <h3 class="text-sm font-semibold text-navy">Configured cameras (optional)</h3>
-                <p class="text-xs text-gray-400 mt-1">Camera hardware is not connected yet. Selecting a camera only links its configuration to this session.</p>
+                <h3 class="text-sm font-semibold text-navy">Session cameras</h3>
+                <p class="text-xs text-gray-400 mt-1">Active cameras from the selected classroom are chosen automatically.</p>
               </div>
-              <span class="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">Hardware pending</span>
+              <span v-if="availableCameras.length" class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">{{ selectedCameraIds.length }}/{{ availableCameras.length }} selected</span>
+              <span v-else class="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">No active cameras</span>
             </div>
-            <div v-if="selectedSubject?.cameras.length" class="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
-              <label v-for="camera in selectedSubject.cameras" :key="camera.id" class="flex items-center gap-2 rounded-lg border border-gray-200 p-3 text-sm text-gray-600">
-                <input v-model="selectedCameraIds" type="checkbox" :value="camera.id" class="accent-brand">
-                <span>{{ camera.name }} <small class="block text-gray-400">{{ camera.position }}</small></span>
-              </label>
+            <template v-if="availableCameras.length">
+              <div class="mt-4 flex items-center justify-end gap-2">
+                <button type="button" class="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50" @click="selectAllCameras">Select all</button>
+                <button type="button" class="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50" @click="clearCameraSelection">Clear</button>
+              </div>
+              <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <label v-for="camera in availableCameras" :key="camera.id" class="flex cursor-pointer items-center gap-3 rounded-lg border p-3 text-sm" :class="selectedCameraIds.includes(camera.id) ? 'border-indigo-300 bg-indigo-50/50 text-navy' : 'border-gray-200 text-gray-600'">
+                  <input v-model="selectedCameraIds" type="checkbox" :value="camera.id" class="accent-brand">
+                  <span class="min-w-0 flex-1"><strong class="block truncate font-semibold">{{ camera.name }}</strong><small class="block text-gray-400">{{ camera.position_label || camera.position }}</small></span>
+                  <span class="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">{{ camera.status_label || 'Active' }}</span>
+                </label>
+              </div>
+            </template>
+            <div v-else-if="selectedSubject" class="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              This classroom has no active cameras. You can still start the session and use the development simulator.
             </div>
-            <p v-else class="mt-4 text-sm text-gray-400">No active cameras are configured. You can still start the session.</p>
+            <p v-else class="mt-4 text-sm text-gray-400">Select a subject to load its classroom cameras.</p>
           </div>
 
           <button type="button" class="btn-primary mt-5" :disabled="!canStart" @click="beginSession">
@@ -386,8 +544,18 @@ onUnmounted(() => {
             <input ref="fileInput" type="file" accept=".pdf,.pptx,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation" class="mt-1.5 block w-full text-sm text-gray-500" @change="chooseFile">
           </label>
           <button type="button" class="btn-primary w-full justify-center mt-4" :disabled="actionBusy || !uploadFile || !uploadTitle.trim()" @click="submitUpload">
-            {{ actionBusy ? 'Uploading and converting…' : 'Upload Presentation' }}
+            {{ actionBusy ? 'Working…' : 'Upload Presentation' }}
           </button>
+          <div v-if="uploadProgress" class="mt-3 rounded-lg bg-indigo-50 p-3" role="status">
+            <div class="flex items-center justify-between gap-3 text-xs font-medium text-indigo-700">
+              <span>{{ uploadStatusText }}</span>
+              <span v-if="uploadProgress.phase === 'uploading'">{{ uploadProgress.percent }}%</span>
+            </div>
+            <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-indigo-100">
+              <div class="h-full rounded-full bg-brand transition-all" :class="uploadProgress.phase === 'processing' ? 'animate-pulse' : ''" :style="{ width: `${uploadProgress.percent}%` }"></div>
+            </div>
+            <p class="mt-2 text-xs text-indigo-700">PPTX conversion can take up to two minutes.</p>
+          </div>
           <div v-if="options.presentations.length" class="mt-5 border-t border-gray-100 pt-4">
             <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-400">Presentation Library</h3>
             <div class="mt-3 max-h-64 space-y-2 overflow-y-auto">
@@ -403,8 +571,22 @@ onUnmounted(() => {
                 </div>
                 <p v-if="presentation.processing_status === 'ready'" class="mt-1 text-xs text-gray-400">{{ presentation.total_slides }} generated slides</p>
                 <p v-else-if="presentation.processing_error" class="mt-2 text-xs leading-5 text-red-600">{{ presentation.processing_error }}</p>
+                <p v-if="presentation.in_use" class="mt-2 text-xs text-gray-400">Used by a recorded session · deletion protected</p>
+                <div class="mt-3 flex flex-wrap items-center gap-3 text-xs font-semibold">
+                  <a v-if="presentation.preview_url" :href="presentation.preview_url" target="_blank" rel="noopener" class="text-brand hover:underline">Preview</a>
+                  <button v-if="presentation.processing_status === 'failed'" type="button" class="text-brand hover:underline disabled:opacity-50" :disabled="presentationBusyId === presentation.id" @click="retryPresentation(presentation)">
+                    {{ presentationBusyId === presentation.id ? 'Retrying…' : 'Retry conversion' }}
+                  </button>
+                  <button type="button" class="text-red-600 hover:underline disabled:cursor-not-allowed disabled:opacity-40" :disabled="presentation.in_use || presentationBusyId === presentation.id" @click="deletePresentation(presentation)">
+                    Delete
+                  </button>
+                </div>
               </div>
             </div>
+          </div>
+          <div v-else class="mt-5 rounded-lg border border-dashed border-gray-200 px-4 py-6 text-center">
+            <p class="text-sm font-medium text-navy">No presentations yet</p>
+            <p class="mt-1 text-xs text-gray-400">Upload a PDF or PPTX to create the first one.</p>
           </div>
         </section>
 
@@ -439,14 +621,20 @@ onUnmounted(() => {
       </div>
 
       <div class="grid grid-cols-1 xl:grid-cols-4 gap-5">
-        <section class="xl:col-span-3 page-card p-5">
-          <div v-if="currentSlide" class="flex min-h-[520px] items-center justify-center rounded-xl bg-slate-900 p-4">
+        <section ref="presentationStage" class="presenter-stage xl:col-span-3 page-card p-5">
+          <div class="mb-3 flex items-center justify-between gap-3">
+            <p class="text-xs text-gray-400">Use ← and → to change slides</p>
+            <button type="button" class="rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50" @click="toggleFullscreen">
+              {{ isFullscreen ? 'Exit fullscreen' : 'Present fullscreen' }}
+            </button>
+          </div>
+          <div v-if="currentSlide" class="presenter-canvas flex min-h-[520px] items-center justify-center rounded-xl bg-slate-900 p-4">
             <img :src="currentSlide.image_url" :alt="currentSlide.slide_title" class="max-h-[70vh] max-w-full object-contain">
           </div>
-          <div v-else class="flex min-h-[520px] items-center justify-center rounded-xl bg-slate-900 text-sm text-slate-400">
+          <div v-else class="presenter-canvas flex min-h-[520px] items-center justify-center rounded-xl bg-slate-900 text-sm text-slate-400">
             This presentation has no generated slides.
           </div>
-          <div class="mt-4 flex items-center justify-between">
+          <div class="presenter-controls mt-4 flex items-center justify-between">
             <button type="button" class="rounded-lg border border-gray-200 px-4 py-2 text-sm disabled:opacity-40" :disabled="currentSlideIndex === 0 || actionBusy" @click="changeSlide(currentSlideIndex - 1)">Previous</button>
             <span class="text-sm text-gray-500">Slide {{ currentSlideIndex + 1 }} of {{ slides.length }}</span>
             <button type="button" class="rounded-lg border border-gray-200 px-4 py-2 text-sm disabled:opacity-40" :disabled="currentSlideIndex >= slides.length - 1 || actionBusy" @click="changeSlide(currentSlideIndex + 1)">Next</button>
@@ -457,23 +645,31 @@ onUnmounted(() => {
           <section class="page-card p-5">
             <div class="flex items-center justify-between gap-2">
               <h3 class="text-sm font-semibold text-navy">Camera Configuration</h3>
-              <span class="rounded-full bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">Pending</span>
+              <span v-if="activeSession.cameras.length" class="rounded-full bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">Configuration ready</span>
+              <span v-else class="rounded-full bg-violet-50 px-2 py-1 text-xs font-semibold text-violet-700">Simulator only</span>
             </div>
-            <p class="mt-3 text-xs leading-5 text-gray-500">No live feed is shown because camera hardware integration has not been implemented.</p>
+            <p class="mt-3 text-xs leading-5 text-gray-500">Linked camera records are shown below. Video feeds will remain disconnected until CCTV integration is added.</p>
             <div v-if="activeSession.cameras.length" class="space-y-2 mt-4">
               <div v-for="camera in activeSession.cameras" :key="camera.id" class="rounded-lg border border-gray-100 p-3">
-                <p class="text-sm font-medium text-navy">{{ camera.name }}</p>
-                <p class="text-xs text-gray-400 capitalize">{{ camera.position }} position</p>
+                <div class="flex items-start justify-between gap-2">
+                  <div class="min-w-0"><p class="truncate text-sm font-medium text-navy">{{ camera.name }}</p><p class="text-xs text-gray-400">{{ camera.position_label || camera.position }} position</p></div>
+                  <span class="rounded-full px-2 py-0.5 text-[11px] font-semibold" :class="camera.status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-600'">{{ cameraReadinessLabel(camera) }}</span>
+                </div>
+                <div class="mt-2 flex items-center gap-1.5 text-xs text-amber-700"><span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>Video feed not connected</div>
               </div>
             </div>
-            <p v-else class="mt-4 text-xs text-gray-400">This session has no linked cameras.</p>
+            <div v-else class="mt-4 rounded-lg border border-violet-200 bg-violet-50 p-3"><p class="text-xs font-semibold text-violet-700">No cameras linked</p><p class="mt-1 text-xs leading-5 text-violet-600">This session can continue with simulated engagement data.</p></div>
           </section>
 
           <section class="page-card p-5">
             <h3 class="text-sm font-semibold text-navy">Engagement Monitoring</h3>
             <div class="mt-2 flex items-center justify-between text-xs text-gray-500">
               <span>Live updates</span>
-              <span :class="socketStatus === 'connected' ? 'text-emerald-600' : 'text-amber-600'">{{ socketStatus }}</span>
+              <span :class="socketStatus === 'connected' ? 'text-emerald-600' : socketStatus === 'unavailable' ? 'text-red-600' : 'text-amber-600'">{{ socketStatus }}</span>
+            </div>
+            <div v-if="socketStatus === 'unavailable'" class="mt-3 rounded-lg border border-red-100 bg-red-50 p-3 text-xs text-red-700">
+              Live updates are unavailable. The classroom session remains active.
+              <button type="button" class="ml-1 font-semibold underline" @click="retryEngagementConnection">Retry connection</button>
             </div>
             <div v-if="liveAlert" class="mt-3 rounded-lg bg-red-50 p-3 text-xs text-red-700" role="alert">
               {{ liveAlert.message }}

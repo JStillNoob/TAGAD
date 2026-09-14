@@ -28,6 +28,7 @@ from .session_views import (
     PresentationDetailView,
     PresentationListCreateView,
     PresentationPreviewView,
+    PresentationRetryView,
     PresentationSlideImageView,
     PresentationSourceView,
     SessionEndView,
@@ -84,6 +85,7 @@ urlpatterns = [
     path('presentations/<int:pk>/', PresentationDetailView.as_view(), name='presentation-detail'),
     path('presentations/<int:pk>/source/', PresentationSourceView.as_view(), name='presentation-source'),
     path('presentations/<int:pk>/preview/', PresentationPreviewView.as_view(), name='presentation-preview'),
+    path('presentations/<int:pk>/retry/', PresentationRetryView.as_view(), name='presentation-retry'),
     path(
         'presentations/<int:pk>/slides/<int:slide_pk>/image/',
         PresentationSlideImageView.as_view(),

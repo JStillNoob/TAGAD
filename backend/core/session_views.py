@@ -13,8 +13,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import Camera, ClassroomSession, Presentation, SlideEvent
-from .presentation_processing import process_presentation
-from .session_access import presentations_for_user, sessions_for_user, subjects_for_user
+from .presentation_processing import delete_presentation_files, process_presentation
+from .session_access import (
+    presentations_for_update,
+    presentations_for_user,
+    sessions_for_user,
+    subjects_for_user,
+)
 from .session_serializers import (
     ClassroomSessionSerializer,
     PresentationSerializer,
@@ -34,14 +39,34 @@ class PresentationListCreateView(APIView):
     def post(self, request):
         serializer = PresentationUploadSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        upload = serializer.validated_data['file']
-        presentation = Presentation.objects.create(
+        request_id = serializer.validated_data['request_id']
+        existing = Presentation.objects.filter(
             user=request.user,
+            request_id=request_id,
+        ).first()
+        if existing:
+            return Response(PresentationSerializer(existing).data)
+        upload = serializer.validated_data['file']
+        presentation = Presentation(
+            user=request.user,
+            request_id=request_id,
             title=serializer.validated_data['title'],
             file_name=upload.name,
             file_path=upload,
             file_type=upload.presentation_file_type,
         )
+        try:
+            presentation.save()
+        except IntegrityError:
+            if presentation.file_path:
+                presentation.file_path.delete(save=False)
+            existing = Presentation.objects.filter(
+                user=request.user,
+                request_id=request_id,
+            ).first()
+            if existing:
+                return Response(PresentationSerializer(existing).data)
+            raise
         process_presentation(presentation)
         _log_activity(request, f'Uploaded presentation {presentation.pk} ({presentation.title}).')
         return Response(
@@ -60,22 +85,45 @@ class PresentationDetailView(APIView):
         return Response(PresentationSerializer(self.get_object(request, pk)).data)
 
     def delete(self, request, pk):
-        presentation = self.get_object(request, pk)
-        if presentation.sessions.exists():
-            raise serializers.ValidationError({
-                'detail': 'A presentation used by a classroom session cannot be deleted.',
-            })
-        for slide in presentation.slides.all():
-            if slide.image_path:
-                slide.image_path.delete(save=False)
-        if presentation.preview_path:
-            presentation.preview_path.delete(save=False)
-        if presentation.file_path:
-            presentation.file_path.delete(save=False)
-        description = f'Deleted presentation {presentation.pk} ({presentation.title}).'
-        presentation.delete()
-        _log_activity(request, description)
+        with transaction.atomic():
+            presentation = get_object_or_404(
+                presentations_for_update(request.user),
+                pk=pk,
+            )
+            if presentation.sessions.exists():
+                raise serializers.ValidationError({
+                    'detail': 'A presentation used by a classroom session cannot be deleted.',
+                })
+            delete_presentation_files(presentation)
+            description = f'Deleted presentation {presentation.pk} ({presentation.title}).'
+            presentation.delete()
+            _log_activity(request, description)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class PresentationRetryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        with transaction.atomic():
+            presentation = get_object_or_404(
+                presentations_for_update(request.user),
+                pk=pk,
+            )
+            if presentation.processing_status == Presentation.ProcessingStatus.READY:
+                return Response(PresentationSerializer(presentation).data)
+            if presentation.processing_status == Presentation.ProcessingStatus.PROCESSING:
+                return Response(
+                    PresentationSerializer(presentation).data,
+                    status=status.HTTP_202_ACCEPTED,
+                )
+            presentation.processing_status = Presentation.ProcessingStatus.PROCESSING
+            presentation.processing_error = ''
+            presentation.save(update_fields=['processing_status', 'processing_error'])
+
+        process_presentation(presentation)
+        _log_activity(request, f'Retried presentation {presentation.pk} ({presentation.title}).')
+        return Response(PresentationSerializer(presentation).data)
 
 
 class PresentationFileMixin:
@@ -141,6 +189,9 @@ class SessionOptionsView(APIView):
                             'id': camera.pk,
                             'name': camera.camera_name,
                             'position': camera.position,
+                            'position_label': camera.get_position_display(),
+                            'status': camera.status,
+                            'status_label': camera.get_status_display(),
                         }
                         for camera in subject.classroom.cameras.all()
                         if camera.status == Camera.Status.ACTIVE
@@ -179,36 +230,43 @@ class SessionListCreateView(APIView):
 class OwnedSessionMixin:
     permission_classes = [IsAuthenticated]
 
-    def get_session(self, request, pk):
-        return get_object_or_404(
-            sessions_for_user(request.user).filter(user=request.user),
-            pk=pk,
-        )
+    def get_session(self, request, pk, *, for_update=False):
+        sessions = sessions_for_user(request.user).filter(user=request.user)
+        if for_update:
+            sessions = sessions.select_for_update()
+        return get_object_or_404(sessions, pk=pk)
 
 
 class SessionEndView(OwnedSessionMixin, APIView):
     def post(self, request, pk):
-        session = self.get_session(request, pk)
-        if session.ended_at:
-            raise serializers.ValidationError({'detail': 'This session has already ended.'})
-        session.ended_at = timezone.now()
-        session.save(update_fields=['ended_at'])
-        _log_activity(request, f'Ended classroom session {session.pk}.')
+        with transaction.atomic():
+            session = self.get_session(request, pk, for_update=True)
+            if session.ended_at is None:
+                session.ended_at = timezone.now()
+                session.save(update_fields=['ended_at'])
+                _log_activity(request, f'Ended classroom session {session.pk}.')
         return Response(ClassroomSessionSerializer(session).data)
 
 
 class SessionEnterSlideView(OwnedSessionMixin, APIView):
     def post(self, request, pk):
-        session = self.get_session(request, pk)
-        if session.ended_at:
-            raise serializers.ValidationError({'detail': 'This session has already ended.'})
-        slide = get_object_or_404(
-            session.presentation.slides,
-            pk=request.data.get('slide'),
+        with transaction.atomic():
+            session = self.get_session(request, pk, for_update=True)
+            if session.ended_at:
+                raise serializers.ValidationError({'detail': 'This session has already ended.'})
+            slide = get_object_or_404(
+                session.presentation.slides,
+                pk=request.data.get('slide'),
+            )
+            current_event = session.slide_events.order_by('-entered_at', '-pk').first()
+            if current_event and current_event.slide_id == slide.pk:
+                return Response({'id': current_event.pk, 'created': False})
+            event = SlideEvent.objects.create(
+                session=session,
+                slide=slide,
+                entered_at=timezone.now(),
+            )
+        return Response(
+            {'id': event.pk, 'created': True},
+            status=status.HTTP_201_CREATED,
         )
-        event = SlideEvent.objects.create(
-            session=session,
-            slide=slide,
-            entered_at=timezone.now(),
-        )
-        return Response({'id': event.pk}, status=status.HTTP_201_CREATED)

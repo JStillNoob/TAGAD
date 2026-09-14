@@ -534,9 +534,9 @@ onMounted(loadPage)
     </div>
 
     <div v-if="modal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4" @click.self="closeModal">
-      <form v-if="modal === 'quick'" class="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white shadow-xl" @submit.prevent="saveQuickSetup">
+      <form v-if="modal === 'quick'" role="dialog" aria-labelledby="quick-setup-title" class="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white shadow-xl" @submit.prevent="saveQuickSetup">
         <div class="sticky top-0 z-10 flex items-center justify-between border-b bg-white px-6 py-4">
-          <div><h2 class="text-lg font-bold text-gray-900">Quick Classroom Setup</h2><p class="mt-0.5 text-xs text-gray-500">Configure the room, cameras, and first subject in one save.</p></div>
+          <div><h2 id="quick-setup-title" class="text-lg font-bold text-gray-900">Quick Classroom Setup</h2><p class="mt-0.5 text-xs text-gray-500">Configure the room, cameras, and first subject in one save.</p></div>
           <button type="button" class="text-gray-400" aria-label="Close quick setup" @click="closeModal">✕</button>
         </div>
 

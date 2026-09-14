@@ -3,6 +3,20 @@ frontend/node_modules/
 frontend/dist/
 frontend/.env
 frontend/.env.local
+frontend/.e2e-results/
+frontend/playwright-report/
+frontend/test-results/
+frontend/blob-report/
+frontend/coverage/
+frontend/.vite/
+
+# Local environment files (examples stay in Git)
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
 
 # Python / Django
 backend/venv/
@@ -12,12 +26,30 @@ backend/*.pyc
 backend/db.sqlite3
 backend/.env
 backend/media/
+backend/.e2e/
+backend/staticfiles/
+backend/logs/
+backend/**/*.sqlite3
+backend/**/*.sqlite3-*
+backend/**/*.db
 *.pyc
 __pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+**/.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
 
 # OS
 .DS_Store
 Thumbs.db
+Desktop.ini
 
 # IDE
 .vscode/
@@ -27,3 +59,29 @@ Thumbs.db
 AGENTS.md
 docs/
 SUPERADMIN_SETUP.md
+
+# Local machine-learning artifacts (configure paths through backend/.env)
+backend/model_artifacts/
+*.pt
+*.task
+*.joblib
+*.onnx
+*.pkl
+*.h5
+*.keras
+*.tflite
+backend/runs/
+
+# Private keys, certificates, and local credentials
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+~$*

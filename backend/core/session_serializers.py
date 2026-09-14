@@ -1,4 +1,5 @@
 from pathlib import Path
+from uuid import uuid4
 import zipfile
 
 from django.conf import settings
@@ -68,6 +69,7 @@ def validate_presentation_file(upload):
 
 
 class PresentationUploadSerializer(serializers.Serializer):
+    request_id = serializers.UUIDField(default=uuid4)
     title = serializers.CharField(max_length=150)
     file = serializers.FileField()
 
@@ -94,12 +96,14 @@ class PresentationSerializer(serializers.ModelSerializer):
     uploader_name = serializers.SerializerMethodField()
     source_url = serializers.SerializerMethodField()
     preview_url = serializers.SerializerMethodField()
+    in_use = serializers.SerializerMethodField()
     slides = PresentationSlideSerializer(many=True, read_only=True)
 
     class Meta:
         model = Presentation
         fields = (
             'id',
+            'request_id',
             'title',
             'file_name',
             'file_type',
@@ -110,6 +114,7 @@ class PresentationSerializer(serializers.ModelSerializer):
             'uploader_name',
             'source_url',
             'preview_url',
+            'in_use',
             'slides',
         )
         read_only_fields = fields
@@ -124,6 +129,9 @@ class PresentationSerializer(serializers.ModelSerializer):
         if presentation.processing_status != Presentation.ProcessingStatus.READY:
             return None
         return reverse('presentation-preview', args=[presentation.pk])
+
+    def get_in_use(self, presentation):
+        return presentation.sessions.exists()
 
 
 class SessionCreateSerializer(serializers.Serializer):
@@ -231,6 +239,9 @@ class ClassroomSessionSerializer(serializers.ModelSerializer):
                 'id': item.camera_id,
                 'name': item.camera.camera_name,
                 'position': item.camera.position,
+                'position_label': item.camera.get_position_display(),
+                'status': item.camera.status,
+                'status_label': item.camera.get_status_display(),
             }
             for item in session.session_cameras.all()
         ]

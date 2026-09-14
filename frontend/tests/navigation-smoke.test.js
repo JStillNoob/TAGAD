@@ -23,12 +23,48 @@ test('live session connects to engagement WebSocket and exposes the development 
   assert.match(sessionSource, /setInterval\(emitSimulation, 2000\)/)
 })
 
+test('live session automatically selects classroom cameras and provides bulk controls', () => {
+  assert.match(sessionSource, /watch\(selectedSubjectId, selectAllCameras\)/)
+  assert.match(sessionSource, /@click="selectAllCameras">Select all/)
+  assert.match(sessionSource, /@click="clearCameraSelection">Clear/)
+  assert.match(sessionSource, /You can still start the session and use the development simulator/)
+})
+
+test('active session distinguishes camera configuration from a connected video feed', () => {
+  assert.match(sessionSource, /Configuration ready/)
+  assert.match(sessionSource, /Simulator only/)
+  assert.match(sessionSource, /Video feed not connected/)
+})
+
 test('ending a session opens its analytics and the chart renders after loading', () => {
+  assert.match(sessionSource, /window\.confirm/)
+  assert.match(sessionSource, /endSessionWithRecovery/)
   assert.match(sessionSource, /router\.push\(\{ path: '\/analytics', query: \{ session: String\(ended\.id\) \} \}\)/)
 
   const loadingFinished = analyticsSource.indexOf('loading.value = false', analyticsSource.indexOf('async function loadAnalytics'))
   const chartRendered = analyticsSource.indexOf('if (shouldRender) await renderChart()', loadingFinished)
   assert.ok(loadingFinished >= 0 && chartRendered > loadingFinished)
+})
+
+test('live monitoring reports reconnecting and unavailable states', () => {
+  assert.match(sessionSource, /socketStatus\.value = 'reconnecting'/)
+  assert.match(sessionSource, /socketStatus\.value = 'unavailable'/)
+  assert.match(sessionSource, /retryEngagementConnection/)
+})
+
+test('live presentation supports arrow keys and fullscreen projector mode', () => {
+  assert.match(sessionSource, /presentationDirectionForKey/)
+  assert.match(sessionSource, /document\.addEventListener\('keydown'/)
+  assert.match(sessionSource, /requestFullscreen/)
+  assert.match(sessionSource, /document\.exitFullscreen/)
+  assert.match(sessionSource, /'Present fullscreen'/)
+})
+
+test('presentation library exposes retry and safe deletion actions', () => {
+  assert.match(sessionSource, /retryPresentation/)
+  assert.match(sessionSource, /deletePresentation/)
+  assert.match(sessionSource, /presentation\.in_use/)
+  assert.match(sessionSource, /uploadProgress/)
 })
 
 test('dashboard report action opens reports and unknown routes have a 404 page', () => {

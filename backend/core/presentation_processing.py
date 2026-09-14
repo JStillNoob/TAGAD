@@ -136,6 +136,12 @@ def _clear_generated_files(presentation):
         presentation.preview_path = ''
 
 
+def delete_presentation_files(presentation):
+    _clear_generated_files(presentation)
+    if presentation.file_path:
+        presentation.file_path.delete(save=False)
+
+
 def process_presentation(presentation):
     presentation.processing_status = Presentation.ProcessingStatus.PROCESSING
     presentation.processing_error = ''

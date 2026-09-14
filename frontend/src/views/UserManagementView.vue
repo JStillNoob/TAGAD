@@ -256,10 +256,10 @@ onMounted(loadPage)
     </div>
 
     <div v-if="showForm" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4" @click.self="closeForm">
-      <form class="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white shadow-xl" @submit.prevent="saveUser">
+      <form role="dialog" aria-labelledby="user-form-title" class="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white shadow-xl" @submit.prevent="saveUser">
         <div class="flex items-center justify-between border-b border-gray-200 px-6 py-4">
           <div>
-            <h2 class="text-lg font-bold text-gray-900">{{ isEditing ? 'Edit User' : 'Add User' }}</h2>
+            <h2 id="user-form-title" class="text-lg font-bold text-gray-900">{{ isEditing ? 'Edit User' : 'Add User' }}</h2>
             <p class="text-xs text-gray-500 mt-1">Fields marked with * are required.</p>
           </div>
           <button type="button" class="rounded-lg p-2 text-gray-400 hover:bg-gray-100" aria-label="Close" @click="closeForm">✕</button>

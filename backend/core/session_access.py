@@ -12,6 +12,10 @@ def presentations_for_user(user):
     return presentations.filter(user=user)
 
 
+def presentations_for_update(user):
+    return presentations_for_user(user).select_for_update(of=('self',))
+
+
 def subjects_for_user(user):
     subjects = Subject.objects.select_related(
         'classroom', 'classroom__organization', 'teacher',

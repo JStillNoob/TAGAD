@@ -1,4 +1,4 @@
-import { ensureCsrfCookie, getCookie } from './auth'
+import { ensureCsrfCookie, getCookie } from './auth.js'
 import { request } from './http.js'
 
 export async function apiRequest(url, options = {}) {

@@ -30,7 +30,7 @@
           </p>
 
           <div class="mb-5">
-            <label class="block text-sm font-semibold mb-2 text-navy">Email or Username</label>
+            <label for="login-identity" class="block text-sm font-semibold mb-2 text-navy">Email or Username</label>
             <div class="relative">
               <span class="absolute inset-y-0 left-0 flex items-center pl-4 text-gray-400">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
@@ -38,21 +38,21 @@
                   <path stroke-linecap="round" stroke-linejoin="round" d="m3 7 7.5 6 7.5-6" />
                 </svg>
               </span>
-              <input v-model="identity" type="text" placeholder="teacher@university.edu"
+              <input id="login-identity" v-model="identity" type="text" placeholder="teacher@university.edu"
                 autocomplete="username" required
                 class="w-full rounded-xl border border-gray-200 pl-12 pr-4 py-3 text-sm outline-none transition-all text-navy focus:border-brand">
             </div>
           </div>
 
           <div class="mb-7">
-            <label class="block text-sm font-semibold mb-2 text-navy">Password</label>
+            <label for="login-password" class="block text-sm font-semibold mb-2 text-navy">Password</label>
             <div class="relative">
               <span class="absolute inset-y-0 left-0 flex items-center pl-4 text-gray-400">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 9.75h10.5a1.5 1.5 0 0 0 1.5-1.5v-6.75a1.5 1.5 0 0 0-1.5-1.5H6.75a1.5 1.5 0 0 0-1.5 1.5v6.75a1.5 1.5 0 0 0 1.5 1.5Z" />
                 </svg>
               </span>
-              <input v-model="password" type="password" placeholder="••••••••"
+              <input id="login-password" v-model="password" type="password" placeholder="••••••••"
                 autocomplete="current-password" required
                 class="w-full rounded-xl border border-gray-200 pl-12 pr-4 py-3 text-sm outline-none transition-all text-navy focus:border-brand">
             </div>

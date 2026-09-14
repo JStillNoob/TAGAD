@@ -149,6 +149,7 @@ class Presentation(models.Model):
         FAILED = 'failed', 'Failed'
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='presentations')
+    request_id = models.UUIDField(default=uuid4, editable=False)
     title = models.CharField(max_length=150)
     file_name = models.CharField(max_length=255)
     file_path = models.FileField(upload_to=presentation_upload_path, max_length=500)
@@ -169,6 +170,12 @@ class Presentation(models.Model):
 
     class Meta:
         db_table = 'presentations'
+        constraints = [
+            models.UniqueConstraint(
+                fields=('user', 'request_id'),
+                name='presentation_user_request_unique',
+            ),
+        ]
 
     def __str__(self):
         return self.title
@@ -177,7 +184,7 @@ class Presentation(models.Model):
 class ClassroomSession(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='sessions')
     subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name='sessions')
-    presentation = models.ForeignKey(Presentation, on_delete=models.CASCADE, related_name='sessions')
+    presentation = models.ForeignKey(Presentation, on_delete=models.PROTECT, related_name='sessions')
     session_date = models.DateField()
     started_at = models.DateTimeField()
     ended_at = models.DateTimeField(null=True, blank=True)

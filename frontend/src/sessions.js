@@ -1,4 +1,5 @@
-import { apiRequest } from './api'
+import { apiRequest } from './api.js'
+import { ensureCsrfCookie, getCookie } from './auth.js'
 
 export function fetchSessionOptions() {
   return apiRequest('/api/auth/session-options/')
@@ -8,11 +9,55 @@ export function fetchSessions() {
   return apiRequest('/api/auth/sessions/')
 }
 
-export function uploadPresentation({ title, file }) {
+export async function uploadPresentation({ title, file, requestId, onProgress }) {
+  await ensureCsrfCookie()
   const body = new FormData()
   body.append('title', title)
   body.append('file', file)
-  return apiRequest('/api/auth/presentations/', { method: 'POST', body })
+  if (requestId) body.append('request_id', requestId)
+
+  return new Promise((resolve, reject) => {
+    const upload = new XMLHttpRequest()
+    upload.open('POST', '/api/auth/presentations/')
+    upload.withCredentials = true
+    upload.setRequestHeader('X-CSRFToken', getCookie('csrftoken'))
+    upload.upload.onprogress = (event) => {
+      if (!event.lengthComputable) return
+      onProgress?.({
+        phase: 'uploading',
+        percent: Math.round((event.loaded / event.total) * 100),
+      })
+    }
+    upload.upload.onload = () => onProgress?.({ phase: 'processing', percent: 100 })
+    upload.onerror = () => reject(new Error(
+      'The backend server is unavailable. Check your connection and try again.',
+    ))
+    upload.onload = () => {
+      let data = null
+      try {
+        data = upload.responseText ? JSON.parse(upload.responseText) : null
+      } catch {
+        data = null
+      }
+      if (upload.status >= 200 && upload.status < 300) {
+        resolve(data)
+        return
+      }
+      const error = new Error(data?.detail || 'Unable to complete the request.')
+      error.fields = data && typeof data === 'object' ? data : {}
+      error.status = upload.status
+      reject(error)
+    }
+    upload.send(body)
+  })
+}
+
+export function retryPresentation(id) {
+  return apiRequest(`/api/auth/presentations/${id}/retry/`, { method: 'POST' })
+}
+
+export function deletePresentation(id) {
+  return apiRequest(`/api/auth/presentations/${id}/`, { method: 'DELETE' })
 }
 
 export function startClassroomSession({ subject, presentation, cameras }) {

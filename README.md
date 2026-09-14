@@ -44,6 +44,55 @@ Copy the printed value into `PIPELINE_API_KEY` in `backend\.env`. Leave the
 setting empty when no external pipeline worker is connected; the ingestion API
 then fails closed. The built-in simulator does not require or expose this key.
 
+### Authentication abuse protection
+
+TAGAD limits repeated authentication requests using hashed identity/client keys
+in Django's cache. The default policy allows five failed sign-in attempts per
+identity/client pair in 15 minutes, with a broader ceiling of 25 failures per
+client. Password recovery allows three requests per email/client pair, with a
+broader ceiling of 15 requests per client. Restrictions expire after 15 minutes.
+
+A successful sign-in before restriction clears that identity/client failure
+state. Once restricted, the account remains active and no database flag needs
+to be changed: the user must wait for the displayed period. Administrators
+should verify that the account itself is active but should not deactivate,
+recreate, or change its role to resolve a temporary restriction.
+
+The local default cache is process-local and is suitable for one Django process.
+Configure a shared production cache such as Redis before running multiple
+backend processes, otherwise each process maintains separate counters.
+
+Forwarded client addresses are ignored by default. Set `TRUSTED_PROXY_COUNT`
+only when Django is behind that exact number of trusted reverse proxies; an
+incorrect value can make client-based limits unreliable. All limits and windows
+are documented in `backend\.env.example` and can be adjusted there per
+environment. CAPTCHA, two-factor authentication, and OAuth remain deferred.
+
+### Model artifact configuration
+
+The offline pipeline may keep model files outside the repository. Configure
+their absolute paths in `backend\.env`; never copy trained weights into Git:
+
+```env
+TAGAD_YOLO_MODEL_PATH=D:\TAGAD\models\tagad_yolo11_head_v2_best.pt
+TAGAD_FACE_LANDMARKER_PATH=D:\TAGAD\models\face_landmarker.task
+TAGAD_SVM_MODEL_PATH=D:\TAGAD\models\tagad_engagement_svm.joblib
+TAGAD_MODEL_PIPELINE_VERSION=offline-1
+```
+
+After all downloads and training finish, verify the paths without loading the
+models or importing the machine-learning libraries:
+
+```powershell
+cd backend
+.\venv\Scripts\python.exe manage.py check_model_setup
+```
+
+The model worker will later use `core.model_integration.build_engagement_payload`
+to translate per-head predictions into the existing Stage 1 ingestion format.
+An obstructed face or failed landmark extraction must use `label=None`, which is
+counted as unclassified rather than disengaged.
+
 ## 2. Install and prepare the backend
 
 ```powershell
@@ -124,6 +173,22 @@ cd frontend
 npm test
 npm run build
 ```
+
+Real-browser workflow tests use Chromium, ports 4173 and 8001, and a dedicated
+SQLite database under `backend\.e2e`. They do not read or modify the development
+PostgreSQL database or personal accounts. Install the browser once, then run the
+entire journey with one command:
+
+```powershell
+cd frontend
+npm run test:e2e:install
+npm run test:e2e
+```
+
+Each run deletes and rebuilds only the isolated E2E directory, applies all
+migrations, creates synthetic accounts, starts both test servers, and runs the
+authentication, administration, teacher-session, refresh, reporting, and role
+permission journeys.
 
 ## Common problems
 

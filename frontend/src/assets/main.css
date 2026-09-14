@@ -128,6 +128,41 @@ html.dark .badge-disengaged { background: #3B152D; color: #FDA4AF; }
   body { transition: none; }
 }
 
+.presenter-stage:fullscreen {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+  padding: 1rem;
+  border: 0;
+  border-radius: 0;
+  background: #020617;
+}
+
+.presenter-stage:fullscreen .presenter-canvas {
+  flex: 1;
+  min-height: 0;
+  border-radius: 0.75rem;
+}
+
+.presenter-stage:fullscreen .presenter-canvas img {
+  max-height: calc(100vh - 9rem);
+}
+
+.presenter-stage:fullscreen .presenter-controls {
+  color: #E2E8F0;
+}
+
+.presenter-stage:fullscreen .text-gray-400,
+.presenter-stage:fullscreen .text-gray-500,
+.presenter-stage:fullscreen .text-gray-600 {
+  color: #CBD5E1;
+}
+
+.presenter-stage:fullscreen .border-gray-200 {
+  border-color: #475569;
+}
+
 @layer components {
   /* ── Sidebar nav (white sidebar) ── */
   .nav-link {

@@ -23,6 +23,14 @@ from .models import (
     User,
 )
 from .permissions import CanAccessClassManagement, CanManageUsers
+from .auth_throttling import (
+    clear_login_failures,
+    login_throttle_state,
+    record_login_failure,
+    record_security_throttle,
+    throttle_message,
+)
+from .request_metadata import request_ip
 from .serializers import (
     CameraSerializer,
     ClassManagementQuickSetupSerializer,
@@ -65,17 +73,38 @@ class LoginView(APIView):
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        identity = serializer.validated_data['identity']
+        client_ip = request_ip(request)
+        throttle = login_throttle_state(identity, client_ip)
+        if throttle.limited:
+            return Response(
+                {
+                    'detail': throttle_message('sign-in attempts', throttle.retry_after),
+                    'retry_after': throttle.retry_after,
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+                headers={'Retry-After': str(throttle.retry_after)},
+            )
         user = authenticate(
             request=request,
-            username=serializer.validated_data['identity'],
+            username=identity,
             password=serializer.validated_data['password'],
         )
         if user is None:
+            throttle = record_login_failure(identity, client_ip)
+            if throttle.newly_limited:
+                record_security_throttle(
+                    request,
+                    identity,
+                    'Sign-in temporarily restricted after repeated failed attempts.',
+                    'login_throttled',
+                )
             return Response(
                 {'detail': 'Invalid credentials.'},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
+        clear_login_failures(identity, client_ip)
         login(request, user)
         _log_activity(request, 'Logged in.')
         return Response(UserSerializer(user).data)
@@ -166,9 +195,7 @@ class LogoutView(APIView):
 
 
 def _request_ip(request):
-    forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR', '')
-    return (forwarded_for.split(',')[0].strip() if forwarded_for
-            else request.META.get('REMOTE_ADDR', ''))
+    return request_ip(request)
 
 
 def _log_user_change(request, action, user):

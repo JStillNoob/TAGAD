@@ -1,12 +1,15 @@
 import io
+import subprocess
 import tempfile
 import zipfile
 from pathlib import Path
 from unittest.mock import patch
+from uuid import uuid4
 
 import pymupdf
 from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db.models.deletion import ProtectedError
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -24,6 +27,7 @@ from ..models import (
     SystemLog,
     User,
 )
+from ..session_access import presentations_for_update
 
 
 def make_pdf(page_count=2):
@@ -152,6 +156,11 @@ class PresentationAndSessionTests(TestCase):
             },
         )
 
+    def test_presentation_row_lock_targets_only_the_presentation_table(self):
+        queryset = presentations_for_update(self.teacher)
+
+        self.assertEqual(queryset.query.select_for_update_of, ('self',))
+
     def test_pdf_upload_preserves_original_and_generates_slide_records(self):
         self.client.force_login(self.teacher)
 
@@ -209,6 +218,163 @@ class PresentationAndSessionTests(TestCase):
         self.assertEqual(presentation.processing_status, Presentation.ProcessingStatus.FAILED)
         self.assertIn('converter unavailable', presentation.processing_error)
         self.assertTrue(presentation.file_path.storage.exists(presentation.file_path.name))
+
+    @patch('core.presentation_processing._convert_pptx_to_pdf')
+    def test_conversion_timeout_is_recorded_and_can_be_retried(self, convert):
+        convert.side_effect = subprocess.TimeoutExpired('soffice', 120)
+        self.client.force_login(self.teacher)
+
+        response = self.upload(
+            'lecture.pptx',
+            make_pptx(),
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        presentation = Presentation.objects.get(pk=response.json()['id'])
+        self.assertEqual(presentation.processing_status, Presentation.ProcessingStatus.FAILED)
+        self.assertIn('timed out', presentation.processing_error)
+        self.assertTrue(presentation.file_path.storage.exists(presentation.file_path.name))
+
+    def test_repeating_upload_request_does_not_create_duplicate_presentation(self):
+        self.client.force_login(self.teacher)
+        request_id = uuid4()
+
+        first = self.client.post(
+            reverse('presentation-list'),
+            {
+                'title': 'Reliable Upload',
+                'request_id': str(request_id),
+                'file': SimpleUploadedFile(
+                    'lecture.pdf',
+                    make_pdf(1),
+                    content_type='application/pdf',
+                ),
+            },
+        )
+        second = self.client.post(
+            reverse('presentation-list'),
+            {
+                'title': 'Reliable Upload',
+                'request_id': str(request_id),
+                'file': SimpleUploadedFile(
+                    'lecture.pdf',
+                    make_pdf(1),
+                    content_type='application/pdf',
+                ),
+            },
+        )
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second.json()['id'], first.json()['id'])
+        self.assertEqual(Presentation.objects.filter(user=self.teacher).count(), 1)
+
+    def test_failed_presentation_can_be_retried_from_preserved_original(self):
+        presentation = self.create_ready_presentation()
+        old_slide_paths = [slide.image_path.name for slide in presentation.slides.all()]
+        storage = presentation.file_path.storage
+        presentation.processing_status = Presentation.ProcessingStatus.FAILED
+        presentation.processing_error = 'Temporary renderer failure.'
+        presentation.save(update_fields=['processing_status', 'processing_error'])
+        self.client.force_login(self.teacher)
+
+        response = self.client.post(reverse('presentation-retry', args=[presentation.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        presentation.refresh_from_db()
+        self.assertEqual(presentation.processing_status, Presentation.ProcessingStatus.READY)
+        self.assertEqual(presentation.processing_error, '')
+        self.assertEqual(presentation.slides.count(), 2)
+        self.assertTrue(all(not storage.exists(path) for path in old_slide_paths))
+        self.assertTrue(SystemLog.objects.filter(
+            activity__contains=f'Retried presentation {presentation.pk}',
+        ).exists())
+
+    def test_repeating_retry_after_success_returns_the_ready_presentation(self):
+        presentation = self.create_ready_presentation()
+        presentation.processing_status = Presentation.ProcessingStatus.FAILED
+        presentation.save(update_fields=['processing_status'])
+        self.client.force_login(self.teacher)
+
+        first = self.client.post(reverse('presentation-retry', args=[presentation.pk]))
+        second = self.client.post(reverse('presentation-retry', args=[presentation.pk]))
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second.json()['processing_status'], 'ready')
+        self.assertEqual(SystemLog.objects.filter(
+            activity__contains=f'Retried presentation {presentation.pk}',
+        ).count(), 1)
+
+    def test_deleting_unused_presentation_removes_all_stored_files(self):
+        presentation = self.create_ready_presentation()
+        presentation.preview_path.save('preview.pdf', ContentFile(make_pdf(1)), save=True)
+        storage = presentation.file_path.storage
+        stored_paths = [
+            presentation.file_path.name,
+            presentation.preview_path.name,
+            *[slide.image_path.name for slide in presentation.slides.all()],
+        ]
+        self.assertTrue(all(storage.exists(path) for path in stored_paths))
+        self.client.force_login(self.teacher)
+
+        response = self.client.delete(reverse('presentation-detail', args=[presentation.pk]))
+
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(Presentation.objects.filter(pk=presentation.pk).exists())
+        self.assertTrue(all(not storage.exists(path) for path in stored_paths))
+
+    def test_presentation_used_by_session_cannot_be_deleted(self):
+        presentation = self.create_ready_presentation()
+        ClassroomSession.objects.create(
+            user=self.teacher,
+            subject=self.subject,
+            presentation=presentation,
+            session_date=timezone.localdate(),
+            started_at=timezone.now(),
+        )
+        source_path = presentation.file_path.name
+        storage = presentation.file_path.storage
+        self.client.force_login(self.teacher)
+
+        response = self.client.delete(reverse('presentation-detail', args=[presentation.pk]))
+
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(Presentation.objects.filter(pk=presentation.pk).exists())
+        self.assertTrue(storage.exists(source_path))
+        with self.assertRaises(ProtectedError):
+            presentation.delete()
+
+    def test_presentation_lifecycle_actions_are_permission_scoped(self):
+        foreign = self.create_ready_presentation(user=self.other_teacher)
+        foreign.processing_status = Presentation.ProcessingStatus.FAILED
+        foreign.save(update_fields=['processing_status'])
+        self.client.force_login(self.teacher)
+
+        retry = self.client.post(reverse('presentation-retry', args=[foreign.pk]))
+        delete = self.client.delete(reverse('presentation-detail', args=[foreign.pk]))
+
+        self.assertEqual(retry.status_code, 404)
+        self.assertEqual(delete.status_code, 404)
+
+    def test_presentation_list_reports_whether_a_presentation_is_in_use(self):
+        unused = self.create_ready_presentation(title='Unused')
+        used = self.create_ready_presentation(title='Used')
+        ClassroomSession.objects.create(
+            user=self.teacher,
+            subject=self.subject,
+            presentation=used,
+            session_date=timezone.localdate(),
+            started_at=timezone.now(),
+        )
+        self.client.force_login(self.teacher)
+
+        response = self.client.get(reverse('presentation-list'))
+
+        by_id = {item['id']: item for item in response.json()}
+        self.assertFalse(by_id[unused.pk]['in_use'])
+        self.assertTrue(by_id[used.pk]['in_use'])
 
     def test_upload_rejects_unsupported_spoofed_mismatched_and_oversized_files(self):
         self.client.force_login(self.teacher)
@@ -294,6 +460,9 @@ class PresentationAndSessionTests(TestCase):
                 'id': self.front_camera.pk,
                 'name': self.front_camera.camera_name,
                 'position': self.front_camera.position,
+                'position_label': self.front_camera.get_position_display(),
+                'status': self.front_camera.status,
+                'status_label': self.front_camera.get_status_display(),
             }],
         )
         presentation_data = response.json()['presentations']
@@ -324,6 +493,17 @@ class PresentationAndSessionTests(TestCase):
         self.assertEqual(list(
             SessionCamera.objects.filter(session=session).values_list('camera_id', flat=True),
         ), [self.front_camera.pk])
+        expected_camera = {
+            'id': self.front_camera.pk,
+            'name': self.front_camera.camera_name,
+            'position': self.front_camera.position,
+            'position_label': self.front_camera.get_position_display(),
+            'status': self.front_camera.status,
+            'status_label': self.front_camera.get_status_display(),
+        }
+        self.assertEqual(response.json()['cameras'], [expected_camera])
+        refreshed = self.client.get(reverse('session-list'))
+        self.assertEqual(refreshed.json()[0]['cameras'], [expected_camera])
         self.assertEqual(session.slide_events.count(), 1)
         self.assertEqual(session.slide_events.get().slide.slide_number, 1)
         self.assertTrue(SystemLog.objects.filter(activity__contains='Started classroom session').exists())
@@ -398,6 +578,10 @@ class PresentationAndSessionTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn('detail', response.json())
+        self.assertEqual(
+            ClassroomSession.objects.filter(user=self.teacher, ended_at__isnull=True).count(),
+            1,
+        )
 
     def test_slide_navigation_and_end_session_are_persisted(self):
         presentation = self.create_ready_presentation()
@@ -427,6 +611,94 @@ class PresentationAndSessionTests(TestCase):
         self.assertIsNotNone(session.ended_at)
         self.assertEqual(ended.json()['status'], 'completed')
         self.assertTrue(SystemLog.objects.filter(activity__contains='Ended classroom session').exists())
+
+    def test_repeating_end_session_is_idempotent(self):
+        presentation = self.create_ready_presentation()
+        session = ClassroomSession.objects.create(
+            user=self.teacher,
+            subject=self.subject,
+            presentation=presentation,
+            session_date=timezone.localdate(),
+            started_at=timezone.now(),
+        )
+        self.client.force_login(self.teacher)
+
+        first = self.client.post(reverse('session-end', args=[session.pk]))
+        first_ended_at = first.json()['ended_at']
+        second = self.client.post(reverse('session-end', args=[session.pk]))
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second.json()['ended_at'], first_ended_at)
+        self.assertEqual(second.json()['status'], 'completed')
+        self.assertEqual(
+            SystemLog.objects.filter(
+                activity=f'Ended classroom session {session.pk}.',
+            ).count(),
+            1,
+        )
+
+    def test_repeating_same_slide_change_does_not_create_duplicate_event(self):
+        presentation = self.create_ready_presentation()
+        session = ClassroomSession.objects.create(
+            user=self.teacher,
+            subject=self.subject,
+            presentation=presentation,
+            session_date=timezone.localdate(),
+            started_at=timezone.now(),
+        )
+        first_slide = presentation.slides.get(slide_number=1)
+        second_slide = presentation.slides.get(slide_number=2)
+        SlideEvent.objects.create(
+            session=session,
+            slide=first_slide,
+            entered_at=session.started_at,
+        )
+        self.client.force_login(self.teacher)
+
+        first = self.client.post(
+            reverse('session-enter-slide', args=[session.pk]),
+            {'slide': second_slide.pk},
+            content_type='application/json',
+        )
+        second = self.client.post(
+            reverse('session-enter-slide', args=[session.pk]),
+            {'slide': second_slide.pk},
+            content_type='application/json',
+        )
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(first.json()['id'], second.json()['id'])
+        self.assertTrue(first.json()['created'])
+        self.assertFalse(second.json()['created'])
+        self.assertEqual(session.slide_events.filter(slide=second_slide).count(), 1)
+
+    def test_active_session_response_restores_saved_slide_and_linked_cameras(self):
+        presentation = self.create_ready_presentation()
+        session = ClassroomSession.objects.create(
+            user=self.teacher,
+            subject=self.subject,
+            presentation=presentation,
+            session_date=timezone.localdate(),
+            started_at=timezone.now(),
+        )
+        second_slide = presentation.slides.get(slide_number=2)
+        SessionCamera.objects.create(session=session, camera=self.front_camera)
+        SlideEvent.objects.create(
+            session=session,
+            slide=second_slide,
+            entered_at=timezone.now(),
+        )
+        self.client.force_login(self.teacher)
+
+        response = self.client.get(reverse('session-list'))
+
+        self.assertEqual(response.status_code, 200)
+        restored = response.json()[0]
+        self.assertEqual(restored['status'], 'ongoing')
+        self.assertEqual(restored['current_slide'], second_slide.pk)
+        self.assertEqual([camera['id'] for camera in restored['cameras']], [self.front_camera.pk])
 
     def test_other_teacher_cannot_control_session(self):
         presentation = self.create_ready_presentation()
@@ -479,6 +751,9 @@ class PresentationAndSessionTests(TestCase):
 
     def test_upload_and_session_mutations_require_csrf(self):
         presentation = self.create_ready_presentation()
+        failed_presentation = self.create_ready_presentation(title='Failed')
+        failed_presentation.processing_status = Presentation.ProcessingStatus.FAILED
+        failed_presentation.save(update_fields=['processing_status'])
         csrf_client = Client(enforce_csrf_checks=True)
         csrf_client.force_login(self.teacher)
 
@@ -494,9 +769,14 @@ class PresentationAndSessionTests(TestCase):
             {'subject': self.subject.pk, 'presentation': presentation.pk, 'cameras': []},
             content_type='application/json',
         )
+        retry = csrf_client.post(reverse('presentation-retry', args=[failed_presentation.pk]))
+        delete = csrf_client.delete(reverse('presentation-detail', args=[presentation.pk]))
 
         self.assertEqual(upload.status_code, 403)
         self.assertEqual(start.status_code, 403)
+        self.assertEqual(retry.status_code, 403)
+        self.assertEqual(delete.status_code, 403)
+        self.assertTrue(Presentation.objects.filter(pk=presentation.pk).exists())
 
     def test_anonymous_user_cannot_access_presentations_or_sessions(self):
         presentation_response = self.client.get(reverse('presentation-list'))

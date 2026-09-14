@@ -11,6 +11,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import SystemLog, User
+from .auth_throttling import (
+    password_reset_throttle_state,
+    record_password_reset_request,
+    record_security_throttle,
+    throttle_message,
+)
+from .request_metadata import request_ip
 from .serializers import (
     PasswordResetConfirmSerializer,
     PasswordResetRequestSerializer,
@@ -54,8 +61,28 @@ class PasswordResetRequestView(APIView):
     def post(self, request):
         serializer = PasswordResetRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data['email'].strip()
+        client_ip = request_ip(request)
+        throttle = password_reset_throttle_state(email, client_ip)
+        if throttle.limited:
+            return Response(
+                {
+                    'detail': throttle_message('password-reset requests', throttle.retry_after),
+                    'retry_after': throttle.retry_after,
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+                headers={'Retry-After': str(throttle.retry_after)},
+            )
+        throttle = record_password_reset_request(email, client_ip)
+        if throttle.newly_limited:
+            record_security_throttle(
+                request,
+                email,
+                'Password-reset requests temporarily restricted.',
+                'password_reset_throttled',
+            )
         user = User.objects.filter(
-            email__iexact=serializer.validated_data['email'].strip(),
+            email__iexact=email,
             is_active=True,
             status=User.Status.ACTIVE,
         ).first()

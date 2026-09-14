@@ -12,5 +12,11 @@ PASSWORD_HASHERS = [
     'django.contrib.auth.hashers.MD5PasswordHasher',
 ]
 
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.dummy.DummyCache',
+    },
+}
+
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
