@@ -1,11 +1,12 @@
 import { apiRequest } from './api'
+import { paginationQuery } from './pagination'
 
-export function fetchReports() {
-  return apiRequest('/api/auth/reports/')
+export function fetchReports(parameters = {}) {
+  return apiRequest(`/api/auth/reports/${paginationQuery(parameters)}`)
 }
 
-export function fetchReportOptions() {
-  return apiRequest('/api/auth/reports/options/')
+export function fetchReportOptions(parameters = {}) {
+  return apiRequest(`/api/auth/reports/options/${paginationQuery(parameters)}`)
 }
 
 export function generateReport(session, reportType) {

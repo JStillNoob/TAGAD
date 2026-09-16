@@ -1,7 +1,8 @@
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import AppLayout from '../layouts/AppLayout.vue'
+import PaginationControls from '../components/PaginationControls.vue'
 import { currentUser } from '../auth'
 import {
   createManagedUser,
@@ -14,6 +15,9 @@ import {
 const route = useRoute()
 
 const users = ref([])
+const userCount = ref(0)
+const userPage = ref(1)
+const pageSize = 20
 const options = ref({ roles: [], statuses: [], organizations: [] })
 const loading = ref(true)
 const saving = ref(false)
@@ -43,22 +47,8 @@ const form = reactive(blankForm())
 const isSystemAdmin = computed(() => currentUser.value?.role === 'system_admin')
 const isEditing = computed(() => editingId.value !== null)
 const organizationRequired = computed(() => form.role !== 'system_admin')
-const filteredUsers = computed(() => {
-  const term = search.value.trim().toLowerCase()
-  return users.value.filter((user) => {
-    const searchable = [
-      user.username,
-      user.email,
-      user.first_name,
-      user.middle_name,
-      user.last_name,
-      user.organization_name,
-    ].join(' ').toLowerCase()
-    return (!term || searchable.includes(term))
-      && (!roleFilter.value || user.role === roleFilter.value)
-      && (!statusFilter.value || user.status === statusFilter.value)
-  })
-})
+const filteredUsers = computed(() => users.value)
+let filterTimer = null
 
 watch(() => form.role, (role) => {
   if (role === 'system_admin') form.organization = ''
@@ -114,10 +104,16 @@ async function loadPage() {
   pageError.value = ''
   try {
     const [userList, userOptions] = await Promise.all([
-      fetchManagedUsers(),
+      fetchManagedUsers({
+        page: userPage.value,
+        search: search.value.trim(),
+        role: roleFilter.value,
+        status: statusFilter.value,
+      }),
       fetchUserOptions(),
     ])
-    users.value = userList
+    users.value = userList.results
+    userCount.value = userList.count
     options.value = userOptions
   } catch (error) {
     pageError.value = error.message
@@ -125,6 +121,19 @@ async function loadPage() {
     loading.value = false
   }
 }
+
+function changePage(page) {
+  userPage.value = page
+  loadPage()
+}
+
+watch([search, roleFilter, statusFilter], () => {
+  clearTimeout(filterTimer)
+  filterTimer = setTimeout(() => {
+    userPage.value = 1
+    loadPage()
+  }, 250)
+})
 
 async function saveUser() {
   saving.value = true
@@ -135,13 +144,11 @@ async function saveUser() {
   if (isEditing.value && !payload.password) delete payload.password
 
   try {
-    const saved = isEditing.value
+    isEditing.value
       ? await updateManagedUser(editingId.value, payload)
       : await createManagedUser(payload)
-    const index = users.value.findIndex((user) => user.id === saved.id)
-    if (index === -1) users.value.push(saved)
-    else users.value[index] = saved
     showForm.value = false
+    await loadPage()
   } catch (error) {
     formError.value = error.message
     fieldErrors.value = error.fields || {}
@@ -172,6 +179,7 @@ async function reactivateUser(user) {
 }
 
 onMounted(loadPage)
+onUnmounted(() => clearTimeout(filterTimer))
 </script>
 
 <template>
@@ -184,7 +192,7 @@ onMounted(loadPage)
             {{ isSystemAdmin ? 'Manage accounts across all organizations.' : 'Manage teachers in your organization.' }}
           </p>
         </div>
-        <button type="button" class="btn-primary justify-center" @click="openCreate">
+        <button type="button" class="btn-primary justify-center disabled:cursor-not-allowed disabled:opacity-60" :disabled="loading" @click="openCreate">
           <span class="text-lg leading-none">+</span> Add User
         </button>
       </div>
@@ -252,6 +260,7 @@ onMounted(loadPage)
             </tbody>
           </table>
         </div>
+        <PaginationControls :page="userPage" :count="userCount" :page-size="pageSize" :disabled="loading" @change="changePage" />
       </section>
     </div>
 

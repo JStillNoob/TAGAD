@@ -74,7 +74,7 @@ class UserManagementTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
-            {item['id'] for item in response.json()},
+            {item['id'] for item in response.json()['results']},
             {
                 self.system_admin.pk,
                 self.org_admin.pk,
@@ -89,7 +89,7 @@ class UserManagementTests(TestCase):
         response = self.client.get(self.list_url)
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual([item['id'] for item in response.json()], [self.teacher.pk])
+        self.assertEqual([item['id'] for item in response.json()['results']], [self.teacher.pk])
 
     def test_teacher_and_anonymous_user_cannot_access_user_management(self):
         self.client.force_login(self.teacher)
@@ -330,4 +330,3 @@ class UserManagementTests(TestCase):
             'id': self.organization.pk,
             'name': self.organization.organization_name,
         }])
-

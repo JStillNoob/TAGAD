@@ -22,6 +22,15 @@ test('teacher uploads, refreshes an active session, simulates data, reports, and
   const presentationValue = await presentationSelect.locator('option').filter({ hasText: 'E2E Session Slides' }).getAttribute('value')
   await presentationSelect.selectOption(presentationValue)
   await page.getByRole('button', { name: 'Start Session', exact: true }).click()
+  const countdownDialog = page.getByRole('dialog', { name: 'Your classroom session is about to begin' })
+  await expect(countdownDialog).toBeVisible()
+  await expect(countdownDialog.getByText('5', { exact: true })).toBeVisible()
+  await countdownDialog.getByRole('button', { name: 'Cancel session start' }).click()
+  await expect(countdownDialog).toBeHidden()
+  await expect(page.getByRole('button', { name: 'End Session' })).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Start Session', exact: true }).click()
+  await expect(countdownDialog).toBeVisible()
   await expect(page.getByRole('button', { name: 'End Session' })).toBeVisible()
   await expect(page.getByText('Slide 1 of 1')).toBeVisible()
 
@@ -40,6 +49,6 @@ test('teacher uploads, refreshes an active session, simulates data, reports, and
   await page.getByRole('link', { name: 'Reports' }).click()
   await page.getByRole('button', { name: 'Generate polished PDF' }).click()
   await expect(page.getByRole('status')).toContainText('Polished PDF report generated successfully')
-  await expect(page.getByText('Session Summary', { exact: true })).toBeVisible()
+  await expect(page.getByText('Session Summary', { exact: true }).first()).toBeVisible()
   await logout(page)
 })

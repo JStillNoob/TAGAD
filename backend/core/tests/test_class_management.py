@@ -124,11 +124,11 @@ class ClassManagementTests(TestCase):
         self.assertEqual(classrooms.status_code, 200)
         self.assertEqual(subjects.status_code, 200)
         self.assertEqual(
-            {item['id'] for item in classrooms.json()},
+            {item['id'] for item in classrooms.json()['results']},
             {self.classroom.pk, self.other_classroom.pk},
         )
         self.assertEqual(
-            {item['id'] for item in subjects.json()},
+            {item['id'] for item in subjects.json()['results']},
             {self.subject.pk, self.other_subject.pk},
         )
 
@@ -138,8 +138,8 @@ class ClassManagementTests(TestCase):
         classrooms = self.client.get(reverse('classroom-list'))
         subjects = self.client.get(reverse('subject-list'))
 
-        self.assertEqual([item['id'] for item in classrooms.json()], [self.classroom.pk])
-        self.assertEqual([item['id'] for item in subjects.json()], [self.subject.pk])
+        self.assertEqual([item['id'] for item in classrooms.json()['results']], [self.classroom.pk])
+        self.assertEqual([item['id'] for item in subjects.json()['results']], [self.subject.pk])
         self.assertEqual(
             self.client.patch(
                 reverse('classroom-detail', args=[self.other_classroom.pk]),
@@ -159,9 +159,11 @@ class ClassManagementTests(TestCase):
         classrooms = self.client.get(reverse('classroom-list'))
         subjects = self.client.get(reverse('subject-list'))
 
-        self.assertEqual([item['id'] for item in classrooms.json()], [self.classroom.pk])
-        self.assertNotIn(second_classroom.pk, [item['id'] for item in classrooms.json()])
-        self.assertEqual([item['id'] for item in subjects.json()], [self.subject.pk])
+        self.assertEqual([item['id'] for item in classrooms.json()['results']], [self.classroom.pk])
+        self.assertNotIn(second_classroom.pk, [
+            item['id'] for item in classrooms.json()['results']
+        ])
+        self.assertEqual([item['id'] for item in subjects.json()['results']], [self.subject.pk])
 
     def test_teacher_and_anonymous_user_cannot_mutate_classes(self):
         self.client.force_login(self.teacher)
@@ -389,6 +391,13 @@ class ClassManagementTests(TestCase):
         self.assertEqual([item['id'] for item in org_options['teachers']], [self.teacher.pk])
         self.assertEqual(teacher_options['organizations'], [])
         self.assertEqual(teacher_options['teachers'], [])
+        self.assertEqual(org_options['summary'], {
+            'classrooms': 1,
+            'subjects': 1,
+            'cameras': 0,
+            'capacity': self.classroom.capacity,
+        })
+        self.assertEqual(teacher_options['summary'], org_options['summary'])
 
     def test_class_mutations_require_csrf(self):
         csrf_client = Client(enforce_csrf_checks=True)
@@ -422,11 +431,44 @@ class ClassManagementTests(TestCase):
         teacher_response = self.client.get(reverse('camera-list'))
 
         self.assertEqual(
-            {item['id'] for item in system_response.json()},
+            {item['id'] for item in system_response.json()['results']},
             {camera.pk, other_camera.pk},
         )
-        self.assertEqual([item['id'] for item in org_response.json()], [camera.pk])
-        self.assertEqual([item['id'] for item in teacher_response.json()], [camera.pk])
+        self.assertEqual([item['id'] for item in org_response.json()['results']], [camera.pk])
+        self.assertEqual([item['id'] for item in teacher_response.json()['results']], [camera.pk])
+
+    def test_camera_list_is_paginated_without_crossing_organization_scope(self):
+        Camera.objects.create(
+            classroom=self.classroom,
+            camera_name='Front Camera',
+            position=Camera.Position.FRONT,
+        )
+        for number in range(1, 22):
+            classroom = Classroom.objects.create(
+                organization=self.organization,
+                room_code=f'CAMERA-PAGE-{number:03d}',
+            )
+            Camera.objects.create(
+                classroom=classroom,
+                camera_name=f'Paged Camera {number:03d}',
+                position=Camera.Position.FRONT,
+            )
+        Camera.objects.create(
+            classroom=self.other_classroom,
+            camera_name='Other Camera',
+            position=Camera.Position.FRONT,
+        )
+        self.client.force_login(self.org_admin)
+
+        response = self.client.get(reverse('camera-list'), {'page': 2})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['count'], 22)
+        self.assertEqual(len(response.json()['results']), 2)
+        self.assertTrue(all(
+            item['organization'] == self.organization.pk
+            for item in response.json()['results']
+        ))
 
     def test_org_admin_creates_and_updates_camera_with_audit_logs(self):
         self.client.force_login(self.org_admin)

@@ -1,11 +1,17 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import AppLayout from '../layouts/AppLayout.vue'
+import PaginationControls from '../components/PaginationControls.vue'
 import { fetchReportOptions, fetchReports, generateReport } from '../reports'
 import { currentTheme } from '../theme'
 
 const reports = ref([])
+const reportCount = ref(0)
+const reportPage = ref(1)
+const pageSize = 20
 const sessions = ref([])
+const optionCount = ref(0)
+const optionPage = ref(1)
 const selectedSessionId = ref('')
 const loading = ref(true)
 const generating = ref('')
@@ -46,18 +52,37 @@ function fieldError(requestError) {
   return first || requestError.message || 'Unable to generate the report.'
 }
 
-async function loadReports() {
+async function loadReports(page = reportPage.value) {
   loading.value = true
   error.value = ''
   try {
-    const [reportData, sessionData] = await Promise.all([fetchReports(), fetchReportOptions()])
-    reports.value = reportData
-    sessions.value = sessionData
-    if (!selectedSessionId.value && sessionData.length) selectedSessionId.value = String(sessionData[0].id)
+    const [reportData, sessionData] = await Promise.all([
+      fetchReports({ page }),
+      fetchReportOptions({ page: optionPage.value }),
+    ])
+    reports.value = reportData.results
+    reportCount.value = reportData.count
+    reportPage.value = page
+    sessions.value = sessionData.results
+    optionCount.value = sessionData.count
+    if (!selectedSessionId.value && sessions.value.length) selectedSessionId.value = String(sessions.value[0].id)
   } catch (requestError) {
     error.value = requestError.message || 'Unable to load reports.'
   } finally {
     loading.value = false
+  }
+}
+
+async function changeOptionPage(page) {
+  error.value = ''
+  try {
+    const data = await fetchReportOptions({ page })
+    optionPage.value = page
+    optionCount.value = data.count
+    sessions.value = data.results
+    selectedSessionId.value = data.results.length ? String(data.results[0].id) : ''
+  } catch (requestError) {
+    error.value = requestError.message || 'Unable to load completed sessions.'
   }
 }
 
@@ -67,8 +92,9 @@ async function createReport(reportType) {
   error.value = ''
   success.value = ''
   try {
-    const report = await generateReport(Number(selectedSessionId.value), reportType)
-    reports.value = [report, ...reports.value]
+    await generateReport(Number(selectedSessionId.value), reportType)
+    reportPage.value = 1
+    await loadReports(1)
     success.value = reportType === 'pdf'
       ? 'Polished PDF report generated successfully.'
       : 'Raw CSV data generated successfully.'
@@ -104,6 +130,8 @@ onMounted(loadReports)
         </label>
       </div>
 
+      <PaginationControls class="mt-4 rounded-xl border border-gray-100" :page="optionPage" :count="optionCount" :page-size="pageSize" :disabled="loading || Boolean(generating)" @change="changeOptionPage" />
+
       <div class="flex flex-col sm:flex-row gap-3 mt-5">
         <button class="btn-primary justify-center disabled:opacity-50" :disabled="!selectedSessionId || Boolean(generating)" @click="createReport('pdf')">
           <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
@@ -119,7 +147,7 @@ onMounted(loadReports)
     </section>
 
     <div class="grid grid-cols-2 xl:grid-cols-4 gap-5 mb-6">
-      <div class="stat-card"><p class="text-2xl font-bold text-navy">{{ reports.length }}</p><p class="text-xs text-gray-400 mt-1">Total Reports</p></div>
+      <div class="stat-card"><p class="text-2xl font-bold text-navy">{{ reportCount }}</p><p class="text-xs text-gray-400 mt-1">Total Reports</p></div>
       <div class="stat-card"><p class="text-2xl font-bold" style="color:#2D3CC8">{{ pdfCount }}</p><p class="text-xs text-gray-400 mt-1">Polished PDFs</p></div>
       <div class="stat-card"><p class="text-2xl font-bold" style="color:#059669">{{ csvCount }}</p><p class="text-xs text-gray-400 mt-1">Raw CSV Exports</p></div>
       <div class="stat-card"><p class="text-base font-bold text-navy">{{ formatDate(latestSession) }}</p><p class="text-xs text-gray-400 mt-1">Latest Reported Session</p></div>
@@ -133,7 +161,7 @@ onMounted(loadReports)
       <div v-if="loading" class="p-12 text-center text-sm text-gray-400">Loading reports…</div>
       <div v-else-if="error && !reports.length" class="p-12 text-center">
         <p class="text-sm text-red-600">{{ error }}</p>
-        <button class="mt-4 px-4 py-2 rounded-lg bg-brand text-white text-sm" @click="loadReports">Try again</button>
+        <button class="mt-4 px-4 py-2 rounded-lg bg-brand text-white text-sm" @click="loadReports()">Try again</button>
       </div>
       <div v-else-if="!reports.length" class="p-12 text-center">
         <h3 class="font-semibold text-navy">No reports generated yet</h3>
@@ -154,6 +182,7 @@ onMounted(loadReports)
           </tbody>
         </table>
       </div>
+      <PaginationControls :page="reportPage" :count="reportCount" :page-size="pageSize" :disabled="loading" @change="loadReports" />
     </section>
   </AppLayout>
 </template>

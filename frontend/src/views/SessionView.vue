@@ -13,12 +13,17 @@ import {
   restoreSlideIndex,
   startSessionWithRecovery,
 } from '../sessionReliability'
+import { createSessionCountdown } from '../sessionCountdown'
 import AppLayout from '../layouts/AppLayout.vue'
+import PaginationControls from '../components/PaginationControls.vue'
 import {
   deletePresentation as deletePresentationRequest,
   endClassroomSession,
   enterSessionSlide,
+  fetchPresentationPage,
+  fetchSessionPage,
   fetchSessionOptions,
+  fetchSessionSubjectPage,
   fetchSessions,
   retryPresentation as retryPresentationRequest,
   startClassroomSession,
@@ -33,7 +38,19 @@ const loading = ref(true)
 const error = ref('')
 const actionBusy = ref(false)
 const options = ref({ subjects: [], presentations: [] })
+const subjectCount = ref(0)
+const subjectPage = ref(1)
+const subjectPageSize = 20
+const subjectSearch = ref('')
+const subjectPageLoading = ref(false)
+const presentationCount = ref(0)
+const presentationPage = ref(1)
+const pageSize = 20
 const sessions = ref([])
+const sessionCount = ref(0)
+const sessionPage = ref(1)
+const sessionPageSize = 5
+const sessionPageLoading = ref(false)
 const selectedSubjectId = ref('')
 const selectedPresentationId = ref('')
 const selectedCameraIds = ref([])
@@ -52,12 +69,22 @@ const latestEngagement = ref(null)
 const liveAlert = ref(null)
 const socketStatus = ref('disconnected')
 const simulationRunning = ref(false)
+const countdownSeconds = ref(null)
 let timer = null
 let simulationTimer = null
 let engagementSocket = null
 let socketReconnectTimer = null
 let socketReconnectAttempts = 0
+let subjectSearchTimer = null
 const maximumSocketReconnectAttempts = 5
+const sessionCountdown = createSessionCountdown({
+  seconds: 5,
+  onTick: value => { countdownSeconds.value = value },
+  onComplete: () => {
+    countdownSeconds.value = null
+    beginSession()
+  },
+})
 
 const engagementCategories = [
   { key: 'engaged', label: 'Engaged', color: '#2D3CC8' },
@@ -80,6 +107,7 @@ const canStart = computed(() => (
   selectedSubject.value
   && selectedPresentation.value?.processing_status === 'ready'
   && !actionBusy.value
+  && countdownSeconds.value === null
 ))
 const elapsedDisplay = computed(() => {
   const hours = Math.floor(elapsedSeconds.value / 3600)
@@ -227,14 +255,27 @@ async function loadPage() {
   loading.value = true
   error.value = ''
   try {
-    const [sessionOptions, sessionHistory] = await Promise.all([
+    const [sessionOptions, subjectData, presentationData, sessionHistory, activeSessions] = await Promise.all([
       fetchSessionOptions(),
-      fetchSessions(),
+      fetchSessionSubjectPage({
+        page: subjectPage.value,
+        selected: route.query.subject || '',
+      }),
+      fetchPresentationPage({ page: presentationPage.value }),
+      fetchSessionPage({ page: sessionPage.value, page_size: sessionPageSize }),
+      fetchSessions({ status: 'ongoing', page_size: 100 }),
     ])
-    options.value = sessionOptions
-    sessions.value = sessionHistory
+    options.value = {
+      ...sessionOptions,
+      subjects: subjectData.results,
+      presentations: presentationData.results,
+    }
+    subjectCount.value = subjectData.count
+    presentationCount.value = presentationData.count
+    sessions.value = sessionHistory.results
+    sessionCount.value = sessionHistory.count
     applyRouteSelection()
-    const ongoing = findOwnActiveSession(sessionHistory, currentUser.value?.id)
+    const ongoing = findOwnActiveSession(activeSessions, currentUser.value?.id)
     if (ongoing) {
       activateSession(ongoing)
     }
@@ -242,6 +283,58 @@ async function loadPage() {
     error.value = messageFrom(requestError)
   } finally {
     loading.value = false
+  }
+}
+
+async function changeSubjectPage(page) {
+  subjectPageLoading.value = true
+  error.value = ''
+  try {
+    const data = await fetchSessionSubjectPage({
+      page,
+      search: subjectSearch.value.trim(),
+    })
+    subjectPage.value = page
+    subjectCount.value = data.count
+    options.value.subjects = data.results
+    if (!data.results.some((item) => item.id === Number(selectedSubjectId.value))) {
+      selectedSubjectId.value = ''
+    }
+  } catch (requestError) {
+    error.value = messageFrom(requestError)
+  } finally {
+    subjectPageLoading.value = false
+  }
+}
+
+async function changeSessionPage(page) {
+  sessionPageLoading.value = true
+  error.value = ''
+  try {
+    const data = await fetchSessionPage({ page, page_size: sessionPageSize })
+    sessionPage.value = page
+    sessions.value = data.results
+    sessionCount.value = data.count
+  } catch (requestError) {
+    error.value = messageFrom(requestError)
+  } finally {
+    sessionPageLoading.value = false
+  }
+}
+
+async function changePresentationPage(page) {
+  presentationBusyId.value = null
+  error.value = ''
+  try {
+    const data = await fetchPresentationPage({ page })
+    presentationPage.value = page
+    presentationCount.value = data.count
+    options.value.presentations = data.results
+    if (!data.results.some((item) => item.id === Number(selectedPresentationId.value))) {
+      selectedPresentationId.value = ''
+    }
+  } catch (requestError) {
+    error.value = messageFrom(requestError)
   }
 }
 
@@ -265,10 +358,8 @@ async function submitUpload() {
       requestId: uploadRequestId.value || createUploadRequestId(),
       onProgress: (progress) => { uploadProgress.value = progress },
     })
-    options.value.presentations = [
-      presentation,
-      ...options.value.presentations.filter((item) => item.id !== presentation.id),
-    ]
+    presentationPage.value = 1
+    await changePresentationPage(1)
     selectedPresentationId.value = presentation.id
     uploadTitle.value = ''
     uploadFile.value = null
@@ -318,6 +409,9 @@ async function deletePresentation(presentation) {
     options.value.presentations = options.value.presentations.filter(
       (item) => item.id !== presentation.id,
     )
+    presentationCount.value = Math.max(0, presentationCount.value - 1)
+    const finalPage = Math.max(1, Math.ceil(presentationCount.value / pageSize))
+    await changePresentationPage(Math.min(presentationPage.value, finalPage))
     if (Number(selectedPresentationId.value) === presentation.id) {
       selectedPresentationId.value = ''
     }
@@ -342,13 +436,25 @@ async function beginSession() {
       fetchSessions,
       userId: currentUser.value?.id,
     })
-    sessions.value = [started, ...sessions.value.filter((session) => session.id !== started.id)]
+    sessionPage.value = 1
+    sessionCount.value += 1
+    sessions.value = [started, ...sessions.value.filter((session) => session.id !== started.id)].slice(0, sessionPageSize)
     activateSession(started)
   } catch (requestError) {
     error.value = messageFrom(requestError)
   } finally {
     actionBusy.value = false
   }
+}
+
+function prepareSession() {
+  if (!canStart.value) return
+  sessionCountdown.start()
+}
+
+function cancelSessionCountdown() {
+  if (!sessionCountdown.cancel()) return
+  countdownSeconds.value = null
 }
 
 async function changeSlide(nextIndex) {
@@ -424,6 +530,13 @@ function formatDate(value) {
 
 watch(selectedSubjectId, selectAllCameras)
 watch(() => [route.query.subject, route.query.presentation], applyRouteSelection)
+watch(subjectSearch, () => {
+  clearTimeout(subjectSearchTimer)
+  subjectSearchTimer = setTimeout(() => {
+    subjectPage.value = 1
+    changeSubjectPage(1)
+  }, 250)
+})
 
 onMounted(() => {
   document.addEventListener('keydown', handlePresentationKey)
@@ -433,7 +546,9 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener('keydown', handlePresentationKey)
   document.removeEventListener('fullscreenchange', syncFullscreenState)
+  clearTimeout(subjectSearchTimer)
   clearInterval(timer)
+  cancelSessionCountdown()
   disconnectEngagement()
 })
 </script>
@@ -457,15 +572,19 @@ onUnmounted(() => {
         <section class="page-card p-6">
           <h2 class="font-semibold text-navy mb-5">Session Details</h2>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <label class="block text-sm font-medium text-gray-600">
-              Subject and classroom
-              <select v-model="selectedSubjectId" class="mt-1.5 w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-navy">
-                <option value="">Select a subject</option>
-                <option v-for="subject in options.subjects" :key="subject.id" :value="subject.id">
-                  {{ subject.code }} — {{ subject.name }} ({{ subject.classroom.room_code }})
-                </option>
-              </select>
-            </label>
+            <div role="region" aria-labelledby="session-subject-title">
+              <label class="block text-sm font-medium text-gray-600">
+                <span id="session-subject-title">Subject and classroom</span>
+                <input v-model="subjectSearch" type="search" placeholder="Search subjects…" class="mt-1.5 w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-navy">
+                <select v-model="selectedSubjectId" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-navy">
+                  <option value="">Select a subject</option>
+                  <option v-for="subject in options.subjects" :key="subject.id" :value="subject.id">
+                    {{ subject.code }} — {{ subject.name }} ({{ subject.classroom.room_code }})
+                  </option>
+                </select>
+              </label>
+              <PaginationControls class="mt-3 rounded-xl border border-gray-100" :page="subjectPage" :count="subjectCount" :page-size="subjectPageSize" :disabled="subjectPageLoading || actionBusy" @change="changeSubjectPage" />
+            </div>
             <label class="block text-sm font-medium text-gray-600">
               Presentation
               <select v-model="selectedPresentationId" class="mt-1.5 w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-navy">
@@ -510,8 +629,8 @@ onUnmounted(() => {
             <p v-else class="mt-4 text-sm text-gray-400">Select a subject to load its classroom cameras.</p>
           </div>
 
-          <button type="button" class="btn-primary mt-5" :disabled="!canStart" @click="beginSession">
-            {{ actionBusy ? 'Starting…' : 'Start Session' }}
+          <button type="button" class="btn-primary mt-5" :disabled="!canStart" @click="prepareSession">
+            {{ actionBusy ? 'Starting…' : countdownSeconds !== null ? 'Preparing…' : 'Start Session' }}
           </button>
         </section>
 
@@ -556,8 +675,8 @@ onUnmounted(() => {
             </div>
             <p class="mt-2 text-xs text-indigo-700">PPTX conversion can take up to two minutes.</p>
           </div>
-          <div v-if="options.presentations.length" class="mt-5 border-t border-gray-100 pt-4">
-            <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-400">Presentation Library</h3>
+          <div v-if="options.presentations.length" role="region" aria-labelledby="presentation-library-title" class="mt-5 border-t border-gray-100 pt-4">
+            <h3 id="presentation-library-title" class="text-xs font-semibold uppercase tracking-wide text-gray-400">Presentation Library</h3>
             <div class="mt-3 max-h-64 space-y-2 overflow-y-auto">
               <div v-for="presentation in options.presentations" :key="presentation.id" class="rounded-lg border border-gray-100 p-3">
                 <div class="flex items-start justify-between gap-2">
@@ -583,6 +702,7 @@ onUnmounted(() => {
                 </div>
               </div>
             </div>
+            <PaginationControls :page="presentationPage" :count="presentationCount" :page-size="pageSize" :disabled="Boolean(presentationBusyId)" @change="changePresentationPage" />
           </div>
           <div v-else class="mt-5 rounded-lg border border-dashed border-gray-200 px-4 py-6 text-center">
             <p class="text-sm font-medium text-navy">No presentations yet</p>
@@ -590,11 +710,11 @@ onUnmounted(() => {
           </div>
         </section>
 
-        <section class="page-card p-5">
-          <h2 class="font-semibold text-navy mb-3">Recent Sessions</h2>
+        <section class="page-card p-5" aria-labelledby="recent-sessions-title">
+          <h2 id="recent-sessions-title" class="font-semibold text-navy mb-3">Recent Sessions</h2>
           <p v-if="!sessions.length" class="py-6 text-center text-sm text-gray-400">No sessions recorded yet.</p>
           <div v-else class="space-y-3">
-            <div v-for="session in sessions.slice(0, 5)" :key="session.id" class="rounded-lg border border-gray-100 p-3">
+            <div v-for="session in sessions" :key="session.id" class="rounded-lg border border-gray-100 p-3">
               <div class="flex justify-between gap-3">
                 <p class="text-sm font-medium text-navy">{{ session.subject_code }}</p>
                 <span class="text-xs font-semibold" :class="session.status === 'completed' ? 'text-emerald-600' : 'text-brand'">{{ session.status }}</span>
@@ -602,6 +722,7 @@ onUnmounted(() => {
               <p class="text-xs text-gray-400 mt-1">{{ formatDate(session.started_at) }}</p>
             </div>
           </div>
+          <PaginationControls class="-mx-5 -mb-5 mt-5" :page="sessionPage" :count="sessionCount" :page-size="sessionPageSize" :disabled="loading || sessionPageLoading || actionBusy" @change="changeSessionPage" />
         </section>
       </aside>
     </div>
@@ -691,5 +812,31 @@ onUnmounted(() => {
         </aside>
       </div>
     </div>
+
+    <Teleport to="body">
+      <div
+        v-if="countdownSeconds !== null"
+        class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/90 px-6"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="session-countdown-title"
+        @keydown.esc="cancelSessionCountdown"
+      >
+        <div class="w-full max-w-lg rounded-2xl border border-white/10 bg-slate-900 p-10 text-center text-white shadow-2xl">
+          <p class="text-sm font-semibold uppercase tracking-[0.25em] text-indigo-300">Get Ready</p>
+          <h2 id="session-countdown-title" class="mt-3 text-2xl font-semibold">Your classroom session is about to begin</h2>
+          <p class="mt-8 text-8xl font-bold tabular-nums" aria-live="assertive">{{ countdownSeconds }}</p>
+          <p class="mt-6 text-sm text-slate-300">Cameras, timing, and analytics will start after the countdown.</p>
+          <button
+            type="button"
+            class="mt-8 rounded-lg border border-white/25 px-5 py-2.5 text-sm font-semibold text-white hover:bg-white/10"
+            autofocus
+            @click="cancelSessionCountdown"
+          >
+            Cancel session start
+          </button>
+        </div>
+      </div>
+    </Teleport>
   </AppLayout>
 </template>

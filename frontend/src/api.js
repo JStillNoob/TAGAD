@@ -1,6 +1,15 @@
 import { ensureCsrfCookie, getCookie } from './auth.js'
 import { request } from './http.js'
 
+const safeRequestId = /^[A-Za-z0-9._-]{1,64}$/
+
+export function apiErrorMessage(response, data = null) {
+  if (response.status < 500) return data?.detail || 'Unable to complete the request.'
+  const candidate = response.headers?.get?.('X-Request-ID') || data?.request_id || ''
+  const reference = safeRequestId.test(candidate) ? ` Reference: ${candidate}` : ''
+  return `The server could not complete the request. Please try again.${reference}`
+}
+
 export async function apiRequest(url, options = {}) {
   const method = options.method || 'GET'
   const unsafe = !['GET', 'HEAD', 'OPTIONS'].includes(method)
@@ -21,8 +30,8 @@ export async function apiRequest(url, options = {}) {
     : await response.json().catch(() => null)
 
   if (!response.ok) {
-    const error = new Error(data?.detail || 'Unable to complete the request.')
-    error.fields = data && typeof data === 'object' ? data : {}
+    const error = new Error(apiErrorMessage(response, data))
+    error.fields = response.status < 500 && data && typeof data === 'object' ? data : {}
     error.status = response.status
     throw error
   }

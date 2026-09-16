@@ -1,7 +1,8 @@
 import { apiRequest } from './api'
+import { paginationQuery } from './pagination'
 
-export function fetchAnalyticsSessions() {
-  return apiRequest('/api/auth/analytics/sessions/')
+export function fetchAnalyticsSessions(parameters = {}) {
+  return apiRequest(`/api/auth/analytics/sessions/${paginationQuery(parameters)}`)
 }
 
 export function fetchSessionAnalytics(sessionId) {

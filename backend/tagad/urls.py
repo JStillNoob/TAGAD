@@ -17,7 +17,11 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import include, path
 
+from core.health_views import liveness, readiness
+
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('api/health/live/', liveness, name='health-live'),
+    path('api/health/ready/', readiness, name='health-ready'),
     path('api/auth/', include('core.urls')),
 ]

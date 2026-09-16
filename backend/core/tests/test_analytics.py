@@ -179,11 +179,17 @@ class AnalyticsTests(TestCase):
         ongoing = self.create_session(self.teacher, self.subject, minutes_ago=5, ended=False)
 
         self.client.force_login(self.teacher)
-        teacher_ids = [item['id'] for item in self.client.get(reverse('analytics-session-list')).json()]
+        teacher_ids = [
+            item['id'] for item in self.client.get(reverse('analytics-session-list')).json()['results']
+        ]
         self.client.force_login(self.org_admin)
-        org_ids = {item['id'] for item in self.client.get(reverse('analytics-session-list')).json()}
+        org_ids = {
+            item['id'] for item in self.client.get(reverse('analytics-session-list')).json()['results']
+        }
         self.client.force_login(self.system_admin)
-        system_ids = {item['id'] for item in self.client.get(reverse('analytics-session-list')).json()}
+        system_ids = {
+            item['id'] for item in self.client.get(reverse('analytics-session-list')).json()['results']
+        }
 
         self.assertEqual(teacher_ids, [ongoing.pk, self.session.pk])
         self.assertEqual(org_ids, {self.session.pk, ongoing.pk, colleague_session.pk})

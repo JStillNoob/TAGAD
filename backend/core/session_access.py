@@ -1,9 +1,13 @@
-from .models import ClassroomSession, Presentation, Subject, User
+from django.db.models import Exists, OuterRef, Prefetch
+
+from .models import ClassroomSession, Presentation, SlideEvent, Subject, User
 
 
 def presentations_for_user(user):
     presentations = Presentation.objects.select_related('user', 'user__organization').prefetch_related(
         'slides',
+    ).annotate(
+        _in_use=Exists(ClassroomSession.objects.filter(presentation_id=OuterRef('pk'))),
     )
     if user.role == User.Role.SYSTEM_ADMIN:
         return presentations
@@ -33,10 +37,15 @@ def sessions_for_user(user):
         'subject',
         'subject__classroom',
         'presentation',
+        'presentation__user',
     ).prefetch_related(
         'session_cameras__camera',
         'presentation__slides',
-        'slide_events',
+        Prefetch(
+            'slide_events',
+            queryset=SlideEvent.objects.order_by('-entered_at', '-pk'),
+            to_attr='_ordered_slide_events',
+        ),
     )
     if user.role == User.Role.SYSTEM_ADMIN:
         return sessions

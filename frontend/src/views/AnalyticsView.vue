@@ -3,6 +3,7 @@ import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Chart, registerables } from 'chart.js'
 import AppLayout from '../layouts/AppLayout.vue'
+import PaginationControls from '../components/PaginationControls.vue'
 import { analyticsCsvUrl, fetchAnalyticsSessions, fetchSessionAnalytics } from '../analytics'
 import { currentTheme } from '../theme'
 
@@ -18,6 +19,9 @@ const categories = [
   { key: 'disengaged', label: 'Disengaged', color: '#EF476F' },
 ]
 const sessions = ref([])
+const sessionCount = ref(0)
+const sessionPage = ref(1)
+const pageSize = 20
 const selectedSessionId = ref('')
 const analytics = ref(null)
 const loading = ref(true)
@@ -114,11 +118,14 @@ async function loadAnalytics() {
   if (shouldRender) await renderChart()
 }
 
-async function loadSessions() {
+async function loadSessions(page = sessionPage.value) {
   loading.value = true
   error.value = ''
   try {
-    sessions.value = await fetchAnalyticsSessions()
+    const response = await fetchAnalyticsSessions({ page })
+    sessions.value = response.results
+    sessionCount.value = response.count
+    sessionPage.value = page
     if (sessions.value.length) {
       const requested = sessions.value.find(session => session.id === Number(route.query.session))
       selectedSessionId.value = String(requested?.id || sessions.value[0].id)
@@ -179,6 +186,7 @@ onBeforeUnmount(destroyChart)
         Download CSV
       </a>
     </div>
+    <PaginationControls class="mb-6 page-card" :page="sessionPage" :count="sessionCount" :page-size="pageSize" :disabled="loading" @change="loadSessions" />
 
     <div v-if="loading" class="page-card p-12 text-center text-sm text-gray-400">Loading session analytics…</div>
     <div v-else-if="error" class="page-card p-12 text-center">

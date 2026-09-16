@@ -1,5 +1,6 @@
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
+from django.db.models import Q
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
 from rest_framework import serializers, status
@@ -8,6 +9,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import Report
+from .pagination import paginated_response
 from .report_generation import generate_report_content, report_storage_name
 from .session_access import sessions_for_user
 from .views import _log_activity
@@ -69,7 +71,7 @@ class ReportOptionsView(APIView):
 
     def get(self, request):
         sessions = sessions_for_user(request.user).filter(ended_at__isnull=False).order_by('-started_at')
-        return Response([
+        return paginated_response(request, sessions, lambda page: [
             {
                 'id': session.pk,
                 'subject_code': session.subject.subject_code,
@@ -80,7 +82,7 @@ class ReportOptionsView(APIView):
                 'ended_at': session.ended_at,
                 'teacher_name': session.user.get_full_name() or session.user.username,
             }
-            for session in sessions
+            for session in page
         ])
 
 
@@ -89,7 +91,22 @@ class ReportListCreateView(APIView):
 
     def get(self, request):
         reports = _reports_for_user(request.user).order_by('-generated_at', '-pk')
-        return Response([_report_data(report) for report in reports])
+        search = request.query_params.get('search', '').strip()
+        if search:
+            reports = reports.filter(
+                Q(session__subject__subject_code__icontains=search)
+                | Q(session__subject__subject_name__icontains=search)
+                | Q(session__subject__classroom__room_code__icontains=search)
+                | Q(generated_by__username__icontains=search)
+            )
+        report_type = request.query_params.get('report_type', '').strip()
+        if report_type:
+            reports = reports.filter(report_type=report_type)
+        return paginated_response(
+            request,
+            reports,
+            lambda page: [_report_data(report) for report in page],
+        )
 
     def post(self, request):
         serializer = ReportCreateSerializer(data=request.data, context={'request': request})

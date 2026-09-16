@@ -57,3 +57,29 @@ test('presentation upload sends its idempotency key and reports both phases', as
   ])
   assert.deepEqual(result, { id: 41, processing_status: 'ready' })
 })
+
+test('presentation upload hides server details and shows its request reference', async () => {
+  class FailedUpload extends SuccessfulUpload {
+    send() {
+      this.status = 500
+      this.responseText = JSON.stringify({ detail: 'storage password=private-value' })
+      this.getResponseHeader = name => name === 'X-Request-ID' ? 'upload-failure-123' : null
+      this.onload()
+    }
+  }
+  globalThis.XMLHttpRequest = FailedUpload
+
+  await assert.rejects(
+    uploadPresentation({
+      title: 'Failed Upload',
+      file: new Blob(['%PDF-test'], { type: 'application/pdf' }),
+      requestId: 'bf2ec037-370a-4892-9086-918a04d538f4',
+    }),
+    (error) => {
+      assert.match(error.message, /upload-failure-123/)
+      assert.doesNotMatch(error.message, /private-value/)
+      assert.deepEqual(error.fields, {})
+      return true
+    },
+  )
+})

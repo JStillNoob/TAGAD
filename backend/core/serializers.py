@@ -397,6 +397,7 @@ class ClassroomSerializer(serializers.ModelSerializer):
     )
     subject_count = serializers.SerializerMethodField()
     camera_count = serializers.SerializerMethodField()
+    camera_positions = serializers.SerializerMethodField()
     capacity = serializers.IntegerField(required=False, allow_null=True, min_value=1)
 
     class Meta:
@@ -410,14 +411,22 @@ class ClassroomSerializer(serializers.ModelSerializer):
             'capacity',
             'subject_count',
             'camera_count',
+            'camera_positions',
         )
-        read_only_fields = ('id', 'organization_name', 'subject_count', 'camera_count')
+        read_only_fields = (
+            'id', 'organization_name', 'subject_count', 'camera_count', 'camera_positions',
+        )
 
     def get_subject_count(self, classroom):
-        return classroom.subjects.count()
+        annotated_count = getattr(classroom, '_subject_count', None)
+        return annotated_count if annotated_count is not None else classroom.subjects.count()
 
     def get_camera_count(self, classroom):
-        return classroom.cameras.count()
+        annotated_count = getattr(classroom, '_camera_count', None)
+        return annotated_count if annotated_count is not None else classroom.cameras.count()
+
+    def get_camera_positions(self, classroom):
+        return [camera.position for camera in classroom.cameras.all()]
 
     def validate_room_code(self, value):
         value = value.strip()
@@ -499,7 +508,8 @@ class SubjectSerializer(serializers.ModelSerializer):
         return subject.teacher.get_full_name() or subject.teacher.username
 
     def get_session_count(self, subject):
-        return subject.sessions.count()
+        annotated_count = getattr(subject, '_session_count', None)
+        return annotated_count if annotated_count is not None else subject.sessions.count()
 
     def validate_subject_code(self, value):
         value = value.strip()

@@ -1,7 +1,8 @@
 import { apiRequest } from './api'
+import { paginationQuery } from './pagination'
 
-export function fetchClassrooms() {
-  return apiRequest('/api/auth/classrooms/')
+export function fetchClassrooms(parameters = {}) {
+  return apiRequest(`/api/auth/classrooms/${paginationQuery(parameters)}`)
 }
 
 export function createClassroom(classroom) {
@@ -22,8 +23,8 @@ export function deleteClassroom(id) {
   return apiRequest(`/api/auth/classrooms/${id}/`, { method: 'DELETE' })
 }
 
-export function fetchSubjects() {
-  return apiRequest('/api/auth/subjects/')
+export function fetchSubjects(parameters = {}) {
+  return apiRequest(`/api/auth/subjects/${paginationQuery(parameters)}`)
 }
 
 export function createSubject(subject) {
@@ -55,8 +56,8 @@ export function createQuickSetup(setup) {
   })
 }
 
-export function fetchCameras() {
-  return apiRequest('/api/auth/cameras/')
+export function fetchCameras(parameters = {}) {
+  return apiRequest(`/api/auth/cameras/${paginationQuery(parameters)}`)
 }
 
 export function createCamera(camera) {

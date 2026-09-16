@@ -372,7 +372,7 @@ class PresentationAndSessionTests(TestCase):
 
         response = self.client.get(reverse('presentation-list'))
 
-        by_id = {item['id']: item for item in response.json()}
+        by_id = {item['id']: item for item in response.json()['results']}
         self.assertFalse(by_id[unused.pk]['in_use'])
         self.assertTrue(by_id[used.pk]['in_use'])
 
@@ -422,7 +422,7 @@ class PresentationAndSessionTests(TestCase):
         own_file = self.client.get(reverse('presentation-source', args=[own.pk]))
         foreign_file = self.client.get(reverse('presentation-source', args=[foreign.pk]))
 
-        self.assertEqual([item['id'] for item in listed.json()], [own.pk])
+        self.assertEqual([item['id'] for item in listed.json()['results']], [own.pk])
         self.assertEqual(own_file.status_code, 200)
         self.assertEqual(foreign_file.status_code, 404)
         own_file.close()
@@ -436,13 +436,13 @@ class PresentationAndSessionTests(TestCase):
         self.client.force_login(self.system_admin)
         system_response = self.client.get(reverse('presentation-list'))
 
-        self.assertEqual([item['id'] for item in org_response.json()], [own.pk])
+        self.assertEqual([item['id'] for item in org_response.json()['results']], [own.pk])
         self.assertEqual(
-            {item['id'] for item in system_response.json()},
+            {item['id'] for item in system_response.json()['results']},
             {own.pk, foreign.pk},
         )
 
-    def test_session_options_are_scoped_and_only_include_active_cameras(self):
+    def test_session_subjects_are_paginated_scoped_and_only_include_active_cameras(self):
         presentation = self.create_ready_presentation()
         failed = self.create_ready_presentation(title='Failed Presentation')
         failed.processing_status = Presentation.ProcessingStatus.FAILED
@@ -450,12 +450,15 @@ class PresentationAndSessionTests(TestCase):
         failed.save(update_fields=['processing_status', 'processing_error'])
         self.client.force_login(self.teacher)
 
-        response = self.client.get(reverse('session-options'))
+        options_response = self.client.get(reverse('session-options'))
+        response = self.client.get(reverse('session-subject-list'))
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual([item['id'] for item in response.json()['subjects']], [self.subject.pk])
+        self.assertEqual(options_response.status_code, 200)
+        self.assertNotIn('subjects', options_response.json())
+        self.assertEqual([item['id'] for item in response.json()['results']], [self.subject.pk])
         self.assertEqual(
-            response.json()['subjects'][0]['cameras'],
+            response.json()['results'][0]['cameras'],
             [{
                 'id': self.front_camera.pk,
                 'name': self.front_camera.camera_name,
@@ -465,11 +468,34 @@ class PresentationAndSessionTests(TestCase):
                 'status_label': self.front_camera.get_status_display(),
             }],
         )
-        presentation_data = response.json()['presentations']
+        self.assertNotIn('presentations', options_response.json())
+        presentation_data = self.client.get(reverse('presentation-list')).json()['results']
         self.assertEqual({item['id'] for item in presentation_data}, {presentation.pk, failed.pk})
         failed_data = next(item for item in presentation_data if item['id'] == failed.pk)
         self.assertEqual(failed_data['processing_status'], 'failed')
         self.assertEqual(failed_data['processing_error'], 'Conversion failed.')
+
+    def test_session_subject_search_and_selected_order_remain_scoped(self):
+        selected = Subject.objects.create(
+            classroom=self.classroom,
+            teacher=self.teacher,
+            subject_code='ZZZ-SELECTED',
+            subject_name='Selected Subject',
+        )
+        self.client.force_login(self.teacher)
+
+        searched = self.client.get(
+            reverse('session-subject-list'),
+            {'search': 'Selected Subject', 'page_size': 1},
+        )
+        selected_first = self.client.get(
+            reverse('session-subject-list'),
+            {'selected': selected.pk, 'page_size': 1},
+        )
+
+        self.assertEqual(searched.json()['count'], 1)
+        self.assertEqual(searched.json()['results'][0]['id'], selected.pk)
+        self.assertEqual(selected_first.json()['results'][0]['id'], selected.pk)
 
     def test_start_session_creates_camera_links_and_initial_slide_event(self):
         presentation = self.create_ready_presentation()
@@ -503,7 +529,7 @@ class PresentationAndSessionTests(TestCase):
         }
         self.assertEqual(response.json()['cameras'], [expected_camera])
         refreshed = self.client.get(reverse('session-list'))
-        self.assertEqual(refreshed.json()[0]['cameras'], [expected_camera])
+        self.assertEqual(refreshed.json()['results'][0]['cameras'], [expected_camera])
         self.assertEqual(session.slide_events.count(), 1)
         self.assertEqual(session.slide_events.get().slide.slide_number, 1)
         self.assertTrue(SystemLog.objects.filter(activity__contains='Started classroom session').exists())
@@ -604,7 +630,7 @@ class PresentationAndSessionTests(TestCase):
 
         self.assertEqual(entered.status_code, 201)
         self.assertTrue(SlideEvent.objects.filter(session=session, slide=second_slide).exists())
-        listed_session = self.client.get(reverse('session-list')).json()[0]
+        listed_session = self.client.get(reverse('session-list')).json()['results'][0]
         self.assertEqual(listed_session['current_slide'], second_slide.pk)
         self.assertEqual(ended.status_code, 200)
         session.refresh_from_db()
@@ -695,7 +721,7 @@ class PresentationAndSessionTests(TestCase):
         response = self.client.get(reverse('session-list'))
 
         self.assertEqual(response.status_code, 200)
-        restored = response.json()[0]
+        restored = response.json()['results'][0]
         self.assertEqual(restored['status'], 'ongoing')
         self.assertEqual(restored['current_slide'], second_slide.pk)
         self.assertEqual([camera['id'] for camera in restored['cameras']], [self.front_camera.pk])
@@ -742,10 +768,16 @@ class PresentationAndSessionTests(TestCase):
         self.client.force_login(self.system_admin)
         system_response = self.client.get(reverse('session-list'))
 
-        self.assertEqual([item['id'] for item in teacher_response.json()], [own_session.pk])
-        self.assertEqual([item['id'] for item in org_response.json()], [own_session.pk])
         self.assertEqual(
-            {item['id'] for item in system_response.json()},
+            [item['id'] for item in teacher_response.json()['results']],
+            [own_session.pk],
+        )
+        self.assertEqual(
+            [item['id'] for item in org_response.json()['results']],
+            [own_session.pk],
+        )
+        self.assertEqual(
+            {item['id'] for item in system_response.json()['results']},
             {own_session.pk, foreign_session.pk},
         )
 

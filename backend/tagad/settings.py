@@ -57,6 +57,7 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+    'EXCEPTION_HANDLER': 'core.exceptions.tagad_exception_handler',
 }
 
 SESSION_COOKIE_HTTPONLY = True
@@ -75,6 +76,7 @@ CSRF_TRUSTED_ORIGINS = config(
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'core.middleware.RequestIdMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -132,6 +134,9 @@ DATABASES = {
         'PASSWORD': config('DB_PASSWORD'),
         'HOST': config('DB_HOST', default='localhost'),
         'PORT': config('DB_PORT', default='5432'),
+        'OPTIONS': {
+            'connect_timeout': config('DB_CONNECT_TIMEOUT_SECONDS', default=5, cast=int),
+        },
     }
 }
 
@@ -228,8 +233,64 @@ PRESENTATION_MAX_EXPANDED_BYTES = config(
 )
 PRESENTATION_MAX_SLIDES = config('PRESENTATION_MAX_SLIDES', default=300, cast=int)
 LIBREOFFICE_PATH = config('LIBREOFFICE_PATH', default='')
+PG_DUMP_PATH = config('PG_DUMP_PATH', default='')
+PG_RESTORE_PATH = config('PG_RESTORE_PATH', default='')
+POSTGRES_TOOL_TIMEOUT_SECONDS = config('POSTGRES_TOOL_TIMEOUT_SECONDS', default=300, cast=int)
+DATABASE_BACKUP_ROOT = BASE_DIR / config('DATABASE_BACKUP_DIRECTORY', default='backups')
+
+# R6 retention policy. Cleanup is opt-in and dry-runs unless --execute is used.
+RETENTION_FAILED_PRESENTATION_DAYS = config(
+    'RETENTION_FAILED_PRESENTATION_DAYS', default=30, cast=int,
+)
+RETENTION_REPORT_DAYS = config('RETENTION_REPORT_DAYS', default=365, cast=int)
+RETENTION_ENGAGEMENT_SUMMARY_DAYS = config(
+    'RETENTION_ENGAGEMENT_SUMMARY_DAYS', default=180, cast=int,
+)
+RETENTION_SYSTEM_LOG_DAYS = config('RETENTION_SYSTEM_LOG_DAYS', default=180, cast=int)
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+# Operational logs are structured, redacted, and rotated locally. Production
+# deployments can replace these handlers with their centralized log collector.
+LOG_DIRECTORY = BASE_DIR / 'logs'
+LOG_DIRECTORY.mkdir(parents=True, exist_ok=True)
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'filters': {
+        'request_context': {'()': 'core.observability.RequestContextFilter'},
+    },
+    'formatters': {
+        'safe_json': {'()': 'core.observability.SafeJsonFormatter'},
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'level': config('LOG_CONSOLE_LEVEL', default='WARNING'),
+            'filters': ['request_context'],
+            'formatter': 'safe_json',
+        },
+        'rotating_file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'level': config('LOG_FILE_LEVEL', default='INFO'),
+            'filters': ['request_context'],
+            'formatter': 'safe_json',
+            'filename': LOG_DIRECTORY / 'tagad.log',
+            'maxBytes': config('LOG_MAX_BYTES', default=5 * 1024 * 1024, cast=int),
+            'backupCount': config('LOG_BACKUP_COUNT', default=5, cast=int),
+            'encoding': 'utf-8',
+            'delay': True,
+        },
+    },
+    'loggers': {
+        'tagad': {
+            'handlers': ['console', 'rotating_file'],
+            'level': config('LOG_LEVEL', default='INFO'),
+            'propagate': False,
+        },
+    },
+}

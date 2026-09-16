@@ -183,12 +183,12 @@ class ReportTests(TestCase):
             report_path='reports/foreign.pdf',
         )
         self.client.force_login(self.teacher)
-        teacher_reports = self.client.get(reverse('report-list-create')).json()
-        teacher_options = self.client.get(reverse('report-options')).json()
+        teacher_reports = self.client.get(reverse('report-list-create')).json()['results']
+        teacher_options = self.client.get(reverse('report-options')).json()['results']
         self.client.force_login(self.org_admin)
-        org_reports = self.client.get(reverse('report-list-create')).json()
+        org_reports = self.client.get(reverse('report-list-create')).json()['results']
         self.client.force_login(self.system_admin)
-        system_reports = self.client.get(reverse('report-list-create')).json()
+        system_reports = self.client.get(reverse('report-list-create')).json()['results']
 
         self.assertEqual([item['id'] for item in teacher_reports], [own_report.pk])
         self.assertEqual([item['id'] for item in teacher_options], [self.session.pk])

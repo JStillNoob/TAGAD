@@ -1,7 +1,8 @@
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import AppLayout from '../layouts/AppLayout.vue'
+import PaginationControls from '../components/PaginationControls.vue'
 import { currentUser } from '../auth'
 import {
   createCamera,
@@ -23,9 +24,18 @@ import {
 const route = useRoute()
 
 const classrooms = ref([])
+const classroomCount = ref(0)
+const classroomPage = ref(1)
+const pageSize = 20
 const subjects = ref([])
+const subjectCount = ref(0)
+const subjectPage = ref(1)
+const subjectPageLoading = ref(false)
 const cameras = ref([])
-const options = ref({ organizations: [], teachers: [], camera_positions: [], camera_statuses: [] })
+const cameraCount = ref(0)
+const cameraPage = ref(1)
+const cameraPageLoading = ref(false)
+const options = ref({ organizations: [], teachers: [], camera_positions: [], camera_statuses: [], summary: {} })
 const loading = ref(true)
 const saving = ref(false)
 const pageError = ref('')
@@ -34,6 +44,7 @@ const fieldErrors = ref({})
 const search = ref('')
 const modal = ref(null)
 const editingId = ref(null)
+let classroomSearchTimer = null
 
 const classroomForm = reactive({ organization: '', room_code: '', building: '', capacity: '' })
 const subjectForm = reactive({ subject_code: '', subject_name: '', classroom: '', teacher: '' })
@@ -55,28 +66,9 @@ const quickForm = reactive({
 const canManage = computed(() => ['system_admin', 'org_admin'].includes(currentUser.value?.role))
 const isSystemAdmin = computed(() => currentUser.value?.role === 'system_admin')
 const isEditing = computed(() => editingId.value !== null)
-const totalCapacity = computed(() => classrooms.value.reduce((sum, item) => sum + (item.capacity || 0), 0))
-const cameraCount = computed(() => cameras.value.length)
-const filteredSubjects = computed(() => {
-  const term = search.value.trim().toLowerCase()
-  if (!term) return subjects.value
-  return subjects.value.filter((subject) => [
-    subject.subject_code,
-    subject.subject_name,
-    subject.teacher_name,
-    subject.classroom_room_code,
-    subject.organization_name,
-  ].join(' ').toLowerCase().includes(term))
-})
-const filteredClassrooms = computed(() => {
-  const term = search.value.trim().toLowerCase()
-  if (!term) return classrooms.value
-  return classrooms.value.filter((classroom) => [
-    classroom.room_code,
-    classroom.building,
-    classroom.organization_name,
-  ].join(' ').toLowerCase().includes(term))
-})
+const totalCapacity = computed(() => options.value.summary?.capacity || 0)
+const filteredSubjects = computed(() => subjects.value)
+const filteredClassrooms = computed(() => classrooms.value)
 const selectedClassroom = computed(() => classrooms.value.find(
   (item) => item.id === Number(subjectForm.classroom),
 ))
@@ -160,7 +152,7 @@ function quickCameraError(camera, field) {
 function resetQuickCameras() {
   const configured = new Set(
     quickForm.mode === 'existing'
-      ? cameras.value.filter((camera) => camera.classroom === Number(quickForm.classroom_id)).map((camera) => camera.position)
+      ? quickClassroom.value?.camera_positions || []
       : [],
   )
   quickForm.cameras = options.value.camera_positions.map((position) => ({
@@ -262,14 +254,17 @@ async function loadPage() {
   pageError.value = ''
   try {
     const [classroomData, subjectData, cameraData, optionData] = await Promise.all([
-      fetchClassrooms(),
-      fetchSubjects(),
-      fetchCameras(),
+      fetchClassrooms({ page: classroomPage.value, search: search.value.trim() }),
+      fetchSubjects({ page: subjectPage.value, search: search.value.trim() }),
+      fetchCameras({ page: cameraPage.value }),
       fetchClassManagementOptions(),
     ])
-    classrooms.value = classroomData
-    subjects.value = subjectData
-    cameras.value = cameraData
+    classrooms.value = classroomData.results
+    classroomCount.value = classroomData.count
+    subjects.value = subjectData.results
+    subjectCount.value = subjectData.count
+    cameras.value = cameraData.results
+    cameraCount.value = cameraData.count
     options.value = optionData
   } catch (error) {
     pageError.value = error.message
@@ -287,13 +282,11 @@ async function saveClassroom() {
     capacity: classroomForm.capacity === '' ? null : Number(classroomForm.capacity),
   }
   try {
-    const saved = isEditing.value
+    isEditing.value
       ? await updateClassroom(editingId.value, payload)
       : await createClassroom(payload)
-    const index = classrooms.value.findIndex((item) => item.id === saved.id)
-    if (index === -1) classrooms.value.push(saved)
-    else classrooms.value[index] = saved
-    classrooms.value.sort((a, b) => a.room_code.localeCompare(b.room_code))
+    if (!isEditing.value) classroomPage.value = 1
+    await Promise.all([refreshClassroomCounts(), refreshClassManagementOptions()])
     modal.value = null
   } catch (error) {
     formError.value = error.message
@@ -312,14 +305,11 @@ async function saveSubject() {
       classroom: Number(subjectForm.classroom),
       teacher: Number(subjectForm.teacher),
     }
-    const saved = isEditing.value
+    isEditing.value
       ? await updateSubject(editingId.value, payload)
       : await createSubject(payload)
-    const index = subjects.value.findIndex((item) => item.id === saved.id)
-    if (index === -1) subjects.value.push(saved)
-    else subjects.value[index] = saved
-    subjects.value.sort((a, b) => a.subject_code.localeCompare(b.subject_code))
-    await refreshClassroomCounts()
+    if (!isEditing.value) subjectPage.value = 1
+    await Promise.all([refreshClassroomCounts(), refreshSubjectPage()])
     modal.value = null
   } catch (error) {
     formError.value = error.message
@@ -334,17 +324,10 @@ async function saveCamera() {
   resetErrors()
   try {
     const payload = { ...cameraForm, classroom: Number(cameraForm.classroom) }
-    const saved = isEditing.value
+    isEditing.value
       ? await updateCamera(editingId.value, payload)
       : await createCamera(payload)
-    const index = cameras.value.findIndex((item) => item.id === saved.id)
-    if (index === -1) cameras.value.push(saved)
-    else cameras.value[index] = saved
-    cameras.value.sort((a, b) => (
-      a.classroom_room_code.localeCompare(b.classroom_room_code)
-      || a.position.localeCompare(b.position)
-    ))
-    await refreshClassroomCounts()
+    await Promise.all([refreshClassroomCounts(), refreshCameraPage()])
     modal.value = null
   } catch (error) {
     formError.value = error.message
@@ -393,8 +376,71 @@ async function saveQuickSetup() {
 }
 
 async function refreshClassroomCounts() {
-  classrooms.value = await fetchClassrooms()
+  const page = await fetchClassrooms({
+    page: classroomPage.value,
+    search: search.value.trim(),
+  })
+  classrooms.value = page.results
+  classroomCount.value = page.count
 }
+
+async function refreshClassManagementOptions() {
+  options.value = await fetchClassManagementOptions()
+}
+
+async function refreshSubjectPage(page = subjectPage.value) {
+  const data = await fetchSubjects({ page, search: search.value.trim() })
+  subjectPage.value = page
+  subjects.value = data.results
+  subjectCount.value = data.count
+}
+
+async function refreshCameraPage(page = cameraPage.value) {
+  const data = await fetchCameras({ page })
+  cameraPage.value = page
+  cameras.value = data.results
+  cameraCount.value = data.count
+}
+
+function changeClassroomPage(page) {
+  classroomPage.value = page
+  refreshClassroomCounts().catch((error) => { pageError.value = error.message })
+}
+
+async function changeSubjectPage(page) {
+  subjectPageLoading.value = true
+  pageError.value = ''
+  try {
+    await refreshSubjectPage(page)
+  } catch (error) {
+    pageError.value = error.message
+  } finally {
+    subjectPageLoading.value = false
+  }
+}
+
+async function changeCameraPage(page) {
+  cameraPageLoading.value = true
+  pageError.value = ''
+  try {
+    await refreshCameraPage(page)
+  } catch (error) {
+    pageError.value = error.message
+  } finally {
+    cameraPageLoading.value = false
+  }
+}
+
+watch(search, () => {
+  clearTimeout(classroomSearchTimer)
+  classroomSearchTimer = setTimeout(() => {
+    classroomPage.value = 1
+    subjectPage.value = 1
+    Promise.all([refreshClassroomCounts(), refreshSubjectPage()]).catch((error) => {
+      pageError.value = error.message
+    })
+  }, 250)
+})
 
 async function removeClassroom(classroom) {
   if (!window.confirm(`Delete classroom ${classroom.room_code}?`)) return
@@ -402,6 +448,10 @@ async function removeClassroom(classroom) {
   try {
     await deleteClassroom(classroom.id)
     classrooms.value = classrooms.value.filter((item) => item.id !== classroom.id)
+    classroomCount.value = Math.max(0, classroomCount.value - 1)
+    const finalPage = Math.max(1, Math.ceil(classroomCount.value / pageSize))
+    classroomPage.value = Math.min(classroomPage.value, finalPage)
+    await Promise.all([refreshClassroomCounts(), refreshClassManagementOptions()])
   } catch (error) {
     pageError.value = error.message
   }
@@ -412,8 +462,10 @@ async function removeSubject(subject) {
   pageError.value = ''
   try {
     await deleteSubject(subject.id)
-    subjects.value = subjects.value.filter((item) => item.id !== subject.id)
-    await refreshClassroomCounts()
+    subjectCount.value = Math.max(0, subjectCount.value - 1)
+    const finalPage = Math.max(1, Math.ceil(subjectCount.value / pageSize))
+    subjectPage.value = Math.min(subjectPage.value, finalPage)
+    await Promise.all([refreshClassroomCounts(), refreshSubjectPage()])
   } catch (error) {
     pageError.value = error.message
   }
@@ -424,14 +476,17 @@ async function removeCamera(camera) {
   pageError.value = ''
   try {
     await deleteCamera(camera.id)
-    cameras.value = cameras.value.filter((item) => item.id !== camera.id)
-    await refreshClassroomCounts()
+    cameraCount.value = Math.max(0, cameraCount.value - 1)
+    const finalPage = Math.max(1, Math.ceil(cameraCount.value / pageSize))
+    cameraPage.value = Math.min(cameraPage.value, finalPage)
+    await Promise.all([refreshClassroomCounts(), refreshCameraPage()])
   } catch (error) {
     pageError.value = error.message
   }
 }
 
 onMounted(loadPage)
+onUnmounted(() => clearTimeout(classroomSearchTimer))
 </script>
 
 <template>
@@ -453,15 +508,15 @@ onMounted(loadPage)
       <div v-if="pageError" class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ pageError }}</div>
 
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div class="stat-card"><p class="text-xs text-gray-400">Accessible records</p><p class="text-2xl font-bold text-navy mt-1">{{ classrooms.length }}</p><p class="text-sm text-gray-600">Classrooms</p></div>
-        <div class="stat-card"><p class="text-xs text-gray-400">Accessible records</p><p class="text-2xl font-bold text-navy mt-1">{{ subjects.length }}</p><p class="text-sm text-gray-600">Subjects</p></div>
+        <div class="stat-card"><p class="text-xs text-gray-400">Accessible records</p><p class="text-2xl font-bold text-navy mt-1">{{ classroomCount }}</p><p class="text-sm text-gray-600">Classrooms</p></div>
+        <div class="stat-card"><p class="text-xs text-gray-400">Accessible records</p><p class="text-2xl font-bold text-navy mt-1">{{ subjectCount }}</p><p class="text-sm text-gray-600">Subjects</p></div>
         <div class="stat-card"><p class="text-xs text-gray-400">Combined room capacity</p><p class="text-2xl font-bold text-navy mt-1">{{ totalCapacity }}</p><p class="text-sm text-gray-600">Seats</p></div>
         <div class="stat-card"><p class="text-xs text-gray-400">Configuration base</p><p class="text-2xl font-bold text-navy mt-1">{{ cameraCount }}</p><p class="text-sm text-gray-600">Cameras</p></div>
       </div>
 
-      <section class="page-card overflow-hidden">
+      <section class="page-card overflow-hidden" aria-labelledby="subjects-title">
         <div class="flex flex-col gap-3 border-b border-gray-200 p-5 sm:flex-row sm:items-center sm:justify-between">
-          <div><h2 class="font-bold text-gray-900">Subjects</h2><p class="text-xs text-gray-500 mt-1">Teachers see only subjects assigned to them.</p></div>
+          <div><h2 id="subjects-title" class="font-bold text-gray-900">Subjects</h2><p class="text-xs text-gray-500 mt-1">Teachers see only subjects assigned to them.</p></div>
           <input v-model="search" type="search" placeholder="Search classes and subjects…" class="w-full sm:w-72 rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-indigo-500" />
         </div>
         <div v-if="loading" class="p-10 text-center text-sm text-gray-500">Loading classes…</div>
@@ -484,10 +539,11 @@ onMounted(loadPage)
             <RouterLink :to="`/session?subject=${subject.id}`" class="btn-primary mt-5 w-full justify-center">Start Session</RouterLink>
           </article>
         </div>
+        <PaginationControls :page="subjectPage" :count="subjectCount" :page-size="pageSize" :disabled="loading || subjectPageLoading" @change="changeSubjectPage" />
       </section>
 
-      <section class="page-card overflow-hidden">
-        <div class="border-b border-gray-200 p-5"><h2 class="font-bold text-gray-900">Classrooms</h2><p class="text-xs text-gray-500 mt-1">Rooms must be empty before they can be deleted.</p></div>
+      <section class="page-card overflow-hidden" aria-labelledby="classrooms-title">
+        <div class="border-b border-gray-200 p-5"><h2 id="classrooms-title" class="font-bold text-gray-900">Classrooms</h2><p class="text-xs text-gray-500 mt-1">Rooms must be empty before they can be deleted.</p></div>
         <div v-if="!loading && !filteredClassrooms.length" class="p-10 text-center text-sm text-gray-500">No classrooms found.</div>
         <div v-else class="overflow-x-auto">
           <table class="w-full text-left text-sm">
@@ -505,11 +561,12 @@ onMounted(loadPage)
             </tbody>
           </table>
         </div>
+        <PaginationControls :page="classroomPage" :count="classroomCount" :page-size="pageSize" :disabled="loading" @change="changeClassroomPage" />
       </section>
 
-      <section class="page-card overflow-hidden">
+      <section class="page-card overflow-hidden" aria-labelledby="camera-setup-title">
         <div class="border-b border-gray-200 p-5">
-          <h2 class="font-bold text-gray-900">Camera Setup</h2>
+          <h2 id="camera-setup-title" class="font-bold text-gray-900">Camera Setup</h2>
           <p class="text-xs text-gray-500 mt-1">Configure classroom camera positions now; live CCTV connections will be added later.</p>
         </div>
         <div v-if="!loading && !cameras.length" class="p-10 text-center text-sm text-gray-500">No cameras configured.</div>
@@ -530,6 +587,7 @@ onMounted(loadPage)
             </tbody>
           </table>
         </div>
+        <PaginationControls :page="cameraPage" :count="cameraCount" :page-size="pageSize" :disabled="loading || cameraPageLoading" @change="changeCameraPage" />
       </section>
     </div>
 

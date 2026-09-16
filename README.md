@@ -11,6 +11,9 @@ Django backend are separate development servers and both must be running.
 - PostgreSQL
 - LibreOffice or Microsoft PowerPoint for PPTX-to-PDF conversion
 
+Startup, health checks, structured-log troubleshooting, and safe PostgreSQL
+backup/recovery procedures are documented in [OPERATIONS.md](OPERATIONS.md).
+
 ## 1. Configure PostgreSQL
 
 Create an empty PostgreSQL database and a database user with access to it. From

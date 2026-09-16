@@ -1,12 +1,11 @@
 from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
 from django.db import transaction
-from django.db.models import Q, Sum
+from django.db.models import Count, Q, Sum
 from django.utils.dateparse import parse_date
 from django.utils.decorators import method_decorator
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 from rest_framework import generics, serializers, status
-from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -23,6 +22,7 @@ from .models import (
     User,
 )
 from .permissions import CanAccessClassManagement, CanManageUsers
+from .pagination import StandardResultsSetPagination
 from .auth_throttling import (
     clear_login_failures,
     login_throttle_state,
@@ -213,14 +213,10 @@ def _log_activity(request, activity):
     )
 
 
-class SystemLogPagination(PageNumberPagination):
-    page_size = 20
-
-
 class SystemLogListView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = SystemLogSerializer
-    pagination_class = SystemLogPagination
+    pagination_class = StandardResultsSetPagination
 
     def get_queryset(self):
         logs = SystemLog.objects.select_related(
@@ -258,6 +254,7 @@ class SystemLogListView(generics.ListAPIView):
 
 class UserManagementMixin:
     permission_classes = [CanManageUsers]
+    pagination_class = StandardResultsSetPagination
 
     def get_queryset(self):
         users = User.objects.select_related('organization').order_by(
@@ -268,6 +265,20 @@ class UserManagementMixin:
                 organization=self.request.user.organization,
                 role=User.Role.TEACHER,
             )
+        search = self.request.query_params.get('search', '').strip()
+        if search:
+            users = users.filter(
+                Q(username__icontains=search)
+                | Q(email__icontains=search)
+                | Q(first_name__icontains=search)
+                | Q(last_name__icontains=search)
+            )
+        role = self.request.query_params.get('role', '').strip()
+        if role:
+            users = users.filter(role=role)
+        user_status = self.request.query_params.get('status', '').strip()
+        if user_status:
+            users = users.filter(status=user_status)
         return users
 
     def get_serializer_class(self):
@@ -335,16 +346,27 @@ class UserOptionsView(APIView):
 class ClassroomMixin:
     permission_classes = [CanAccessClassManagement]
     serializer_class = ClassroomSerializer
+    pagination_class = StandardResultsSetPagination
 
     def get_queryset(self):
         classrooms = Classroom.objects.select_related('organization').prefetch_related(
-            'subjects', 'cameras',
+            'cameras',
+        ).annotate(
+            _subject_count=Count('subjects', distinct=True),
+            _camera_count=Count('cameras', distinct=True),
         ).order_by('room_code')
         user = self.request.user
         if user.role == User.Role.ORG_ADMIN:
             classrooms = classrooms.filter(organization=user.organization)
         elif user.role == User.Role.TEACHER:
             classrooms = classrooms.filter(subjects__teacher=user).distinct()
+        search = self.request.query_params.get('search', '').strip()
+        if search:
+            classrooms = classrooms.filter(
+                Q(room_code__icontains=search)
+                | Q(building__icontains=search)
+                | Q(organization__organization_name__icontains=search)
+            )
         return classrooms
 
 
@@ -380,16 +402,31 @@ class ClassroomDetailView(ClassroomMixin, generics.RetrieveUpdateDestroyAPIView)
 class SubjectMixin:
     permission_classes = [CanAccessClassManagement]
     serializer_class = SubjectSerializer
+    pagination_class = StandardResultsSetPagination
 
     def get_queryset(self):
         subjects = Subject.objects.select_related(
             'classroom', 'classroom__organization', 'teacher',
-        ).prefetch_related('sessions').order_by('subject_code')
+        ).annotate(
+            _session_count=Count('sessions', distinct=True),
+        ).order_by('subject_code', 'pk')
         user = self.request.user
         if user.role == User.Role.ORG_ADMIN:
             subjects = subjects.filter(classroom__organization=user.organization)
         elif user.role == User.Role.TEACHER:
             subjects = subjects.filter(teacher=user)
+        search = self.request.query_params.get('search', '').strip()
+        if search:
+            subjects = subjects.filter(
+                Q(subject_code__icontains=search)
+                | Q(subject_name__icontains=search)
+                | Q(classroom__room_code__icontains=search)
+                | Q(classroom__building__icontains=search)
+                | Q(classroom__organization__organization_name__icontains=search)
+                | Q(teacher__username__icontains=search)
+                | Q(teacher__first_name__icontains=search)
+                | Q(teacher__last_name__icontains=search)
+            )
         return subjects
 
 
@@ -426,6 +463,9 @@ class ClassManagementOptionsView(APIView):
     permission_classes = [CanAccessClassManagement]
 
     def get(self, request):
+        classrooms = Classroom.objects.all()
+        subjects = Subject.objects.all()
+        cameras = Camera.objects.all()
         if request.user.role == User.Role.SYSTEM_ADMIN:
             organizations = Organization.objects.filter(
                 status=Organization.Status.ACTIVE,
@@ -437,6 +477,9 @@ class ClassManagementOptionsView(APIView):
                 organization__status=Organization.Status.ACTIVE,
             ).select_related('organization').order_by('first_name', 'last_name', 'username')
         elif request.user.role == User.Role.ORG_ADMIN:
+            classrooms = classrooms.filter(organization=request.user.organization)
+            subjects = subjects.filter(classroom__organization=request.user.organization)
+            cameras = cameras.filter(classroom__organization=request.user.organization)
             organizations = Organization.objects.filter(pk=request.user.organization_id)
             teachers = User.objects.filter(
                 role=User.Role.TEACHER,
@@ -445,6 +488,9 @@ class ClassManagementOptionsView(APIView):
                 organization=request.user.organization,
             ).order_by('first_name', 'last_name', 'username')
         else:
+            classrooms = classrooms.filter(subjects__teacher=request.user).distinct()
+            subjects = subjects.filter(teacher=request.user)
+            cameras = cameras.filter(classroom__subjects__teacher=request.user).distinct()
             organizations = Organization.objects.none()
             teachers = User.objects.none()
 
@@ -469,6 +515,12 @@ class ClassManagementOptionsView(APIView):
                 {'value': value, 'label': label}
                 for value, label in Camera.Status.choices
             ],
+            'summary': {
+                'classrooms': classrooms.count(),
+                'subjects': subjects.count(),
+                'cameras': cameras.count(),
+                'capacity': classrooms.aggregate(total=Sum('capacity'))['total'] or 0,
+            },
         })
 
 
@@ -553,6 +605,7 @@ class ClassManagementQuickSetupView(APIView):
 class CameraMixin:
     permission_classes = [CanAccessClassManagement]
     serializer_class = CameraSerializer
+    pagination_class = StandardResultsSetPagination
 
     def get_queryset(self):
         cameras = Camera.objects.select_related(

@@ -131,6 +131,8 @@ class PresentationSerializer(serializers.ModelSerializer):
         return reverse('presentation-preview', args=[presentation.pk])
 
     def get_in_use(self, presentation):
+        if hasattr(presentation, '_in_use'):
+            return presentation._in_use
         return presentation.sessions.exists()
 
 
@@ -207,7 +209,7 @@ class ClassroomSessionSerializer(serializers.ModelSerializer):
     subject_code = serializers.CharField(source='subject.subject_code', read_only=True)
     classroom = serializers.CharField(source='subject.classroom.room_code', read_only=True)
     presentation_title = serializers.CharField(source='presentation.title', read_only=True)
-    presentation = PresentationSerializer(read_only=True)
+    presentation = serializers.SerializerMethodField()
     cameras = serializers.SerializerMethodField()
     current_slide = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
@@ -246,11 +248,20 @@ class ClassroomSessionSerializer(serializers.ModelSerializer):
             for item in session.session_cameras.all()
         ]
 
+    def get_presentation(self, session):
+        # A presentation reached through a session is necessarily protected.
+        session.presentation._in_use = True
+        return PresentationSerializer(session.presentation, context=self.context).data
+
     def get_status(self, session):
         return 'completed' if session.ended_at else 'ongoing'
 
     def get_current_slide(self, session):
-        event = session.slide_events.order_by('-entered_at', '-pk').first()
+        ordered_events = getattr(session, '_ordered_slide_events', None)
+        if ordered_events is None:
+            event = session.slide_events.order_by('-entered_at', '-pk').first()
+        else:
+            event = ordered_events[0] if ordered_events else None
         return event.slide_id if event else None
 
     def get_duration_minutes(self, session):

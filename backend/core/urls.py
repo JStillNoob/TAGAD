@@ -35,6 +35,7 @@ from .session_views import (
     SessionEnterSlideView,
     SessionListCreateView,
     SessionOptionsView,
+    SessionSubjectListView,
 )
 from .analytics_views import (
     AnalyticsSessionListView,
@@ -92,6 +93,7 @@ urlpatterns = [
         name='presentation-slide-image',
     ),
     path('session-options/', SessionOptionsView.as_view(), name='session-options'),
+    path('session-subjects/', SessionSubjectListView.as_view(), name='session-subject-list'),
     path('sessions/', SessionListCreateView.as_view(), name='session-list'),
     path('sessions/<int:pk>/end/', SessionEndView.as_view(), name='session-end'),
     path('pipeline/engagement/', EngagementIngestionView.as_view(), name='engagement-ingestion'),

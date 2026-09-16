@@ -1,3 +1,4 @@
+from django.db.models import Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from rest_framework.permissions import IsAuthenticated
@@ -5,6 +6,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .analytics import build_session_analytics
+from .pagination import paginated_response
 from .report_generation import analytics_csv_content
 from .session_access import sessions_for_user
 from .views import _log_activity
@@ -37,20 +39,37 @@ class AnalyticsSessionListView(APIView):
 
     def get(self, request):
         sessions = sessions_for_user(request.user).order_by('-started_at', '-pk')
-        return Response([
-            {
-                'id': session.pk,
-                'subject_code': session.subject.subject_code,
-                'subject_name': session.subject.subject_name,
-                'classroom': session.subject.classroom.room_code,
-                'teacher_name': session.user.get_full_name() or session.user.username,
-                'session_date': session.session_date,
-                'started_at': session.started_at,
-                'ended_at': session.ended_at,
-                'status': 'completed' if session.ended_at else 'ongoing',
-            }
-            for session in sessions
-        ])
+        search = request.query_params.get('search', '').strip()
+        if search:
+            sessions = sessions.filter(
+                Q(subject__subject_code__icontains=search)
+                | Q(subject__subject_name__icontains=search)
+                | Q(subject__classroom__room_code__icontains=search)
+                | Q(user__username__icontains=search)
+            )
+        session_status = request.query_params.get('status', '').strip()
+        if session_status == 'ongoing':
+            sessions = sessions.filter(ended_at__isnull=True)
+        elif session_status == 'completed':
+            sessions = sessions.filter(ended_at__isnull=False)
+
+        def serialize(page):
+            return [
+                {
+                    'id': session.pk,
+                    'subject_code': session.subject.subject_code,
+                    'subject_name': session.subject.subject_name,
+                    'classroom': session.subject.classroom.room_code,
+                    'teacher_name': session.user.get_full_name() or session.user.username,
+                    'session_date': session.session_date,
+                    'started_at': session.started_at,
+                    'ended_at': session.ended_at,
+                    'status': 'completed' if session.ended_at else 'ongoing',
+                }
+                for session in page
+            ]
+
+        return paginated_response(request, sessions, serialize)
 
 
 class SessionAnalyticsView(AnalyticsSessionMixin, APIView):

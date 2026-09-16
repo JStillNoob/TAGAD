@@ -1,7 +1,8 @@
 import { apiRequest } from './api'
+import { paginationQuery } from './pagination'
 
-export function fetchManagedUsers() {
-  return apiRequest('/api/auth/users/')
+export function fetchManagedUsers(parameters = {}) {
+  return apiRequest(`/api/auth/users/${paginationQuery(parameters)}`)
 }
 
 export function fetchUserOptions() {

@@ -1,6 +1,7 @@
 import mimetypes
 
 from django.db import IntegrityError, transaction
+from django.db.models import Case, IntegerField, Q, Value, When
 from django.conf import settings
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
@@ -13,6 +14,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import Camera, ClassroomSession, Presentation, SlideEvent
+from .pagination import paginated_response
 from .presentation_processing import delete_presentation_files, process_presentation
 from .session_access import (
     presentations_for_update,
@@ -33,8 +35,20 @@ class PresentationListCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        presentations = presentations_for_user(request.user).order_by('-uploaded_at')
-        return Response(PresentationSerializer(presentations, many=True).data)
+        presentations = presentations_for_user(request.user).order_by('-uploaded_at', '-pk')
+        search = request.query_params.get('search', '').strip()
+        if search:
+            presentations = presentations.filter(
+                Q(title__icontains=search) | Q(file_name__icontains=search),
+            )
+        processing_status = request.query_params.get('status', '').strip()
+        if processing_status:
+            presentations = presentations.filter(processing_status=processing_status)
+        return paginated_response(
+            request,
+            presentations,
+            lambda page: PresentationSerializer(page, many=True).data,
+        )
 
     def post(self, request):
         serializer = PresentationUploadSerializer(data=request.data)
@@ -170,37 +184,63 @@ class SessionOptionsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        subjects = subjects_for_user(request.user).order_by('subject_code')
-        presentations = presentations_for_user(request.user).order_by('-uploaded_at')
         return Response({
             'simulator_enabled': bool(settings.DEBUG and settings.ENABLE_PIPELINE_SIMULATOR),
-            'subjects': [
-                {
-                    'id': subject.pk,
-                    'code': subject.subject_code,
-                    'name': subject.subject_name,
-                    'classroom': {
-                        'id': subject.classroom_id,
-                        'room_code': subject.classroom.room_code,
-                        'building': subject.classroom.building,
-                    },
-                    'cameras': [
-                        {
-                            'id': camera.pk,
-                            'name': camera.camera_name,
-                            'position': camera.position,
-                            'position_label': camera.get_position_display(),
-                            'status': camera.status,
-                            'status_label': camera.get_status_display(),
-                        }
-                        for camera in subject.classroom.cameras.all()
-                        if camera.status == Camera.Status.ACTIVE
-                    ],
-                }
-                for subject in subjects
-            ],
-            'presentations': PresentationSerializer(presentations, many=True).data,
         })
+
+
+def _session_subject_data(subject):
+    return {
+        'id': subject.pk,
+        'code': subject.subject_code,
+        'name': subject.subject_name,
+        'classroom': {
+            'id': subject.classroom_id,
+            'room_code': subject.classroom.room_code,
+            'building': subject.classroom.building,
+        },
+        'cameras': [
+            {
+                'id': camera.pk,
+                'name': camera.camera_name,
+                'position': camera.position,
+                'position_label': camera.get_position_display(),
+                'status': camera.status,
+                'status_label': camera.get_status_display(),
+            }
+            for camera in subject.classroom.cameras.all()
+            if camera.status == Camera.Status.ACTIVE
+        ],
+    }
+
+
+class SessionSubjectListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        subjects = subjects_for_user(request.user)
+        search = request.query_params.get('search', '').strip()
+        if search:
+            subjects = subjects.filter(
+                Q(subject_code__icontains=search)
+                | Q(subject_name__icontains=search)
+                | Q(classroom__room_code__icontains=search)
+                | Q(classroom__building__icontains=search)
+            )
+        selected = request.query_params.get('selected', '').strip()
+        if selected.isdigit() and not search:
+            subjects = subjects.annotate(
+                _selected_order=Case(
+                    When(pk=int(selected), then=Value(0)),
+                    default=Value(1),
+                    output_field=IntegerField(),
+                ),
+            ).order_by('_selected_order', 'subject_code', 'pk')
+        else:
+            subjects = subjects.order_by('subject_code', 'pk')
+        return paginated_response(request, subjects, lambda page: [
+            _session_subject_data(subject) for subject in page
+        ])
 
 
 class SessionListCreateView(APIView):
@@ -208,7 +248,25 @@ class SessionListCreateView(APIView):
 
     def get(self, request):
         sessions = sessions_for_user(request.user).order_by('-started_at')
-        return Response(ClassroomSessionSerializer(sessions, many=True).data)
+        search = request.query_params.get('search', '').strip()
+        if search:
+            sessions = sessions.filter(
+                Q(subject__subject_code__icontains=search)
+                | Q(subject__subject_name__icontains=search)
+                | Q(subject__classroom__room_code__icontains=search)
+                | Q(presentation__title__icontains=search)
+                | Q(user__username__icontains=search)
+            )
+        session_status = request.query_params.get('status', '').strip()
+        if session_status == 'ongoing':
+            sessions = sessions.filter(ended_at__isnull=True)
+        elif session_status == 'completed':
+            sessions = sessions.filter(ended_at__isnull=False)
+        return paginated_response(
+            request,
+            sessions,
+            lambda page: ClassroomSessionSerializer(page, many=True).data,
+        )
 
     def post(self, request):
         serializer = SessionCreateSerializer(data=request.data, context={'request': request})

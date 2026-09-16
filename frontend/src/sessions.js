@@ -1,12 +1,26 @@
-import { apiRequest } from './api.js'
+import { apiErrorMessage, apiRequest } from './api.js'
 import { ensureCsrfCookie, getCookie } from './auth.js'
+import { paginationQuery } from './pagination.js'
 
 export function fetchSessionOptions() {
   return apiRequest('/api/auth/session-options/')
 }
 
-export function fetchSessions() {
-  return apiRequest('/api/auth/sessions/')
+export function fetchSessionSubjectPage(parameters = {}) {
+  return apiRequest(`/api/auth/session-subjects/${paginationQuery(parameters)}`)
+}
+
+export function fetchPresentationPage(parameters = {}) {
+  return apiRequest(`/api/auth/presentations/${paginationQuery(parameters)}`)
+}
+
+export async function fetchSessions(parameters = {}) {
+  const page = await apiRequest(`/api/auth/sessions/${paginationQuery(parameters)}`)
+  return page.results
+}
+
+export function fetchSessionPage(parameters = {}) {
+  return apiRequest(`/api/auth/sessions/${paginationQuery(parameters)}`)
 }
 
 export async function uploadPresentation({ title, file, requestId, onProgress }) {
@@ -43,8 +57,12 @@ export async function uploadPresentation({ title, file, requestId, onProgress })
         resolve(data)
         return
       }
-      const error = new Error(data?.detail || 'Unable to complete the request.')
-      error.fields = data && typeof data === 'object' ? data : {}
+      const response = {
+        status: upload.status,
+        headers: { get: name => upload.getResponseHeader?.(name) },
+      }
+      const error = new Error(apiErrorMessage(response, data))
+      error.fields = upload.status < 500 && data && typeof data === 'object' ? data : {}
       error.status = upload.status
       reject(error)
     }

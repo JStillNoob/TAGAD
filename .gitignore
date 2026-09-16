@@ -29,6 +29,7 @@ backend/media/
 backend/.e2e/
 backend/staticfiles/
 backend/logs/
+backend/backups/
 backend/**/*.sqlite3
 backend/**/*.sqlite3-*
 backend/**/*.db

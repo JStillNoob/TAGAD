@@ -1,7 +1,19 @@
+from datetime import timedelta
+
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
+from django.utils import timezone
 
-from core.models import Camera, Classroom, Organization, Subject, User
+from core.models import (
+    Camera,
+    Classroom,
+    ClassroomSession,
+    Organization,
+    Presentation,
+    Report,
+    Subject,
+    User,
+)
 
 
 E2E_PASSWORD = 'BrowserTest!2026'
@@ -60,7 +72,7 @@ class Command(BaseCommand):
             building='Test Building',
             capacity=30,
         )
-        Subject.objects.create(
+        subject = Subject.objects.create(
             classroom=classroom,
             teacher=teacher,
             subject_code='E2E-IT101',
@@ -73,5 +85,74 @@ class Command(BaseCommand):
             status=Camera.Status.ACTIVE,
         )
 
-        self.stdout.write(self.style.SUCCESS('Synthetic E2E workspace is ready.'))
+        User.objects.bulk_create([
+            User(
+                username=f'e2e.scale.teacher.{number:03d}',
+                email=f'e2e.scale.teacher.{number:03d}@example.test',
+                first_name='Scale',
+                last_name=f'Teacher {number:03d}',
+                role=User.Role.TEACHER,
+                organization=organization,
+                status=User.Status.ACTIVE,
+            )
+            for number in range(1, 22)
+        ])
+        scale_classrooms = Classroom.objects.bulk_create([
+            Classroom(
+                organization=organization,
+                room_code=f'E2E-SCALE-{number:03d}',
+                building='Scale Test Wing',
+                capacity=30,
+            )
+            for number in range(1, 22)
+        ])
+        Camera.objects.bulk_create([
+            Camera(
+                classroom=scale_classroom,
+                camera_name=f'E2E Scale Camera {number:03d}',
+                position=Camera.Position.FRONT,
+                status=Camera.Status.ACTIVE,
+            )
+            for number, scale_classroom in enumerate(scale_classrooms, start=1)
+        ])
+        Subject.objects.bulk_create([
+            Subject(
+                classroom=classroom,
+                teacher=teacher,
+                subject_code=f'E2E-SUBJECT-{number:03d}',
+                subject_name=f'E2E Scale Subject {number:03d}',
+            )
+            for number in range(1, 22)
+        ])
+        presentations = Presentation.objects.bulk_create([
+            Presentation(
+                user=teacher,
+                title=f'E2E Scale Presentation {number:03d}',
+                file_name=f'scale-{number:03d}.pdf',
+                processing_status=Presentation.ProcessingStatus.READY,
+            )
+            for number in range(1, 22)
+        ])
+        now = timezone.now()
+        sessions = ClassroomSession.objects.bulk_create([
+            ClassroomSession(
+                user=teacher,
+                subject=subject,
+                presentation=presentation,
+                session_date=timezone.localdate(now - timedelta(days=number)),
+                started_at=now - timedelta(days=number),
+                ended_at=now - timedelta(days=number) + timedelta(minutes=45),
+            )
+            for number, presentation in enumerate(presentations, start=1)
+        ])
+        Report.objects.bulk_create([
+            Report(
+                session=session,
+                generated_by=teacher,
+                report_type='pdf',
+                report_path=f'reports/e2e-scale-{number:03d}.pdf',
+            )
+            for number, session in enumerate(sessions, start=1)
+        ])
 
+        self.stdout.write(self.style.SUCCESS('Synthetic E2E workspace is ready.'))

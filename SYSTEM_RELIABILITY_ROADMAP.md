@@ -1,6 +1,6 @@
 # TAGAD System Reliability Roadmap
 
-Last updated: September 15, 2026
+Last updated: September 17, 2026
 
 This roadmap tracks application reliability separately from
 `docs/engagement-pipeline-stages.md`. Reliability stages use the `R` prefix so
@@ -28,8 +28,8 @@ they are not confused with the computer-vision pipeline stages.
 | R2 | Presentation lifecycle reliability | Complete |
 | R3 | Real browser workflow testing | Complete |
 | R4 | Authentication abuse protection | Complete |
-| R5 | Operational health and diagnostics | Next |
-| R6 | Data lifecycle and scaling | Planned |
+| R5 | Operational health and diagnostics | Complete |
+| R6 | Data lifecycle and scaling | Complete |
 | R7 | Computer-vision pipeline handoff | Deferred until pipeline is ready |
 | R8 | Deployment hardening | Deferred until deployment is close |
 
@@ -183,7 +183,7 @@ deferred authentication features.
 - [x] All 13 focused authentication-throttling tests pass.
 - [x] All 188 backend tests pass with no Django system-check issues or pending
       model changes.
-- [x] All 10 real-browser workflow tests pass, including login and
+- [x] All 12 real-browser workflow tests pass, including login and
       password-reset throttling.
 - [x] The frontend production build succeeds.
 
@@ -195,7 +195,7 @@ deferred authentication features.
 
 ## R5 — Operational health and diagnostics
 
-**Status: Planned.**
+**Status: Complete.**
 
 ### Objective
 
@@ -203,25 +203,25 @@ Make failures identifiable and recoverable without inspecting source code.
 
 ### Checklist
 
-- [ ] Add a health/readiness check for Django, PostgreSQL, file storage, the
+- [x] Add a health/readiness check for Django, PostgreSQL, file storage, the
       presentation converter, and the WebSocket layer.
-- [ ] Add structured application logging with safe retention.
-- [ ] Assign request/correlation IDs to unexpected server failures.
-- [ ] Return useful user-facing errors while keeping sensitive details out of
+- [x] Add structured application logging with safe retention.
+- [x] Assign request/correlation IDs to unexpected server failures.
+- [x] Return useful user-facing errors while keeping sensitive details out of
       responses.
-- [ ] Document startup, shutdown, common failures, and recovery commands.
-- [ ] Document and rehearse database backup and restoration.
+- [x] Document startup, shutdown, common failures, and recovery commands.
+- [x] Document and rehearse database backup and restoration.
 
 ### Verification gate
 
-- [ ] An operator can identify a failed dependency from one health report.
-- [ ] An unexpected error can be traced without exposing credentials or student
+- [x] An operator can identify a failed dependency from one health report.
+- [x] An unexpected error can be traced without exposing credentials or student
       data.
-- [ ] A test backup can be restored successfully.
+- [x] A test backup can be restored successfully.
 
 ## R6 — Data lifecycle and scaling
 
-**Status: Planned.**
+**Status: Complete and verified.**
 
 ### Objective
 
@@ -229,20 +229,34 @@ Keep the application responsive and its stored data intentional as usage grows.
 
 ### Checklist
 
-- [ ] Define retention rules for presentations, generated slides, reports,
+- [x] Define retention rules for presentations, generated slides, reports,
       engagement summaries, and system logs.
-- [ ] Add safe cleanup commands with dry-run behavior.
-- [ ] Paginate growing presentation, session, report, classroom, and user lists.
-- [ ] Add database indexes only where measured queries require them.
-- [ ] Test organization isolation across paginated and filtered results.
-- [ ] Verify file cleanup does not remove records still referenced by sessions.
+- [x] Add safe cleanup commands with dry-run behavior.
+- [x] Paginate growing presentation, session, report, classroom, subject, camera,
+      and user lists, including the Live Session subject selector and
+      recent-session panel.
+- [x] Measure query behavior and add no speculative indexes; current evidence
+      identified relationship-loading issues instead.
+- [x] Test organization isolation across paginated and filtered results.
+- [x] Verify file cleanup does not remove records still referenced by sessions.
 
 ### Verification gate
 
-- [ ] Cleanup reports exact targets before deletion and preserves referenced
+- [x] Cleanup reports exact targets before deletion and preserves referenced
       records.
-- [ ] Large seeded lists remain responsive.
-- [ ] Query counts and response times are measured before and after changes.
+- [x] A 120-record regression fixture keeps paged lists below one second in the
+      test environment with bounded query counts.
+- [x] Query counts and response times are measured before and after changes;
+      results and limitations are recorded in `OPERATIONS.md`.
+
+### Final verification
+
+- [x] Real-browser checks browse forward and backward through Users, Classrooms,
+      Subjects, Cameras, Live Session subjects, Presentations, Recent Sessions,
+      Analytics, and Reports; active user and class-management searches reset
+      their lists to the first page.
+- [x] Run `python manage.py cleanup_data`, review every reported ID, and confirm
+      the command says that no records or files were deleted.
 
 ## R7 — Computer-vision pipeline handoff
 
@@ -285,6 +299,8 @@ Keep the application responsive and its stored data intentional as usage grows.
 
 ## Immediate next action
 
-Begin **R5 — Operational health and diagnostics** by defining one safe health
-report for Django and its required dependencies. CAPTCHA, two-factor
-authentication, and OAuth remain deferred.
+Keep R6 cleanup in dry-run mode unless a reviewed backup exists. Begin **R7 —
+Computer-vision pipeline handoff** only after its offline model artifacts,
+checksums, feature-column orders, and realistic latency metrics are ready.
+CAPTCHA, two-factor authentication, OAuth, and R8 remain deferred until
+deployment is close.
