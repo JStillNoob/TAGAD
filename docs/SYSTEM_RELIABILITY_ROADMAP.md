@@ -1,10 +1,15 @@
 # TAGAD System Reliability Roadmap
 
-Last updated: September 17, 2026
+Last updated: September 22, 2026
 
 This roadmap tracks application reliability separately from
-`docs/engagement-pipeline-stages.md`. Reliability stages use the `R` prefix so
+`engagement-pipeline-stages.md`. Reliability stages use the `R` prefix so
 they are not confused with the computer-vision pipeline stages.
+
+Detailed R7 progress is tracked in
+[`PIPELINE_INTEGRATION_CHECKLIST.md`](PIPELINE_INTEGRATION_CHECKLIST.md).
+The current hardware-independent orchestration goal is tracked in
+[`OFFLINE_CAMERA_ORCHESTRATION_CHECKLIST.md`](OFFLINE_CAMERA_ORCHESTRATION_CHECKLIST.md).
 
 ## Tracking rules
 
@@ -30,7 +35,8 @@ they are not confused with the computer-vision pipeline stages.
 | R4 | Authentication abuse protection | Complete |
 | R5 | Operational health and diagnostics | Complete |
 | R6 | Data lifecycle and scaling | Complete |
-| R7 | Computer-vision pipeline handoff | Deferred until pipeline is ready |
+| R6.1 | Scalable configuration pickers | Complete |
+| R7 | Computer-vision pipeline handoff | In progress — offline three-camera orchestration built |
 | R8 | Deployment hardening | Deferred until deployment is close |
 
 ## R0 — Functional application baseline
@@ -258,26 +264,55 @@ Keep the application responsive and its stored data intentional as usage grows.
 - [x] Run `python manage.py cleanup_data`, review every reported ID, and confirm
       the command says that no records or files were deleted.
 
+## R6.1 — Scalable configuration pickers
+
+**Status: Complete and verified.**
+
+### Objective
+
+Keep administrative forms usable without downloading every organization,
+classroom, or teacher into the browser.
+
+### Checklist
+
+- [x] Add one paginated, server-searchable configuration lookup API.
+- [x] Scope organization, classroom, and teacher choices by administrator role.
+- [x] Keep a selected edit value available when it is outside the first page.
+- [x] Replace class-management and user-management bulk dropdowns with a shared
+      searchable picker.
+- [x] Filter teacher choices to the selected classroom or organization.
+- [x] Add empty, loading, request-error, and previous/next states.
+- [x] Add backend, frontend, and real-browser regression coverage.
+
+### Verification gate
+
+- [x] A 22-record fixture can select classrooms and teachers beyond page one.
+- [x] Organization Administrators cannot search another organization's records.
+- [x] Existing Quick Setup and user-creation workflows still pass.
+- [x] All automated suites, production build, migration, and diff checks pass.
+
 ## R7 — Computer-vision pipeline handoff
 
-**Status: Deferred until the offline pipeline is ready.**
+**Status: In progress — offline three-camera orchestration is integrated; live hardware remains.**
 
 ### Entry requirements
 
-- [ ] Confirmed-track filtering and explicit unclassified handling pass offline
+- [x] Confirmed-track filtering and explicit unclassified handling pass offline
       testing.
 - [ ] Realistic classroom latency and classification-success metrics exist.
-- [ ] The four selected artifacts and their checksums are frozen for integration.
+- [x] The four selected artifacts and their checksums are frozen for integration.
 
 ### Planned scope
 
-- [ ] Correct Django configuration from one SVM artifact to separate rich-state
+- [x] Correct Django configuration from one SVM artifact to separate rich-state
       and DIPSER-attention artifacts.
-- [ ] Validate the exact 25-feature and 10-feature column orders.
-- [ ] Encode and test the final two-SVM decision mapping.
-- [ ] Run inference in a dedicated worker, never inside a normal Django request.
-- [ ] Submit aggregated results through the existing Stage 1 API.
-- [ ] Display worker and camera health without exposing credentials.
+- [x] Validate the exact 25-feature and 10-feature column orders.
+- [x] Encode and test the final two-SVM decision mapping.
+- [x] Run inference in a dedicated worker, never inside a normal Django request.
+- [x] Submit aggregated results through the existing Stage 1 API.
+- [x] Display worker and camera health without exposing credentials.
+- [ ] Validate the RTSP source and latency with the selected classroom hardware.
+- [x] Extend the baseline to three isolated simulated camera sources.
 
 ## R8 — Deployment hardening
 
@@ -299,8 +334,9 @@ Keep the application responsive and its stored data intentional as usage grows.
 
 ## Immediate next action
 
-Keep R6 cleanup in dry-run mode unless a reviewed backup exists. Begin **R7 —
-Computer-vision pipeline handoff** only after its offline model artifacts,
-checksums, feature-column orders, and realistic latency metrics are ready.
-CAPTCHA, two-factor authentication, OAuth, and R8 remain deferred until
-deployment is close.
+Complete the **R7 model-quality review** with human ground truth and a
+representative continuous classroom recording when one becomes available. The
+three-camera CUDA pipeline has passed a 60-minute looped stability test. After
+physical cameras are selected, validate one RTSP stream and its placement before
+enabling live classroom use. CAPTCHA, two-factor authentication, OAuth, and R8
+remain deferred until deployment is close.

@@ -3,7 +3,9 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import AppLayout from '../layouts/AppLayout.vue'
 import PaginationControls from '../components/PaginationControls.vue'
+import SearchablePicker from '../components/SearchablePicker.vue'
 import { currentUser } from '../auth'
+import { fetchConfigurationOptions } from '../configurationOptions'
 import {
   createManagedUser,
   deactivateManagedUser,
@@ -18,7 +20,7 @@ const users = ref([])
 const userCount = ref(0)
 const userPage = ref(1)
 const pageSize = 20
-const options = ref({ roles: [], statuses: [], organizations: [] })
+const options = ref({ roles: [], statuses: [] })
 const loading = ref(true)
 const saving = ref(false)
 const pageError = ref('')
@@ -65,11 +67,15 @@ function resetForm() {
   Object.assign(form, blankForm())
   if (!isSystemAdmin.value) {
     form.role = 'teacher'
-    form.organization = options.value.organizations[0]?.id || ''
+    form.organization = currentUser.value?.organization || ''
   }
   editingId.value = null
   formError.value = ''
   fieldErrors.value = {}
+}
+
+function loadOrganizationOptions(parameters) {
+  return fetchConfigurationOptions('organizations', parameters)
 }
 
 function openCreate() {
@@ -306,10 +312,16 @@ onUnmounted(() => clearTimeout(filterTimer))
             <span v-if="fieldErrors.role" class="mt-1 block text-xs text-red-600">{{ fieldErrors.role[0] }}</span>
           </label>
           <label class="text-sm font-medium text-gray-700">Organization {{ organizationRequired ? '*' : '' }}
-            <select v-model="form.organization" :required="organizationRequired" :disabled="!isSystemAdmin || !organizationRequired || (isEditing && editingId === currentUser?.id)" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 bg-white disabled:bg-gray-100">
-              <option value="">{{ organizationRequired ? 'Select organization' : 'Platform-wide' }}</option>
-              <option v-for="organization in options.organizations" :key="organization.id" :value="organization.id">{{ organization.name }}</option>
-            </select>
+            <SearchablePicker
+              v-model="form.organization"
+              :loader="loadOrganizationOptions"
+              :required="organizationRequired"
+              :disabled="!isSystemAdmin || !organizationRequired || (isEditing && editingId === currentUser?.id)"
+              :placeholder="organizationRequired ? 'Select organization' : 'Platform-wide'"
+              select-label="Organization"
+              search-label="Search organizations"
+              search-placeholder="Search organization name or code…"
+            />
             <span v-if="fieldErrors.organization" class="mt-1 block text-xs text-red-600">{{ fieldErrors.organization[0] }}</span>
           </label>
           <label v-if="isEditing" class="text-sm font-medium text-gray-700">Status *

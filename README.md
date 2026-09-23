@@ -12,7 +12,9 @@ Django backend are separate development servers and both must be running.
 - LibreOffice or Microsoft PowerPoint for PPTX-to-PDF conversion
 
 Startup, health checks, structured-log troubleshooting, and safe PostgreSQL
-backup/recovery procedures are documented in [OPERATIONS.md](OPERATIONS.md).
+backup/recovery procedures are documented in [the operations guide](docs/OPERATIONS.md).
+See the [documentation index](docs/README.md) for checklists, pipeline reports,
+hardware guidance, and project roadmaps.
 
 ## 1. Configure PostgreSQL
 
@@ -31,8 +33,8 @@ The frontend does not currently need its own `.env`: Vite proxies `/api` and
 `/admin` and `/ws` to Django using `frontend/vite.config.js`.
 
 For local engagement-pipeline testing, set
-`ENABLE_PIPELINE_SIMULATOR=True`. Keep it `False` outside development. A future
-external AI worker must send a long private `PIPELINE_API_KEY` through the
+`ENABLE_PIPELINE_SIMULATOR=True`. Keep it `False` outside development. The
+external AI worker sends a long private `PIPELINE_API_KEY` through the
 `X-Pipeline-Key` header; this key must never be placed in frontend code.
 
 You can generate a worker key in PowerShell without an online service:
@@ -73,14 +75,16 @@ environment. CAPTCHA, two-factor authentication, and OAuth remain deferred.
 
 ### Model artifact configuration
 
-The offline pipeline may keep model files outside the repository. Configure
-their absolute paths in `backend\.env`; never copy trained weights into Git:
+The integrated worker expects the four frozen model files in the ignored
+`backend/model_artifacts/` directory by default. Paths may be overridden in
+`backend\.env`; never commit trained weights to Git:
 
 ```env
-TAGAD_YOLO_MODEL_PATH=D:\TAGAD\models\tagad_yolo11_head_v2_best.pt
-TAGAD_FACE_LANDMARKER_PATH=D:\TAGAD\models\face_landmarker.task
-TAGAD_SVM_MODEL_PATH=D:\TAGAD\models\tagad_engagement_svm.joblib
-TAGAD_MODEL_PIPELINE_VERSION=offline-1
+TAGAD_YOLO_MODEL_PATH=model_artifacts/tagad_yolo11_head_v2_best.pt
+TAGAD_FACE_LANDMARKER_PATH=model_artifacts/face_landmarker.task
+TAGAD_STATE_MODEL_PATH=model_artifacts/tagad_state_svm_rich_threshold1_candidate.joblib
+TAGAD_ATTENTION_MODEL_PATH=model_artifacts/dipser_attention_10-feature_diagnostic.joblib
+TAGAD_MODEL_PIPELINE_VERSION=hierarchical-1
 ```
 
 After all downloads and training finish, verify the paths without loading the
@@ -91,10 +95,14 @@ cd backend
 .\venv\Scripts\python.exe manage.py check_model_setup
 ```
 
-The model worker will later use `core.model_integration.build_engagement_payload`
-to translate per-head predictions into the existing Stage 1 ingestion format.
-An obstructed face or failed landmark extraction must use `label=None`, which is
-counted as unclassified rather than disengaged.
+The dedicated workers in `pipeline/` verify artifact checksums, implement the
+two-SVM hierarchy, and submit camera-attributed Stage 1 aggregates. The offline
+controller discovers active sessions and manages isolated Front, Left, and
+Right simulated sources; Front alone publishes official engagement while the
+side views remain diagnostics. An
+obstructed face or failed landmark extraction uses `label=None`, which is
+counted as unclassified rather than disengaged. See
+[`pipeline/README.md`](pipeline/README.md) for its offline and live commands.
 
 ## 2. Install and prepare the backend
 

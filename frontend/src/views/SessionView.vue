@@ -14,6 +14,7 @@ import {
   startSessionWithRecovery,
 } from '../sessionReliability'
 import { createSessionCountdown } from '../sessionCountdown'
+import { cameraStateClass, cameraStateMessage, mergeCameraHealth } from '../cameraHealth'
 import AppLayout from '../layouts/AppLayout.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import {
@@ -23,6 +24,7 @@ import {
   fetchPresentationPage,
   fetchSessionPage,
   fetchSessionOptions,
+  fetchSessionCameraHealth,
   fetchSessionSubjectPage,
   fetchSessions,
   retryPresentation as retryPresentationRequest,
@@ -70,7 +72,11 @@ const liveAlert = ref(null)
 const socketStatus = ref('disconnected')
 const simulationRunning = ref(false)
 const countdownSeconds = ref(null)
+const cameraHealth = ref([])
+const cameraHealthStatus = ref('idle')
 let timer = null
+let cameraHealthTimer = null
+let cameraHealthRequestActive = false
 let simulationTimer = null
 let engagementSocket = null
 let socketReconnectTimer = null
@@ -103,6 +109,9 @@ const selectedPresentation = computed(() => options.value.presentations.find(
 const availableCameras = computed(() => selectedSubject.value?.cameras || [])
 const slides = computed(() => activeSession.value?.presentation?.slides || [])
 const currentSlide = computed(() => slides.value[currentSlideIndex.value] || null)
+const activeCameras = computed(() => mergeCameraHealth(
+  activeSession.value?.cameras || [], cameraHealth.value,
+))
 const canStart = computed(() => (
   selectedSubject.value
   && selectedPresentation.value?.processing_status === 'ready'
@@ -229,11 +238,42 @@ function disconnectEngagement() {
   socketStatus.value = 'disconnected'
 }
 
+async function loadCameraHealth(sessionId) {
+  if (cameraHealthRequestActive || activeSession.value?.id !== sessionId) return
+  cameraHealthRequestActive = true
+  try {
+    const response = await fetchSessionCameraHealth(sessionId)
+    if (activeSession.value?.id !== sessionId) return
+    cameraHealth.value = response.cameras || []
+    cameraHealthStatus.value = 'ready'
+  } catch {
+    if (activeSession.value?.id === sessionId) cameraHealthStatus.value = 'unavailable'
+  } finally {
+    cameraHealthRequestActive = false
+  }
+}
+
+function startCameraHealth(sessionId) {
+  clearInterval(cameraHealthTimer)
+  cameraHealth.value = []
+  cameraHealthStatus.value = 'loading'
+  loadCameraHealth(sessionId)
+  cameraHealthTimer = setInterval(() => loadCameraHealth(sessionId), 2000)
+}
+
+function stopCameraHealth() {
+  clearInterval(cameraHealthTimer)
+  cameraHealthTimer = null
+  cameraHealth.value = []
+  cameraHealthStatus.value = 'idle'
+}
+
 function activateSession(session) {
   activeSession.value = session
   currentSlideIndex.value = restoreSlideIndex(session)
   startTimer()
   connectEngagement(session.id)
+  startCameraHealth(session.id)
 }
 
 function applyRouteSelection() {
@@ -512,6 +552,7 @@ async function finishSession() {
     })
     clearInterval(timer)
     disconnectEngagement()
+    stopCameraHealth()
     activeSession.value = null
     sessions.value = [ended, ...sessions.value.filter((session) => session.id !== ended.id)]
     await router.push({ path: '/analytics', query: { session: String(ended.id) } })
@@ -526,6 +567,10 @@ function formatDate(value) {
   return new Intl.DateTimeFormat(undefined, {
     year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
   }).format(new Date(value))
+}
+
+function formatHeartbeat(value) {
+  return value ? formatDate(value) : 'No heartbeat yet'
 }
 
 watch(selectedSubjectId, selectAllCameras)
@@ -550,6 +595,7 @@ onUnmounted(() => {
   clearInterval(timer)
   cancelSessionCountdown()
   disconnectEngagement()
+  stopCameraHealth()
 })
 </script>
 
@@ -765,18 +811,27 @@ onUnmounted(() => {
         <aside class="space-y-5">
           <section class="page-card p-5">
             <div class="flex items-center justify-between gap-2">
-              <h3 class="text-sm font-semibold text-navy">Camera Configuration</h3>
-              <span v-if="activeSession.cameras.length" class="rounded-full bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">Configuration ready</span>
+              <h3 class="text-sm font-semibold text-navy">Camera & Worker Health</h3>
+              <span v-if="activeSession.cameras.length" class="rounded-full bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">{{ cameraHealthStatus === 'ready' ? 'Live status' : cameraHealthStatus === 'unavailable' ? 'Status unavailable' : 'Loading status' }}</span>
               <span v-else class="rounded-full bg-violet-50 px-2 py-1 text-xs font-semibold text-violet-700">Simulator only</span>
             </div>
-            <p class="mt-3 text-xs leading-5 text-gray-500">Linked camera records are shown below. Video feeds will remain disconnected until CCTV integration is added.</p>
+            <p class="mt-3 text-xs leading-5 text-gray-500">Each source runs independently. Front publishes official analytics; side-camera counts are diagnostics only.</p>
+            <div v-if="cameraHealthStatus === 'unavailable'" class="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+              Worker health is temporarily unavailable. Slides and session controls are unaffected.
+            </div>
             <div v-if="activeSession.cameras.length" class="space-y-2 mt-4">
-              <div v-for="camera in activeSession.cameras" :key="camera.id" class="rounded-lg border border-gray-100 p-3">
+              <div v-for="camera in activeCameras" :key="camera.id" class="rounded-lg border border-gray-100 p-3">
                 <div class="flex items-start justify-between gap-2">
                   <div class="min-w-0"><p class="truncate text-sm font-medium text-navy">{{ camera.name }}</p><p class="text-xs text-gray-400">{{ camera.position_label || camera.position }} position</p></div>
-                  <span class="rounded-full px-2 py-0.5 text-[11px] font-semibold" :class="camera.status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-600'">{{ cameraReadinessLabel(camera) }}</span>
+                  <span class="rounded-full px-2 py-0.5 text-[11px] font-semibold" :class="cameraStateClass(camera.state)">{{ camera.state_label }}</span>
                 </div>
-                <div class="mt-2 flex items-center gap-1.5 text-xs text-amber-700"><span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>Video feed not connected</div>
+                <div class="mt-2 flex flex-wrap gap-1.5">
+                  <span v-if="camera.source_type" class="rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-semibold text-violet-700">{{ camera.source_label }}</span>
+                  <span class="rounded-full px-2 py-0.5 text-[11px] font-semibold" :class="camera.official_analytics ? 'bg-indigo-50 text-indigo-700' : 'bg-gray-100 text-gray-600'">{{ camera.official_analytics ? 'Official analytics' : 'Diagnostics only' }}</span>
+                </div>
+                <p class="mt-2 text-xs text-gray-500">{{ cameraStateMessage(camera) }}</p>
+                <p class="mt-1 text-[11px] text-gray-400">{{ formatHeartbeat(camera.last_heartbeat) }}</p>
+                <p v-if="camera.state === 'online'" class="mt-2 text-xs text-gray-500">{{ camera.confirmed_students }} confirmed · {{ camera.unclassified_students }} unclassified · {{ camera.analysis_rate }} fps</p>
               </div>
             </div>
             <div v-else class="mt-4 rounded-lg border border-violet-200 bg-violet-50 p-3"><p class="text-xs font-semibold text-violet-700">No cameras linked</p><p class="mt-1 text-xs leading-5 text-violet-600">This session can continue with simulated engagement data.</p></div>

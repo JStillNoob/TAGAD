@@ -250,6 +250,13 @@ class SlideEvent(models.Model):
 
 class EngagementSummary(models.Model):
     event = models.ForeignKey(SlideEvent, on_delete=models.CASCADE, related_name='summaries')
+    camera = models.ForeignKey(
+        Camera,
+        on_delete=models.PROTECT,
+        related_name='official_engagement_summaries',
+        null=True,
+        blank=True,
+    )
     engaged_count = models.IntegerField(default=0)
     attentive_count = models.IntegerField(default=0)
     confused_count = models.IntegerField(default=0)
@@ -265,6 +272,64 @@ class EngagementSummary(models.Model):
 
     class Meta:
         db_table = 'engagement_summaries'
+
+
+class CameraWorkerStatus(models.Model):
+    class State(models.TextChoices):
+        STARTING = 'starting', 'Starting'
+        ONLINE = 'online', 'Online'
+        RECONNECTING = 'reconnecting', 'Reconnecting'
+        OFFLINE = 'offline', 'Offline'
+        STOPPED = 'stopped', 'Stopped'
+
+    class SourceType(models.TextChoices):
+        SIMULATED = 'simulated', 'Simulated'
+        LIVE = 'live', 'Live'
+
+    class Reason(models.TextChoices):
+        NONE = '', 'None'
+        PROCESSING = 'processing', 'Processing'
+        SOURCE_UNAVAILABLE = 'source_unavailable', 'Source unavailable'
+        READ_FAILED = 'read_failed', 'Stream interrupted'
+        RETRY_EXHAUSTED = 'retry_exhausted', 'Retry limit reached'
+        HEARTBEAT_STALE = 'heartbeat_stale', 'Heartbeat is stale'
+        SESSION_ENDED = 'session_ended', 'Session ended'
+        SHUTDOWN = 'shutdown', 'Controller stopped'
+
+    session = models.ForeignKey(
+        ClassroomSession,
+        on_delete=models.CASCADE,
+        related_name='camera_worker_statuses',
+    )
+    camera = models.ForeignKey(
+        Camera,
+        on_delete=models.CASCADE,
+        related_name='worker_statuses',
+    )
+    state = models.CharField(max_length=20, choices=State.choices)
+    source_type = models.CharField(max_length=20, choices=SourceType.choices)
+    reason = models.CharField(max_length=30, choices=Reason.choices, blank=True)
+    pipeline_version = models.CharField(max_length=50)
+    analysis_rate = models.DecimalField(max_digits=6, decimal_places=2, default=0)
+    yolo_candidates = models.PositiveIntegerField(default=0)
+    valid_faces = models.PositiveIntegerField(default=0)
+    confirmed_students = models.PositiveIntegerField(default=0)
+    unclassified_students = models.PositiveIntegerField(default=0)
+    latest_counts = models.JSONField(default=dict)
+    last_heartbeat = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'camera_worker_statuses'
+        constraints = [
+            models.UniqueConstraint(
+                fields=('session', 'camera'),
+                name='camera_worker_session_camera_unique',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=('session', 'last_heartbeat'), name='camera_worker_session_hb'),
+        ]
 
 
 class EngagementAlert(models.Model):

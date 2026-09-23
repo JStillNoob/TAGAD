@@ -27,7 +27,7 @@ test('organization administrator manages a user and completes Quick Setup', asyn
   await setupDialog.getByLabel('Capacity').fill('24')
   await setupDialog.getByLabel('Subject code').fill('E2E-QS202')
   await setupDialog.getByLabel('Subject name').fill('Reliable Browser Journeys')
-  await setupDialog.getByLabel('Teacher').selectOption({ label: 'E2E Teacher' })
+  await setupDialog.getByLabel('Quick Setup teacher', { exact: true }).selectOption({ label: 'E2E Teacher' })
   await setupDialog.getByRole('button', { name: 'Complete Setup' }).click()
 
   await expect(setupDialog).toBeHidden()

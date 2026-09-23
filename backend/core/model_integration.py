@@ -7,12 +7,25 @@ from django.conf import settings
 
 
 ENGAGEMENT_LABELS = ('engaged', 'attentive', 'confused', 'bored', 'disengaged')
-FEATURE_ORDER = ('pitch', 'yaw', 'roll', 'horizontal_gaze', 'vertical_gaze')
+STATE_FEATURE_ORDER = (
+    'mean_pitch', 'mean_yaw', 'mean_roll', 'mean_Gh', 'mean_Gv',
+    'bs_eyeBlinkLeft', 'bs_eyeBlinkRight', 'bs_eyeSquintLeft', 'bs_eyeSquintRight',
+    'bs_eyeWideLeft', 'bs_eyeWideRight', 'bs_browDownLeft', 'bs_browDownRight',
+    'bs_browInnerUp', 'bs_browOuterUpLeft', 'bs_browOuterUpRight',
+    'bs_cheekSquintLeft', 'bs_cheekSquintRight', 'bs_jawOpen',
+    'bs_mouthFrownLeft', 'bs_mouthFrownRight', 'bs_mouthSmileLeft',
+    'bs_mouthSmileRight', 'bs_mouthPressLeft', 'bs_mouthPressRight',
+)
+ATTENTION_FEATURE_ORDER = (
+    'mean_pitch', 'mean_yaw', 'mean_roll', 'mean_Gh', 'mean_Gv',
+    'std_pitch', 'std_yaw', 'std_roll', 'std_Gh', 'std_Gv',
+)
 
 ARTIFACT_SETTINGS = {
     'head_detector': ('TAGAD_YOLO_MODEL_PATH', {'.pt'}),
     'face_landmarker': ('TAGAD_FACE_LANDMARKER_PATH', {'.task'}),
-    'engagement_classifier': ('TAGAD_SVM_MODEL_PATH', {'.joblib', '.pkl'}),
+    'state_classifier': ('TAGAD_STATE_MODEL_PATH', {'.joblib', '.pkl'}),
+    'attention_classifier': ('TAGAD_ATTENTION_MODEL_PATH', {'.joblib', '.pkl'}),
 }
 
 

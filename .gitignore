@@ -20,6 +20,7 @@ frontend/.vite/
 
 # Python / Django
 backend/venv/
+pipeline/.venv/
 backend/__pycache__/
 backend/**/__pycache__/
 backend/*.pyc
@@ -56,10 +57,8 @@ Desktop.ini
 .vscode/
 .idea/
 
-# Local agent instructions and working documentation
+# Local agent instructions
 AGENTS.md
-docs/
-SUPERADMIN_SETUP.md
 
 # Local machine-learning artifacts (configure paths through backend/.env)
 backend/model_artifacts/
@@ -72,6 +71,9 @@ backend/model_artifacts/
 *.keras
 *.tflite
 backend/runs/
+pipeline/test_video/
+pipeline/benchmark_results/
+pipeline/camera_sources.local.json
 
 # Private keys, certificates, and local credentials
 *.pem

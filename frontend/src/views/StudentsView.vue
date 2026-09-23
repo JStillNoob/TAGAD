@@ -3,7 +3,9 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import AppLayout from '../layouts/AppLayout.vue'
 import PaginationControls from '../components/PaginationControls.vue'
+import SearchablePicker from '../components/SearchablePicker.vue'
 import { currentUser } from '../auth'
+import { fetchConfigurationOptions } from '../configurationOptions'
 import {
   createCamera,
   createClassroom,
@@ -35,7 +37,7 @@ const cameras = ref([])
 const cameraCount = ref(0)
 const cameraPage = ref(1)
 const cameraPageLoading = ref(false)
-const options = ref({ organizations: [], teachers: [], camera_positions: [], camera_statuses: [], summary: {} })
+const options = ref({ camera_positions: [], camera_statuses: [], summary: {} })
 const loading = ref(true)
 const saving = ref(false)
 const pageError = ref('')
@@ -44,6 +46,8 @@ const fieldErrors = ref({})
 const search = ref('')
 const modal = ref(null)
 const editingId = ref(null)
+const quickClassroomDetails = ref(null)
+const subjectClassroomOrganization = ref('')
 let classroomSearchTimer = null
 
 const classroomForm = reactive({ organization: '', room_code: '', building: '', capacity: '' })
@@ -69,41 +73,24 @@ const isEditing = computed(() => editingId.value !== null)
 const totalCapacity = computed(() => options.value.summary?.capacity || 0)
 const filteredSubjects = computed(() => subjects.value)
 const filteredClassrooms = computed(() => classrooms.value)
-const selectedClassroom = computed(() => classrooms.value.find(
-  (item) => item.id === Number(subjectForm.classroom),
-))
-const availableTeachers = computed(() => {
-  const organization = selectedClassroom.value?.organization
-  return organization
-    ? options.value.teachers.filter((teacher) => teacher.organization === organization)
-    : []
-})
-const quickClassroom = computed(() => classrooms.value.find(
-  (item) => item.id === Number(quickForm.classroom_id),
+const quickClassroom = computed(() => (
+  quickClassroomDetails.value?.id === Number(quickForm.classroom_id)
+    ? quickClassroomDetails.value
+    : classrooms.value.find((item) => item.id === Number(quickForm.classroom_id))
 ))
 const quickOrganizationId = computed(() => (
   quickForm.mode === 'existing'
     ? quickClassroom.value?.organization
     : Number(quickForm.organization)
 ))
-const quickTeachers = computed(() => options.value.teachers.filter(
-  (teacher) => teacher.organization === quickOrganizationId.value,
-))
 const quickSelectedCameras = computed(() => quickForm.cameras.filter((camera) => camera.selected))
 
-watch(() => subjectForm.classroom, () => {
-  if (!availableTeachers.value.some((teacher) => teacher.id === Number(subjectForm.teacher))) {
-    subjectForm.teacher = ''
-  }
-})
 watch(() => route.query.search, (value) => {
   search.value = typeof value === 'string' ? value : ''
 }, { immediate: true })
-watch(() => [quickForm.mode, quickForm.classroom_id], resetQuickCameras)
-watch(quickOrganizationId, () => {
-  if (!quickTeachers.value.some((teacher) => teacher.id === Number(quickForm.teacher))) {
-    quickForm.teacher = ''
-  }
+watch(() => quickForm.mode, resetQuickCameras)
+watch(quickOrganizationId, (value, previous) => {
+  if (previous && value !== previous) quickForm.teacher = ''
 })
 
 function firstError(field) {
@@ -122,10 +109,48 @@ function resetErrors() {
   fieldErrors.value = {}
 }
 
+function loadOrganizationOptions(parameters) {
+  return fetchConfigurationOptions('organizations', parameters)
+}
+
+function loadClassroomOptions(parameters) {
+  return fetchConfigurationOptions('classrooms', parameters)
+}
+
+function loadSubjectTeacherOptions(parameters) {
+  return fetchConfigurationOptions('teachers', {
+    ...parameters,
+    organization: subjectClassroomOrganization.value,
+  })
+}
+
+function loadQuickTeacherOptions(parameters) {
+  return fetchConfigurationOptions('teachers', {
+    ...parameters,
+    organization: quickOrganizationId.value,
+  })
+}
+
+function selectQuickClassroom(classroom) {
+  quickClassroomDetails.value = classroom
+  resetQuickCameras()
+}
+
+function selectSubjectClassroom(classroom) {
+  const organization = classroom?.organization || ''
+  if (
+    subjectClassroomOrganization.value
+    && organization !== subjectClassroomOrganization.value
+  ) {
+    subjectForm.teacher = ''
+  }
+  subjectClassroomOrganization.value = organization
+}
+
 function openClassroomCreate() {
   editingId.value = null
   Object.assign(classroomForm, {
-    organization: isSystemAdmin.value ? '' : options.value.organizations[0]?.id || '',
+    organization: isSystemAdmin.value ? '' : currentUser.value?.organization || '',
     room_code: '',
     building: '',
     capacity: '',
@@ -167,10 +192,12 @@ function resetQuickCameras() {
 }
 
 function openQuickSetup() {
+  const firstClassroom = classrooms.value[0] || null
+  quickClassroomDetails.value = firstClassroom
   Object.assign(quickForm, {
     mode: classrooms.value.length ? 'existing' : 'new',
-    classroom_id: classrooms.value[0]?.id || '',
-    organization: options.value.organizations[0]?.id || '',
+    classroom_id: firstClassroom?.id || '',
+    organization: isSystemAdmin.value ? '' : currentUser.value?.organization || '',
     room_code: '',
     building: '',
     capacity: '',
@@ -198,6 +225,7 @@ function openClassroomEdit(classroom) {
 }
 
 function openSubjectCreate() {
+  subjectClassroomOrganization.value = classrooms.value[0]?.organization || ''
   editingId.value = null
   Object.assign(subjectForm, {
     subject_code: '',
@@ -210,6 +238,7 @@ function openSubjectCreate() {
 }
 
 function openSubjectEdit(subject) {
+  subjectClassroomOrganization.value = subject.organization
   editingId.value = subject.id
   Object.assign(subjectForm, {
     subject_code: subject.subject_code,
@@ -608,15 +637,21 @@ onUnmounted(() => clearTimeout(classroomSearchTimer))
               <button type="button" class="rounded-lg px-4 py-2 font-semibold" :class="quickForm.mode === 'new' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500'" @click="quickForm.mode = 'new'">Create new</button>
             </div>
             <label v-if="quickForm.mode === 'existing'" class="block text-sm font-medium text-gray-700">Classroom *
-              <select v-model="quickForm.classroom_id" required class="mt-1.5 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5">
-                <option value="">Select classroom</option>
-                <option v-for="classroom in classrooms" :key="classroom.id" :value="classroom.id">{{ classroom.room_code }}<template v-if="classroom.building"> — {{ classroom.building }}</template> · {{ classroom.camera_count }} camera(s)</option>
-              </select>
+              <SearchablePicker
+                v-model="quickForm.classroom_id"
+                :loader="loadClassroomOptions"
+                required
+                placeholder="Select classroom"
+                select-label="Quick Setup classroom"
+                search-label="Search Quick Setup classrooms"
+                search-placeholder="Search room, building, or organization…"
+                @selected="selectQuickClassroom"
+              />
               <span v-if="nestedError('classroom_id')" class="mt-1 block text-xs text-red-600">{{ nestedError('classroom_id') }}</span>
             </label>
             <div v-else class="grid gap-4 md:grid-cols-2">
               <label v-if="isSystemAdmin" class="md:col-span-2 text-sm font-medium text-gray-700">Organization *
-                <select v-model="quickForm.organization" required class="mt-1.5 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5"><option value="">Select organization</option><option v-for="organization in options.organizations" :key="organization.id" :value="organization.id">{{ organization.name }}</option></select>
+                <SearchablePicker v-model="quickForm.organization" :loader="loadOrganizationOptions" required placeholder="Select organization" select-label="Quick Setup organization" search-label="Search Quick Setup organizations" search-placeholder="Search organization name or code…" />
                 <span v-if="nestedError('classroom', 'organization')" class="mt-1 block text-xs text-red-600">{{ nestedError('classroom', 'organization') }}</span>
               </label>
               <label class="text-sm font-medium text-gray-700">Room code *<input v-model.trim="quickForm.room_code" required placeholder="e.g. ROOM-204" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="nestedError('classroom', 'room_code')" class="mt-1 block text-xs text-red-600">{{ nestedError('classroom', 'room_code') }}</span></label>
@@ -648,8 +683,7 @@ onUnmounted(() => clearTimeout(classroomSearchTimer))
               <label class="text-sm font-medium text-gray-700">Subject code *<input v-model.trim="quickForm.subject_code" required placeholder="e.g. IT-301" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="nestedError('subject', 'subject_code')" class="mt-1 block text-xs text-red-600">{{ nestedError('subject', 'subject_code') }}</span></label>
               <label class="text-sm font-medium text-gray-700">Subject name *<input v-model.trim="quickForm.subject_name" required placeholder="e.g. Data Structures" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="nestedError('subject', 'subject_name')" class="mt-1 block text-xs text-red-600">{{ nestedError('subject', 'subject_name') }}</span></label>
               <label class="md:col-span-2 text-sm font-medium text-gray-700">Teacher *
-                <select v-model="quickForm.teacher" required class="mt-1.5 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5"><option value="">Select teacher</option><option v-for="teacher in quickTeachers" :key="teacher.id" :value="teacher.id">{{ teacher.name }}</option></select>
-                <span v-if="!quickTeachers.length" class="mt-1 block text-xs text-amber-600">No active teacher belongs to this organization. Turn off “Add subject” or create a teacher first.</span>
+                <SearchablePicker v-model="quickForm.teacher" :loader="loadQuickTeacherOptions" :refresh-key="quickOrganizationId" required placeholder="Select teacher" select-label="Quick Setup teacher" search-label="Search Quick Setup teachers" search-placeholder="Search teacher name, username, or email…" />
                 <span v-if="nestedError('subject', 'teacher')" class="mt-1 block text-xs text-red-600">{{ nestedError('subject', 'teacher') }}</span>
               </label>
             </div>
@@ -666,7 +700,7 @@ onUnmounted(() => clearTimeout(classroomSearchTimer))
         <div class="flex items-center justify-between border-b px-6 py-4"><h2 class="text-lg font-bold">{{ isEditing ? 'Edit Classroom' : 'Add Classroom' }}</h2><button type="button" class="text-gray-400" @click="closeModal">✕</button></div>
         <div class="grid gap-4 p-6 sm:grid-cols-2">
           <div v-if="formError" class="sm:col-span-2 rounded-lg bg-red-50 p-3 text-sm text-red-700">{{ formError }}</div>
-          <label v-if="isSystemAdmin" class="sm:col-span-2 text-sm font-medium text-gray-700">Organization *<select v-model="classroomForm.organization" required class="mt-1.5 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5"><option value="">Select organization</option><option v-for="organization in options.organizations" :key="organization.id" :value="organization.id">{{ organization.name }}</option></select><span v-if="firstError('organization')" class="mt-1 block text-xs text-red-600">{{ firstError('organization') }}</span></label>
+          <label v-if="isSystemAdmin" class="sm:col-span-2 text-sm font-medium text-gray-700">Organization *<SearchablePicker v-model="classroomForm.organization" :loader="loadOrganizationOptions" required placeholder="Select organization" select-label="Classroom organization" search-label="Search classroom organizations" search-placeholder="Search organization name or code…" /><span v-if="firstError('organization')" class="mt-1 block text-xs text-red-600">{{ firstError('organization') }}</span></label>
           <label class="text-sm font-medium text-gray-700">Room code *<input v-model.trim="classroomForm.room_code" required class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="firstError('room_code')" class="mt-1 block text-xs text-red-600">{{ firstError('room_code') }}</span></label>
           <label class="text-sm font-medium text-gray-700">Building<input v-model.trim="classroomForm.building" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"></label>
           <label class="sm:col-span-2 text-sm font-medium text-gray-700">Capacity<input v-model="classroomForm.capacity" type="number" min="1" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="firstError('capacity')" class="mt-1 block text-xs text-red-600">{{ firstError('capacity') }}</span></label>
@@ -680,8 +714,8 @@ onUnmounted(() => clearTimeout(classroomSearchTimer))
           <div v-if="formError" class="sm:col-span-2 rounded-lg bg-red-50 p-3 text-sm text-red-700">{{ formError }}</div>
           <label class="text-sm font-medium text-gray-700">Subject code *<input v-model.trim="subjectForm.subject_code" required class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="firstError('subject_code')" class="mt-1 block text-xs text-red-600">{{ firstError('subject_code') }}</span></label>
           <label class="text-sm font-medium text-gray-700">Subject name *<input v-model.trim="subjectForm.subject_name" required class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"></label>
-          <label class="text-sm font-medium text-gray-700">Classroom *<select v-model="subjectForm.classroom" required class="mt-1.5 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5"><option value="">Select classroom</option><option v-for="classroom in classrooms" :key="classroom.id" :value="classroom.id">{{ classroom.room_code }} — {{ classroom.organization_name }}</option></select><span v-if="firstError('classroom')" class="mt-1 block text-xs text-red-600">{{ firstError('classroom') }}</span></label>
-          <label class="text-sm font-medium text-gray-700">Teacher *<select v-model="subjectForm.teacher" required class="mt-1.5 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5"><option value="">Select teacher</option><option v-for="teacher in availableTeachers" :key="teacher.id" :value="teacher.id">{{ teacher.name }}</option></select><span v-if="firstError('teacher')" class="mt-1 block text-xs text-red-600">{{ firstError('teacher') }}</span></label>
+          <label class="text-sm font-medium text-gray-700">Classroom *<SearchablePicker v-model="subjectForm.classroom" :loader="loadClassroomOptions" required placeholder="Select classroom" select-label="Subject classroom" search-label="Search subject classrooms" search-placeholder="Search room, building, or organization…" @selected="selectSubjectClassroom" /><span v-if="firstError('classroom')" class="mt-1 block text-xs text-red-600">{{ firstError('classroom') }}</span></label>
+          <label class="text-sm font-medium text-gray-700">Teacher *<SearchablePicker v-model="subjectForm.teacher" :loader="loadSubjectTeacherOptions" :refresh-key="subjectClassroomOrganization" required placeholder="Select teacher" select-label="Subject teacher" search-label="Search subject teachers" search-placeholder="Search teacher name, username, or email…" /><span v-if="firstError('teacher')" class="mt-1 block text-xs text-red-600">{{ firstError('teacher') }}</span></label>
         </div>
         <div class="flex justify-end gap-3 border-t px-6 py-4"><button type="button" class="rounded-xl border px-5 py-2.5 text-sm font-semibold" @click="closeModal">Cancel</button><button class="btn-primary" :disabled="saving">{{ saving ? 'Saving…' : 'Save Subject' }}</button></div>
       </form>
@@ -690,7 +724,7 @@ onUnmounted(() => clearTimeout(classroomSearchTimer))
         <div class="flex items-center justify-between border-b px-6 py-4"><h2 class="text-lg font-bold">{{ isEditing ? 'Edit Camera' : 'Add Camera' }}</h2><button type="button" class="text-gray-400" @click="closeModal">✕</button></div>
         <div class="grid gap-4 p-6 sm:grid-cols-2">
           <div v-if="formError" class="sm:col-span-2 rounded-lg bg-red-50 p-3 text-sm text-red-700">{{ formError }}</div>
-          <label class="sm:col-span-2 text-sm font-medium text-gray-700">Classroom *<select v-model="cameraForm.classroom" required class="mt-1.5 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5"><option value="">Select classroom</option><option v-for="classroom in classrooms" :key="classroom.id" :value="classroom.id">{{ classroom.room_code }} — {{ classroom.organization_name }}</option></select><span v-if="firstError('classroom')" class="mt-1 block text-xs text-red-600">{{ firstError('classroom') }}</span></label>
+          <label class="sm:col-span-2 text-sm font-medium text-gray-700">Classroom *<SearchablePicker v-model="cameraForm.classroom" :loader="loadClassroomOptions" required placeholder="Select classroom" select-label="Camera classroom" search-label="Search camera classrooms" search-placeholder="Search room, building, or organization…" /><span v-if="firstError('classroom')" class="mt-1 block text-xs text-red-600">{{ firstError('classroom') }}</span></label>
           <label class="sm:col-span-2 text-sm font-medium text-gray-700">Camera name *<input v-model.trim="cameraForm.camera_name" required class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="firstError('camera_name')" class="mt-1 block text-xs text-red-600">{{ firstError('camera_name') }}</span></label>
           <label class="text-sm font-medium text-gray-700">Position *<select v-model="cameraForm.position" required class="mt-1.5 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5"><option v-for="position in options.camera_positions" :key="position.value" :value="position.value">{{ position.label }}</option></select><span v-if="firstError('position')" class="mt-1 block text-xs text-red-600">{{ firstError('position') }}</span></label>
           <label class="text-sm font-medium text-gray-700">Status *<select v-model="cameraForm.status" required class="mt-1.5 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5"><option v-for="status in options.camera_statuses" :key="status.value" :value="status.value">{{ status.label }}</option></select><span v-if="firstError('status')" class="mt-1 block text-xs text-red-600">{{ firstError('status') }}</span></label>

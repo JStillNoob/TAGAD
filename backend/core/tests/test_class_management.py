@@ -376,21 +376,10 @@ class ClassManagementTests(TestCase):
         self.client.force_login(self.teacher)
         teacher_options = self.client.get(reverse('class-management-options')).json()
 
-        self.assertEqual(
-            {item['id'] for item in system_options['organizations']},
-            {self.organization.pk, self.other_organization.pk},
-        )
-        self.assertEqual(
-            {item['id'] for item in system_options['teachers']},
-            {self.teacher.pk, self.other_teacher.pk},
-        )
-        self.assertEqual(org_options['organizations'], [{
-            'id': self.organization.pk,
-            'name': self.organization.organization_name,
-        }])
-        self.assertEqual([item['id'] for item in org_options['teachers']], [self.teacher.pk])
-        self.assertEqual(teacher_options['organizations'], [])
-        self.assertEqual(teacher_options['teachers'], [])
+        self.assertNotIn('organizations', system_options)
+        self.assertNotIn('teachers', system_options)
+        self.assertNotIn('organizations', org_options)
+        self.assertNotIn('teachers', teacher_options)
         self.assertEqual(org_options['summary'], {
             'classrooms': 1,
             'subjects': 1,
@@ -398,6 +387,69 @@ class ClassManagementTests(TestCase):
             'capacity': self.classroom.capacity,
         })
         self.assertEqual(teacher_options['summary'], org_options['summary'])
+
+    def test_configuration_lookups_are_paginated_searchable_and_scoped(self):
+        extra_classrooms = Classroom.objects.bulk_create([
+            Classroom(
+                organization=self.organization,
+                room_code=f'LOOKUP-{number:03d}',
+                building='Lookup Wing',
+            )
+            for number in range(1, 22)
+        ])
+        User.objects.bulk_create([
+            User(
+                username=f'lookup.teacher.{number:03d}',
+                organization=self.organization,
+                role=User.Role.TEACHER,
+                status=User.Status.ACTIVE,
+                is_active=True,
+            )
+            for number in range(1, 22)
+        ])
+        url = reverse('configuration-options')
+        self.client.force_login(self.org_admin)
+
+        classrooms = self.client.get(url, {'kind': 'classrooms'})
+        selected = self.client.get(url, {
+            'kind': 'classrooms',
+            'selected': extra_classrooms[-1].pk,
+        })
+        searched = self.client.get(url, {
+            'kind': 'classrooms',
+            'search': 'LOOKUP-021',
+        })
+        teachers = self.client.get(url, {'kind': 'teachers', 'page': 2})
+        organizations = self.client.get(url, {'kind': 'organizations'})
+
+        self.assertEqual(classrooms.status_code, 200)
+        self.assertEqual(classrooms.json()['count'], 22)
+        self.assertEqual(len(classrooms.json()['results']), 20)
+        self.assertEqual(selected.json()['results'][0]['id'], extra_classrooms[-1].pk)
+        self.assertEqual([item['id'] for item in searched.json()['results']], [
+            extra_classrooms[-1].pk,
+        ])
+        self.assertEqual(teachers.json()['count'], 22)
+        self.assertEqual(len(teachers.json()['results']), 2)
+        self.assertEqual(organizations.json()['results'], [{
+            'id': self.organization.pk,
+            'label': self.organization.organization_name,
+            'code': self.organization.organization_code,
+        }])
+
+        blocked = self.client.get(url, {
+            'kind': 'classrooms',
+            'search': self.other_classroom.room_code,
+        })
+        self.assertEqual(blocked.json()['count'], 0)
+
+    def test_configuration_lookups_reject_unknown_kinds_and_teachers(self):
+        url = reverse('configuration-options')
+        self.client.force_login(self.org_admin)
+        self.assertEqual(self.client.get(url, {'kind': 'unknown'}).status_code, 400)
+
+        self.client.force_login(self.teacher)
+        self.assertEqual(self.client.get(url, {'kind': 'classrooms'}).status_code, 403)
 
     def test_class_mutations_require_csrf(self):
         csrf_client = Client(enforce_csrf_checks=True)

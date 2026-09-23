@@ -30,10 +30,12 @@ test('live session automatically selects classroom cameras and provides bulk con
   assert.match(sessionSource, /You can still start the session and use the development simulator/)
 })
 
-test('active session distinguishes camera configuration from a connected video feed', () => {
-  assert.match(sessionSource, /Configuration ready/)
+test('active session shows independent camera worker health without combining analytics', () => {
+  assert.match(sessionSource, /Camera & Worker Health/)
   assert.match(sessionSource, /Simulator only/)
-  assert.match(sessionSource, /Video feed not connected/)
+  assert.match(sessionSource, /Official analytics/)
+  assert.match(sessionSource, /Diagnostics only/)
+  assert.match(sessionSource, /fetchSessionCameraHealth/)
 })
 
 test('ending a session opens its analytics and the chart renders after loading', () => {

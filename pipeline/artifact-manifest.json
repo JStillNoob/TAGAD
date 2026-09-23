@@ -1,0 +1,41 @@
+{
+  "pipeline_version": "hierarchical-1",
+  "artifacts": [
+    {
+      "file": "tagad_yolo11_head_v2_best.pt",
+      "bytes": 5472858,
+      "sha256": "764c59d1a3e8afc638b96d9db58fd9b0775c3b33c46aa2f066cd6b9f81ee84a7"
+    },
+    {
+      "file": "face_landmarker.task",
+      "bytes": 3758596,
+      "sha256": "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff"
+    },
+    {
+      "file": "tagad_state_svm_rich_threshold1_candidate.joblib",
+      "bytes": 110696,
+      "sha256": "fc0fa9794697a9b1d03686ba9917be26f133c4e13016593bd19f15ec92fbb09c"
+    },
+    {
+      "file": "dipser_attention_10-feature_diagnostic.joblib",
+      "bytes": 35165,
+      "sha256": "6d5ea929d72e06e00e08e3314690ea331744ab1e0298931805ccaf09f4d934fe"
+    }
+  ],
+  "state_features": [
+    "mean_pitch", "mean_yaw", "mean_roll", "mean_Gh", "mean_Gv",
+    "bs_eyeBlinkLeft", "bs_eyeBlinkRight", "bs_eyeSquintLeft", "bs_eyeSquintRight",
+    "bs_eyeWideLeft", "bs_eyeWideRight", "bs_browDownLeft", "bs_browDownRight",
+    "bs_browInnerUp", "bs_browOuterUpLeft", "bs_browOuterUpRight",
+    "bs_cheekSquintLeft", "bs_cheekSquintRight", "bs_jawOpen",
+    "bs_mouthFrownLeft", "bs_mouthFrownRight", "bs_mouthSmileLeft",
+    "bs_mouthSmileRight", "bs_mouthPressLeft", "bs_mouthPressRight"
+  ],
+  "attention_features": [
+    "mean_pitch", "mean_yaw", "mean_roll", "mean_Gh", "mean_Gv",
+    "std_pitch", "std_yaw", "std_roll", "std_Gh", "std_Gv"
+  ],
+  "state_classes": ["Bored", "Confused", "Drowsy", "Engaged", "LookingAway"],
+  "attention_classes": ["HigherAttention", "LowerAttention"],
+  "final_labels": ["Engaged", "Attentive", "Confused", "Bored", "Disengaged"]
+}

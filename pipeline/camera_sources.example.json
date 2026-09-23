@@ -1,0 +1,28 @@
+{
+  "poll_seconds": 2,
+  "heartbeat_seconds": 2,
+  "summary_seconds": 3,
+  "analysis_hz": 2.5,
+  "reconnect_attempts": 3,
+  "reconnect_backoff_seconds": 1,
+  "cameras": [
+    {
+      "position": "front",
+      "source": "test_video/center.mp4",
+      "source_type": "simulated",
+      "loop": true
+    },
+    {
+      "position": "left",
+      "source": "test_video/left.mp4",
+      "source_type": "simulated",
+      "loop": true
+    },
+    {
+      "position": "right",
+      "source": "test_video/right.mp4",
+      "source_type": "simulated",
+      "loop": true
+    }
+  ]
+}

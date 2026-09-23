@@ -220,9 +220,10 @@ before pagination.
 Dashboard recent activity is intentionally capped at five records and global
 search returns only its small result groups; neither endpoint is a general list.
 Analytics slide details are scoped to one selected session. Static role, status,
-and camera-position choices are finite enumerations. Organization and teacher
-choices remain configuration dropdowns and should be replaced with searchable
-pickers if a deployment is expected to manage thousands of either record.
+and camera-position choices are finite enumerations. Organization, classroom,
+and teacher form choices use the permission-scoped configuration lookup API,
+which applies server-side search and returns 20 choices per page while keeping a
+selected edit value reachable.
 
 The R6 regression fixture uses 120 presentations, sessions, users, classrooms,
 subjects, and reports. On the local SQLite test configuration, a representative
@@ -235,3 +236,24 @@ enforced by automated tests. No new database indexes were added: the
 measurements showed relationship-loading problems, not evidence that an index
 would improve the current workload. Re-measure with production-like PostgreSQL
 volume and `EXPLAIN (ANALYZE, BUFFERS)` before adding indexes.
+
+## Offline camera orchestration
+
+Camera source paths and future RTSP credentials belong only in the ignored
+`pipeline\camera_sources.local.json`. Copy the committed example, configure the
+three positions, and set `TAGAD_PIPELINE_API_KEY` in the controller process to
+the same private value as backend `PIPELINE_API_KEY`. Apply Django migrations
+before starting the controller.
+
+The current CPU-safe three-camera target is 2.5 analyses/second per source. A
+20-second looping smoke test delivered 2.70–2.73 analyses/second per source,
+used one shared model bundle (about 118 MB added at load), peaked near 724 MB
+process RSS, and finished near 522 MB. This is evidence for short offline load
+operation only, not full-class stability or RTSP readiness.
+
+Front is the sole official analytics source. Left and Right health and counts
+are diagnostic and must not be combined. A stale heartbeat is displayed as
+Offline after `PIPELINE_HEARTBEAT_TIMEOUT_SECONDS` (10 seconds by default), but
+does not end the session or stop another worker. Stop the controller with
+Ctrl+C; it reports Stopped and releases each source before closing the shared
+models.

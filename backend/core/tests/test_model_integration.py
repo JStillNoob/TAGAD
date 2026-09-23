@@ -23,15 +23,17 @@ class ModelArtifactConfigurationTests(SimpleTestCase):
         root = Path(self.temporary_directory.name)
         self.yolo = root / 'head.pt'
         self.landmarker = root / 'face.task'
-        self.svm = root / 'engagement.joblib'
-        for artifact in (self.yolo, self.landmarker, self.svm):
+        self.state_model = root / 'state.joblib'
+        self.attention_model = root / 'attention.joblib'
+        for artifact in (self.yolo, self.landmarker, self.state_model, self.attention_model):
             artifact.write_bytes(b'test artifact')
 
     def settings(self, **overrides):
         values = {
             'TAGAD_YOLO_MODEL_PATH': str(self.yolo),
             'TAGAD_FACE_LANDMARKER_PATH': str(self.landmarker),
-            'TAGAD_SVM_MODEL_PATH': str(self.svm),
+            'TAGAD_STATE_MODEL_PATH': str(self.state_model),
+            'TAGAD_ATTENTION_MODEL_PATH': str(self.attention_model),
         }
         values.update(overrides)
         return override_settings(**values)
@@ -44,7 +46,8 @@ class ModelArtifactConfigurationTests(SimpleTestCase):
         self.assertTrue(all(status.ready for status in statuses))
         self.assertEqual(configured['head_detector'], self.yolo)
         self.assertEqual(configured['face_landmarker'], self.landmarker)
-        self.assertEqual(configured['engagement_classifier'], self.svm)
+        self.assertEqual(configured['state_classifier'], self.state_model)
+        self.assertEqual(configured['attention_classifier'], self.attention_model)
 
     def test_missing_and_incompatible_artifacts_fail_safely(self):
         missing = self.yolo.with_name('missing.pt')
@@ -56,11 +59,11 @@ class ModelArtifactConfigurationTests(SimpleTestCase):
         self.assertFalse(statuses['face_landmarker'].ready)
         self.assertIn('.task', statuses['face_landmarker'].detail)
 
-        self.svm.write_bytes(b'')
+        self.state_model.write_bytes(b'')
         with self.settings():
             statuses = {status.name: status for status in model_artifact_status()}
-        self.assertFalse(statuses['engagement_classifier'].ready)
-        self.assertEqual(statuses['engagement_classifier'].detail, 'File is empty.')
+        self.assertFalse(statuses['state_classifier'].ready)
+        self.assertEqual(statuses['state_classifier'].detail, 'File is empty.')
 
     def test_check_command_reports_readiness_and_exits_nonzero_when_incomplete(self):
         output = io.StringIO()
@@ -69,7 +72,7 @@ class ModelArtifactConfigurationTests(SimpleTestCase):
         self.assertIn('[READY] head_detector', output.getvalue())
         self.assertIn('All model artifacts are ready.', output.getvalue())
 
-        with self.settings(TAGAD_SVM_MODEL_PATH=''):
+        with self.settings(TAGAD_ATTENTION_MODEL_PATH=''):
             with self.assertRaises(CommandError):
                 call_command('check_model_setup', stdout=io.StringIO(), stderr=io.StringIO())
 

@@ -319,14 +319,8 @@ class UserManagementTests(TestCase):
             {item['value'] for item in system_options['roles']},
             set(get_user_model().Role.values),
         )
-        self.assertEqual(
-            {item['id'] for item in system_options['organizations']},
-            {self.organization.pk, self.other_organization.pk},
-        )
         self.assertEqual(org_options['roles'], [
             {'value': get_user_model().Role.TEACHER, 'label': 'Teacher'},
         ])
-        self.assertEqual(org_options['organizations'], [{
-            'id': self.organization.pk,
-            'name': self.organization.organization_name,
-        }])
+        self.assertNotIn('organizations', system_options)
+        self.assertNotIn('organizations', org_options)

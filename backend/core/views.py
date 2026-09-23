@@ -1,6 +1,6 @@
 from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
 from django.db import transaction
-from django.db.models import Count, Q, Sum
+from django.db.models import Case, Count, IntegerField, Q, Sum, Value, When
 from django.utils.dateparse import parse_date
 from django.utils.decorators import method_decorator
 from django.utils import timezone
@@ -22,7 +22,7 @@ from .models import (
     User,
 )
 from .permissions import CanAccessClassManagement, CanManageUsers
-from .pagination import StandardResultsSetPagination
+from .pagination import StandardResultsSetPagination, paginated_response
 from .auth_throttling import (
     clear_login_failures,
     login_throttle_state,
@@ -318,14 +318,11 @@ class UserOptionsView(APIView):
     permission_classes = [CanManageUsers]
 
     def get(self, request):
-        if request.user.role == User.Role.SYSTEM_ADMIN:
-            roles = User.Role.choices
-            organizations = Organization.objects.filter(
-                status=Organization.Status.ACTIVE,
-            ).order_by('organization_name')
-        else:
-            roles = [(User.Role.TEACHER, User.Role.TEACHER.label)]
-            organizations = Organization.objects.filter(pk=request.user.organization_id)
+        roles = (
+            User.Role.choices
+            if request.user.role == User.Role.SYSTEM_ADMIN
+            else [(User.Role.TEACHER, User.Role.TEACHER.label)]
+        )
 
         return Response({
             'roles': [
@@ -336,11 +333,108 @@ class UserOptionsView(APIView):
                 {'value': value, 'label': label}
                 for value, label in User.Status.choices
             ],
-            'organizations': [
-                {'id': organization.pk, 'name': organization.organization_name}
-                for organization in organizations
-            ],
         })
+
+
+def _selected_first(queryset, selected, *ordering):
+    if selected.isdigit():
+        return queryset.annotate(
+            _selected_order=Case(
+                When(pk=int(selected), then=Value(0)),
+                default=Value(1),
+                output_field=IntegerField(),
+            ),
+        ).order_by('_selected_order', *ordering)
+    return queryset.order_by(*ordering)
+
+
+class ConfigurationLookupView(APIView):
+    permission_classes = [CanManageUsers]
+
+    def get(self, request):
+        kind = request.query_params.get('kind', '').strip()
+        search = request.query_params.get('search', '').strip()
+        selected = request.query_params.get('selected', '').strip() if not search else ''
+        organization = request.query_params.get('organization', '').strip()
+
+        if kind == 'organizations':
+            queryset = Organization.objects.filter(status=Organization.Status.ACTIVE)
+            if request.user.role == User.Role.ORG_ADMIN:
+                queryset = queryset.filter(pk=request.user.organization_id)
+            if search:
+                queryset = queryset.filter(
+                    Q(organization_name__icontains=search)
+                    | Q(organization_code__icontains=search)
+                )
+            queryset = _selected_first(queryset, selected, 'organization_name', 'pk')
+            serialize = lambda page: [
+                {
+                    'id': item.pk,
+                    'label': item.organization_name,
+                    'code': item.organization_code,
+                }
+                for item in page
+            ]
+        elif kind == 'classrooms':
+            queryset = Classroom.objects.filter(
+                organization__status=Organization.Status.ACTIVE,
+            ).select_related('organization').prefetch_related('cameras')
+            if request.user.role == User.Role.ORG_ADMIN:
+                queryset = queryset.filter(organization=request.user.organization)
+            if organization.isdigit():
+                queryset = queryset.filter(organization_id=int(organization))
+            if search:
+                queryset = queryset.filter(
+                    Q(room_code__icontains=search)
+                    | Q(building__icontains=search)
+                    | Q(organization__organization_name__icontains=search)
+                )
+            queryset = _selected_first(queryset, selected, 'room_code', 'pk')
+            serialize = lambda page: [
+                {
+                    'id': item.pk,
+                    'label': f'{item.room_code} — {item.organization.organization_name}',
+                    'room_code': item.room_code,
+                    'building': item.building,
+                    'organization': item.organization_id,
+                    'camera_positions': [camera.position for camera in item.cameras.all()],
+                }
+                for item in page
+            ]
+        elif kind == 'teachers':
+            queryset = User.objects.filter(
+                role=User.Role.TEACHER,
+                status=User.Status.ACTIVE,
+                is_active=True,
+                organization__status=Organization.Status.ACTIVE,
+            ).select_related('organization')
+            if request.user.role == User.Role.ORG_ADMIN:
+                queryset = queryset.filter(organization=request.user.organization)
+            if organization.isdigit():
+                queryset = queryset.filter(organization_id=int(organization))
+            if search:
+                queryset = queryset.filter(
+                    Q(username__icontains=search)
+                    | Q(email__icontains=search)
+                    | Q(first_name__icontains=search)
+                    | Q(last_name__icontains=search)
+                )
+            queryset = _selected_first(queryset, selected, 'first_name', 'last_name', 'username')
+            serialize = lambda page: [
+                {
+                    'id': item.pk,
+                    'label': item.get_full_name() or item.username,
+                    'username': item.username,
+                    'organization': item.organization_id,
+                }
+                for item in page
+            ]
+        else:
+            raise serializers.ValidationError({
+                'kind': 'Choose organizations, classrooms, or teachers.',
+            })
+
+        return paginated_response(request, queryset, serialize)
 
 
 class ClassroomMixin:
@@ -466,47 +560,16 @@ class ClassManagementOptionsView(APIView):
         classrooms = Classroom.objects.all()
         subjects = Subject.objects.all()
         cameras = Camera.objects.all()
-        if request.user.role == User.Role.SYSTEM_ADMIN:
-            organizations = Organization.objects.filter(
-                status=Organization.Status.ACTIVE,
-            ).order_by('organization_name')
-            teachers = User.objects.filter(
-                role=User.Role.TEACHER,
-                status=User.Status.ACTIVE,
-                is_active=True,
-                organization__status=Organization.Status.ACTIVE,
-            ).select_related('organization').order_by('first_name', 'last_name', 'username')
-        elif request.user.role == User.Role.ORG_ADMIN:
+        if request.user.role == User.Role.ORG_ADMIN:
             classrooms = classrooms.filter(organization=request.user.organization)
             subjects = subjects.filter(classroom__organization=request.user.organization)
             cameras = cameras.filter(classroom__organization=request.user.organization)
-            organizations = Organization.objects.filter(pk=request.user.organization_id)
-            teachers = User.objects.filter(
-                role=User.Role.TEACHER,
-                status=User.Status.ACTIVE,
-                is_active=True,
-                organization=request.user.organization,
-            ).order_by('first_name', 'last_name', 'username')
-        else:
+        elif request.user.role == User.Role.TEACHER:
             classrooms = classrooms.filter(subjects__teacher=request.user).distinct()
             subjects = subjects.filter(teacher=request.user)
             cameras = cameras.filter(classroom__subjects__teacher=request.user).distinct()
-            organizations = Organization.objects.none()
-            teachers = User.objects.none()
 
         return Response({
-            'organizations': [
-                {'id': organization.pk, 'name': organization.organization_name}
-                for organization in organizations
-            ],
-            'teachers': [
-                {
-                    'id': teacher.pk,
-                    'name': teacher.get_full_name() or teacher.username,
-                    'organization': teacher.organization_id,
-                }
-                for teacher in teachers
-            ],
             'camera_positions': [
                 {'value': value, 'label': label}
                 for value, label in Camera.Position.choices

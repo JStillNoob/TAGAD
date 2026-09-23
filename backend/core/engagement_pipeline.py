@@ -6,7 +6,14 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from .models import ClassroomSession, EngagementAlert, EngagementSummary, SlideEvent
+from .models import (
+    Camera,
+    ClassroomSession,
+    EngagementAlert,
+    EngagementSummary,
+    SessionCamera,
+    SlideEvent,
+)
 
 
 CATEGORIES = ('engaged', 'attentive', 'confused', 'bored', 'disengaged')
@@ -25,6 +32,7 @@ def summary_payload(summary, alert=None):
         'pipeline_version': summary.pipeline_version,
         'session_id': summary.event.session_id,
         'slide_event_id': summary.event_id,
+        'camera_id': summary.camera_id,
         'slide_id': summary.event.slide_id,
         'slide_number': summary.event.slide.slide_number,
         'captured_at': summary.captured_at.isoformat(),
@@ -81,11 +89,28 @@ def ingest_engagement(validated_data):
     if current_event.pk != event.pk:
         raise ValueError('The slide event is no longer active.')
 
+    camera_id = validated_data.get('camera_id')
+    if camera_id is not None:
+        link = SessionCamera.objects.select_related('camera').filter(
+            session=session,
+            camera_id=camera_id,
+        ).first()
+        if link is None:
+            raise ValueError('The camera is not assigned to this session.')
+        if link.camera.position != Camera.Position.FRONT:
+            raise ValueError('Only the Front camera may publish official engagement summaries.')
+    elif (
+        validated_data['pipeline_version'] != 'simulator-1'
+        and session.session_cameras.count() > 1
+    ):
+        raise ValueError('Multi-camera sessions require an attributed Front camera.')
+
     counts = validated_data['counts']
     summary, created = EngagementSummary.objects.get_or_create(
         ingestion_id=validated_data['ingestion_id'],
         defaults={
             'event': event,
+            'camera_id': camera_id,
             **{f'{category}_count': counts[category] for category in CATEGORIES},
             'total_detected': validated_data['total_detected'],
             'unclassified_count': validated_data['unclassified_count'],

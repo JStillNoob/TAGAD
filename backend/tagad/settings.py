@@ -117,10 +117,24 @@ PIPELINE_API_KEY = config('PIPELINE_API_KEY', default='')
 ENGAGEMENT_ALERT_CONSECUTIVE_WINDOWS = config(
     'ENGAGEMENT_ALERT_CONSECUTIVE_WINDOWS', default=3, cast=int,
 )
-TAGAD_YOLO_MODEL_PATH = config('TAGAD_YOLO_MODEL_PATH', default='')
-TAGAD_FACE_LANDMARKER_PATH = config('TAGAD_FACE_LANDMARKER_PATH', default='')
-TAGAD_SVM_MODEL_PATH = config('TAGAD_SVM_MODEL_PATH', default='')
-TAGAD_MODEL_PIPELINE_VERSION = config('TAGAD_MODEL_PIPELINE_VERSION', default='offline-1')
+PIPELINE_HEARTBEAT_TIMEOUT_SECONDS = config(
+    'PIPELINE_HEARTBEAT_TIMEOUT_SECONDS', default=10, cast=int,
+)
+TAGAD_YOLO_MODEL_PATH = config(
+    'TAGAD_YOLO_MODEL_PATH', default='model_artifacts/tagad_yolo11_head_v2_best.pt',
+)
+TAGAD_FACE_LANDMARKER_PATH = config(
+    'TAGAD_FACE_LANDMARKER_PATH', default='model_artifacts/face_landmarker.task',
+)
+TAGAD_STATE_MODEL_PATH = config(
+    'TAGAD_STATE_MODEL_PATH',
+    default='model_artifacts/tagad_state_svm_rich_threshold1_candidate.joblib',
+)
+TAGAD_ATTENTION_MODEL_PATH = config(
+    'TAGAD_ATTENTION_MODEL_PATH',
+    default='model_artifacts/dipser_attention_10-feature_diagnostic.joblib',
+)
+TAGAD_MODEL_PIPELINE_VERSION = config('TAGAD_MODEL_PIPELINE_VERSION', default='hierarchical-1')
 
 
 # Database

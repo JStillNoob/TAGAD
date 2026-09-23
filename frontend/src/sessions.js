@@ -99,3 +99,7 @@ export function endClassroomSession(sessionId) {
 export function simulateEngagement(sessionId) {
   return apiRequest(`/api/auth/sessions/${sessionId}/simulate-engagement/`, { method: 'POST' })
 }
+
+export function fetchSessionCameraHealth(sessionId) {
+  return apiRequest(`/api/auth/sessions/${sessionId}/camera-health/`)
+}

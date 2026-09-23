@@ -5,6 +5,7 @@ from .views import (
     CameraListCreateView,
     ClassManagementOptionsView,
     ClassManagementQuickSetupView,
+    ConfigurationLookupView,
     ClassroomDetailView,
     ClassroomListCreateView,
     DashboardSummaryView,
@@ -49,7 +50,14 @@ from .password_reset_views import (
     PasswordResetValidateView,
 )
 from .search_views import GlobalSearchView
-from .engagement_views import EngagementIngestionView, EngagementSimulatorView
+from .engagement_views import (
+    CameraWorkerHeartbeatView,
+    EngagementIngestionView,
+    EngagementSimulatorView,
+    PipelineSessionContextView,
+    PipelineWorkDiscoveryView,
+    SessionCameraHealthView,
+)
 
 
 urlpatterns = [
@@ -68,6 +76,7 @@ urlpatterns = [
     path('register/', RegistrationView.as_view(), name='register'),
     path('users/', UserListCreateView.as_view(), name='user-list'),
     path('users/options/', UserOptionsView.as_view(), name='user-options'),
+    path('configuration-options/', ConfigurationLookupView.as_view(), name='configuration-options'),
     path('users/<int:pk>/', UserDetailView.as_view(), name='user-detail'),
     path('classrooms/', ClassroomListCreateView.as_view(), name='classroom-list'),
     path('classrooms/<int:pk>/', ClassroomDetailView.as_view(), name='classroom-detail'),
@@ -97,6 +106,22 @@ urlpatterns = [
     path('sessions/', SessionListCreateView.as_view(), name='session-list'),
     path('sessions/<int:pk>/end/', SessionEndView.as_view(), name='session-end'),
     path('pipeline/engagement/', EngagementIngestionView.as_view(), name='engagement-ingestion'),
+    path('pipeline/work/', PipelineWorkDiscoveryView.as_view(), name='pipeline-work'),
+    path(
+        'pipeline/cameras/heartbeat/',
+        CameraWorkerHeartbeatView.as_view(),
+        name='pipeline-camera-heartbeat',
+    ),
+    path(
+        'pipeline/sessions/<int:pk>/context/',
+        PipelineSessionContextView.as_view(),
+        name='pipeline-session-context',
+    ),
+    path(
+        'sessions/<int:pk>/camera-health/',
+        SessionCameraHealthView.as_view(),
+        name='session-camera-health',
+    ),
     path('sessions/<int:pk>/simulate-engagement/', EngagementSimulatorView.as_view(), name='engagement-simulator'),
     path('analytics/sessions/', AnalyticsSessionListView.as_view(), name='analytics-session-list'),
     path('analytics/sessions/<int:pk>/', SessionAnalyticsView.as_view(), name='session-analytics'),
