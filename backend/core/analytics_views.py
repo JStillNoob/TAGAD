@@ -5,7 +5,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .analytics import build_session_analytics
+from .analytics import build_session_analytics, previous_compatible_session
+from .lifecycle import filter_lifecycle
 from .pagination import paginated_response
 from .report_generation import analytics_csv_content
 from .session_access import sessions_for_user
@@ -13,11 +14,9 @@ from .views import _log_activity
 
 
 def _previous_session(request, session):
-    return (
-        sessions_for_user(request.user)
-        .filter(subject=session.subject, started_at__lt=session.started_at)
-        .order_by('-started_at')
-        .first()
+    return previous_compatible_session(
+        session,
+        queryset=sessions_for_user(request.user),
     )
 
 
@@ -25,7 +24,10 @@ class AnalyticsSessionMixin:
     permission_classes = [IsAuthenticated]
 
     def get_session(self, request, pk):
-        return get_object_or_404(sessions_for_user(request.user), pk=pk)
+        return get_object_or_404(
+            sessions_for_user(request.user).filter(started_at__isnull=False),
+            pk=pk,
+        )
 
     def get_analytics(self, request, session):
         return build_session_analytics(
@@ -38,7 +40,10 @@ class AnalyticsSessionListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        sessions = sessions_for_user(request.user).order_by('-started_at', '-pk')
+        sessions = filter_lifecycle(
+            sessions_for_user(request.user),
+            request.query_params.get('lifecycle'),
+        ).filter(started_at__isnull=False).order_by('-started_at', '-pk')
         search = request.query_params.get('search', '').strip()
         if search:
             sessions = sessions.filter(
@@ -65,6 +70,8 @@ class AnalyticsSessionListView(APIView):
                     'started_at': session.started_at,
                     'ended_at': session.ended_at,
                     'status': 'completed' if session.ended_at else 'ongoing',
+                    'archived_at': session.archived_at,
+                    'is_archived': session.is_archived,
                 }
                 for session in page
             ]

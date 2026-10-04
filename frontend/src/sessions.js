@@ -78,11 +78,30 @@ export function deletePresentation(id) {
   return apiRequest(`/api/auth/presentations/${id}/`, { method: 'DELETE' })
 }
 
+export function restorePresentation(id) {
+  return apiRequest(`/api/auth/presentations/${id}/restore/`, { method: 'POST' })
+}
+
 export function startClassroomSession({ subject, presentation, cameras }) {
   return apiRequest('/api/auth/sessions/', {
     method: 'POST',
     body: JSON.stringify({ subject, presentation, cameras }),
   })
+}
+
+export function prepareClassroomSession({ subject, presentation, cameras }) {
+  return apiRequest('/api/auth/sessions/prepare/', {
+    method: 'POST',
+    body: JSON.stringify({ subject, presentation, cameras }),
+  })
+}
+
+export function startPreparedClassroomSession(sessionId) {
+  return apiRequest(`/api/auth/sessions/${sessionId}/start/`, { method: 'POST' })
+}
+
+export function cancelPreparedClassroomSession(sessionId) {
+  return apiRequest(`/api/auth/sessions/${sessionId}/prepare/`, { method: 'DELETE' })
 }
 
 export function enterSessionSlide(sessionId, slideId) {
@@ -94,6 +113,14 @@ export function enterSessionSlide(sessionId, slideId) {
 
 export function endClassroomSession(sessionId) {
   return apiRequest(`/api/auth/sessions/${sessionId}/end/`, { method: 'POST' })
+}
+
+export function archiveClassroomSession(sessionId) {
+  return apiRequest(`/api/auth/sessions/${sessionId}/lifecycle/`, { method: 'DELETE' })
+}
+
+export function restoreClassroomSession(sessionId) {
+  return apiRequest(`/api/auth/sessions/${sessionId}/lifecycle/`, { method: 'POST' })
 }
 
 export function simulateEngagement(sessionId) {

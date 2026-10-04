@@ -1,10 +1,12 @@
 import threading
 import time
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 
 from tagad_pipeline.configuration import CameraSource, ControllerConfiguration
-from tagad_pipeline.controller import CameraController, CameraWorker
+from tagad_pipeline.controller import CameraController, CameraWorker, StopFileSignal
 
 
 ZERO_COUNTS = {
@@ -93,6 +95,17 @@ class ControllerLifecycleTests(unittest.TestCase):
 
         self.assertFalse(self.controller.workers)
         self.assertTrue(all(worker.stopped_with == 'session_ended' for worker in workers))
+
+    def test_stop_file_signal_stops_controller_loop(self):
+        with TemporaryDirectory() as directory:
+            stop_path = Path(directory) / 'controller.stop'
+            signal = StopFileSignal(stop_path, poll_seconds=0.001)
+
+            self.assertFalse(signal.wait(0.002))
+            stop_path.touch()
+
+            self.assertTrue(signal.is_set())
+            self.assertTrue(signal.wait(0.002))
 
 
 class FailedCapture:

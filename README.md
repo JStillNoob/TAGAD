@@ -133,6 +133,19 @@ npm install
 
 ## 4. Run TAGAD
 
+On the prepared Windows development computer, start Django, Vite, and the
+camera controller after a full preflight with:
+
+```powershell
+.\scripts\tagad.ps1 start
+```
+
+Open `http://localhost:5173`. Check or stop the tracked services with
+`.\scripts\tagad.ps1 status` and `.\scripts\tagad.ps1 stop`. See the
+[operations guide](docs/OPERATIONS.md) for requirements and troubleshooting.
+
+For manual startup, use separate terminals as follows.
+
 Backend terminal:
 
 ```powershell

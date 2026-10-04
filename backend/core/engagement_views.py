@@ -13,9 +13,15 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .engagement_pipeline import CATEGORIES, ingest_engagement, summary_payload
+from .engagement_pipeline import (
+    CATEGORIES,
+    SIMULATOR_PIPELINE_VERSION,
+    ingest_engagement,
+    summary_payload,
+)
 from .models import Camera, CameraWorkerStatus, ClassroomSession, SessionCamera, SlideEvent
 from .session_access import sessions_for_user
+from .session_preparation import expire_prepared_sessions
 
 
 class EngagementCountsSerializer(serializers.Serializer):
@@ -224,7 +230,8 @@ class PipelineSessionContextView(APIView):
         event = session.slide_events.order_by('-entered_at', '-pk').first()
         return Response({
             'session_id': session.pk,
-            'active': session.ended_at is None,
+            'active': session.started_at is not None and session.ended_at is None,
+            'preparing': session.started_at is None and session.ended_at is None,
             'slide_event_id': event.pk if event else None,
             'slide_id': event.slide_id if event else None,
             'cameras': [
@@ -281,8 +288,10 @@ class PipelineWorkDiscoveryView(APIView):
         auth_error = _pipeline_auth_error(request)
         if auth_error:
             return auth_error
+        expire_prepared_sessions()
         sessions = _pipeline_session_queryset().filter(
             ended_at__isnull=True,
+            archived_at__isnull=True,
             session_cameras__isnull=False,
         ).distinct().order_by('pk')
         return Response({
@@ -377,6 +386,7 @@ class SessionCameraHealthView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk):
+        expire_prepared_sessions(user=request.user)
         session = get_object_or_404(
             _pipeline_session_queryset().filter(
                 pk__in=sessions_for_user(request.user).values('pk'),
@@ -385,7 +395,8 @@ class SessionCameraHealthView(APIView):
         )
         return Response({
             'session_id': session.pk,
-            'active': session.ended_at is None,
+            'active': session.started_at is not None and session.ended_at is None,
+            'preparing': session.started_at is None and session.ended_at is None,
             'cameras': _session_camera_health(session),
         })
 
@@ -397,14 +408,26 @@ class EngagementSimulatorView(APIView):
         if not settings.DEBUG or not settings.ENABLE_PIPELINE_SIMULATOR:
             return Response({'detail': 'The engagement simulator is disabled.'}, status=status.HTTP_404_NOT_FOUND)
         session = get_object_or_404(
-            sessions_for_user(request.user).filter(user=request.user, ended_at__isnull=True),
+            sessions_for_user(request.user).filter(
+                user=request.user,
+                started_at__isnull=False,
+                ended_at__isnull=True,
+            ),
             pk=pk,
         )
+        if session.session_cameras.exists():
+            raise serializers.ValidationError({
+                'detail': (
+                    'The simulator is available only for sessions without assigned cameras.'
+                ),
+            })
         event = session.slide_events.order_by('-entered_at', '-pk').first()
         if event is None:
             raise serializers.ValidationError({'detail': 'Enter a presentation slide first.'})
 
-        sequence = event.summaries.filter(pipeline_version='simulator-1').count() % 8
+        sequence = event.summaries.filter(
+            pipeline_version=SIMULATOR_PIPELINE_VERSION,
+        ).count() % 8
         if sequence in (4, 5, 6):
             counts = {'engaged': 3, 'attentive': 3, 'confused': 2, 'bored': 3, 'disengaged': 19}
         else:
@@ -419,7 +442,7 @@ class EngagementSimulatorView(APIView):
         payload = {
             'schema_version': 1,
             'ingestion_id': uuid4(),
-            'pipeline_version': 'simulator-1',
+            'pipeline_version': SIMULATOR_PIPELINE_VERSION,
             'session_id': session.pk,
             'slide_event_id': event.pk,
             'captured_at': timezone.now(),

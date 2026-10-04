@@ -97,6 +97,7 @@ class PresentationSerializer(serializers.ModelSerializer):
     source_url = serializers.SerializerMethodField()
     preview_url = serializers.SerializerMethodField()
     in_use = serializers.SerializerMethodField()
+    is_archived = serializers.BooleanField(read_only=True)
     slides = PresentationSlideSerializer(many=True, read_only=True)
 
     class Meta:
@@ -115,6 +116,8 @@ class PresentationSerializer(serializers.ModelSerializer):
             'source_url',
             'preview_url',
             'in_use',
+            'archived_at',
+            'is_archived',
             'slides',
         )
         read_only_fields = fields
@@ -153,8 +156,16 @@ class SessionCreateSerializer(serializers.Serializer):
 
         if subject is None:
             errors['subject'] = 'Select a subject available to your account.'
+        elif (
+            subject.is_archived
+            or subject.classroom.is_archived
+            or subject.classroom.organization.is_archived
+        ):
+            errors['subject'] = 'Select an active subject and classroom.'
         if presentation is None:
             errors['presentation'] = 'Select a presentation available to your account.'
+        elif presentation.is_archived:
+            errors['presentation'] = 'Restore this presentation before using it.'
         elif presentation.processing_status != Presentation.ProcessingStatus.READY:
             errors['presentation'] = 'The presentation must finish processing before use.'
 
@@ -166,6 +177,7 @@ class SessionCreateSerializer(serializers.Serializer):
             if len(cameras) != len(camera_ids) or any(
                 camera.classroom_id != subject.classroom_id
                 or camera.status != Camera.Status.ACTIVE
+                or camera.is_archived
                 for camera in cameras
             ):
                 errors['cameras'] = 'Select only active cameras configured for this classroom.'
@@ -183,23 +195,28 @@ class SessionCreateSerializer(serializers.Serializer):
 
     def create(self, validated_data):
         user = self.context['request'].user
+        prepared = self.context.get('prepared', False)
+        started_at = None if prepared else timezone.now()
         session = ClassroomSession.objects.create(
             user=user,
             subject=validated_data['subject_object'],
             presentation=validated_data['presentation_object'],
             session_date=timezone.localdate(),
-            started_at=timezone.now(),
+            started_at=started_at,
         )
         SessionCamera.objects.bulk_create([
             SessionCamera(session=session, camera=camera)
             for camera in validated_data.get('camera_objects', [])
         ])
-        first_slide = session.presentation.slides.order_by('slide_number').first()
+        first_slide = (
+            session.presentation.slides.order_by('slide_number').first()
+            if started_at else None
+        )
         if first_slide:
             SlideEvent.objects.create(
                 session=session,
                 slide=first_slide,
-                entered_at=session.started_at,
+                entered_at=started_at,
             )
         return session
 
@@ -214,12 +231,14 @@ class ClassroomSessionSerializer(serializers.ModelSerializer):
     current_slide = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
     duration_minutes = serializers.SerializerMethodField()
+    is_archived = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = ClassroomSession
         fields = (
             'id',
             'user',
+            'subject',
             'subject_name',
             'subject_code',
             'classroom',
@@ -228,10 +247,13 @@ class ClassroomSessionSerializer(serializers.ModelSerializer):
             'cameras',
             'current_slide',
             'session_date',
+            'prepared_at',
             'started_at',
             'ended_at',
             'status',
             'duration_minutes',
+            'archived_at',
+            'is_archived',
         )
         read_only_fields = fields
 
@@ -254,6 +276,8 @@ class ClassroomSessionSerializer(serializers.ModelSerializer):
         return PresentationSerializer(session.presentation, context=self.context).data
 
     def get_status(self, session):
+        if session.started_at is None and session.ended_at is None:
+            return 'preparing'
         return 'completed' if session.ended_at else 'ongoing'
 
     def get_current_slide(self, session):
@@ -265,6 +289,6 @@ class ClassroomSessionSerializer(serializers.ModelSerializer):
         return event.slide_id if event else None
 
     def get_duration_minutes(self, session):
-        if not session.ended_at:
+        if not session.started_at or not session.ended_at:
             return None
         return round((session.ended_at - session.started_at).total_seconds() / 60)

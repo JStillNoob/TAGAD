@@ -83,6 +83,7 @@ pipeline/camera_sources.local.json
 *.jks
 
 # Temporary files
+.runtime/
 *.tmp
 *.temp
 *.bak

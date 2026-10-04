@@ -4,6 +4,12 @@ export function findOwnActiveSession(sessions, userId) {
   )) || null
 }
 
+export function findOwnPreparedSession(sessions, userId) {
+  return sessions.find((session) => (
+    session.user === userId && session.status === 'preparing'
+  )) || null
+}
+
 export function restoreSlideIndex(session) {
   const slides = session?.presentation?.slides || []
   const savedIndex = slides.findIndex((slide) => slide.id === session?.current_slide)

@@ -1,11 +1,15 @@
 from pathlib import Path
 from uuid import uuid4
 
+from django.conf import settings
 from django.contrib.auth.models import AbstractUser
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import Q
 from django.db.models.functions import Lower
 from django.utils import timezone
+
+from .validation import validate_business_code_format, validate_contact_number_format
 
 
 def presentation_upload_path(instance, filename):
@@ -24,21 +28,59 @@ def presentation_slide_path(instance, filename):
     )
 
 
-class Organization(models.Model):
+class ArchiveableModel(models.Model):
+    archived_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    archived_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+',
+    )
+
+    class Meta:
+        abstract = True
+
+    @property
+    def is_archived(self):
+        return self.archived_at is not None
+
+
+class Organization(ArchiveableModel):
     class Status(models.TextChoices):
         ACTIVE = 'active', 'Active'
         INACTIVE = 'inactive', 'Inactive'
 
     organization_name = models.CharField(max_length=150)
-    organization_code = models.CharField(max_length=20, unique=True)
+    organization_code = models.CharField(
+        max_length=20,
+        unique=True,
+        validators=[validate_business_code_format],
+    )
     address = models.CharField(max_length=255, blank=True)
-    contact_email = models.CharField(max_length=100, blank=True)
-    contact_no = models.CharField(max_length=20, blank=True)
+    contact_email = models.EmailField(max_length=100, blank=True)
+    contact_no = models.CharField(
+        max_length=20,
+        blank=True,
+        validators=[validate_contact_number_format],
+    )
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = 'organizations'
+        constraints = [
+            models.UniqueConstraint(
+                Lower('organization_code'),
+                name='organizations_code_ci_unique',
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        update_fields = kwargs.get('update_fields')
+        if self._state.adding or update_fields is None or 'organization_code' in update_fields:
+            self.organization_code = self.organization_code.strip().upper()
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.organization_name
@@ -59,7 +101,11 @@ class User(AbstractUser):
         null=True, blank=True,
     )
     middle_name = models.CharField(max_length=50, blank=True)
-    contact_no = models.CharField(max_length=20, blank=True)
+    contact_no = models.CharField(
+        max_length=20,
+        blank=True,
+        validators=[validate_contact_number_format],
+    )
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.TEACHER)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
 
@@ -78,33 +124,69 @@ class User(AbstractUser):
         ]
 
 
-class Classroom(models.Model):
+class Classroom(ArchiveableModel):
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='classrooms')
-    room_code = models.CharField(max_length=30, unique=True)
+    room_code = models.CharField(
+        max_length=30,
+        unique=True,
+        validators=[validate_business_code_format],
+    )
     building = models.CharField(max_length=100, blank=True)
-    capacity = models.IntegerField(null=True, blank=True)
+    capacity = models.IntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(10000)],
+    )
 
     class Meta:
         db_table = 'classrooms'
+        constraints = [
+            models.UniqueConstraint(
+                Lower('room_code'),
+                name='classrooms_room_code_ci_unique',
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        update_fields = kwargs.get('update_fields')
+        if self._state.adding or update_fields is None or 'room_code' in update_fields:
+            self.room_code = self.room_code.strip().upper()
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.room_code
 
 
-class Subject(models.Model):
+class Subject(ArchiveableModel):
     classroom = models.ForeignKey(Classroom, on_delete=models.CASCADE, related_name='subjects')
     teacher = models.ForeignKey(User, on_delete=models.CASCADE, related_name='subjects')
-    subject_code = models.CharField(max_length=30, unique=True)
+    subject_code = models.CharField(
+        max_length=30,
+        unique=True,
+        validators=[validate_business_code_format],
+    )
     subject_name = models.CharField(max_length=150)
 
     class Meta:
         db_table = 'subjects'
+        constraints = [
+            models.UniqueConstraint(
+                Lower('subject_code'),
+                name='subjects_code_ci_unique',
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        update_fields = kwargs.get('update_fields')
+        if self._state.adding or update_fields is None or 'subject_code' in update_fields:
+            self.subject_code = self.subject_code.strip().upper()
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f'{self.subject_code} - {self.subject_name}'
 
 
-class Camera(models.Model):
+class Camera(ArchiveableModel):
     class Position(models.TextChoices):
         FRONT = 'front', 'Front'
         LEFT = 'left', 'Left'
@@ -112,7 +194,7 @@ class Camera(models.Model):
 
     class Status(models.TextChoices):
         ACTIVE = 'active', 'Active'
-        INACTIVE = 'inactive', 'Inactive'
+        INACTIVE = 'inactive', 'Disabled'
 
     classroom = models.ForeignKey(Classroom, on_delete=models.CASCADE, related_name='cameras')
     camera_name = models.CharField(max_length=50)
@@ -137,7 +219,7 @@ class Camera(models.Model):
         return self.camera_name
 
 
-class Presentation(models.Model):
+class Presentation(ArchiveableModel):
     class FileType(models.TextChoices):
         PDF = 'pdf', 'PDF'
         PPTX = 'pptx', 'PowerPoint'
@@ -181,12 +263,13 @@ class Presentation(models.Model):
         return self.title
 
 
-class ClassroomSession(models.Model):
+class ClassroomSession(ArchiveableModel):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='sessions')
     subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name='sessions')
     presentation = models.ForeignKey(Presentation, on_delete=models.PROTECT, related_name='sessions')
     session_date = models.DateField()
-    started_at = models.DateTimeField()
+    prepared_at = models.DateTimeField(default=timezone.now)
+    started_at = models.DateTimeField(null=True, blank=True)
     ended_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:

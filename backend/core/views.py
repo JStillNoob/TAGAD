@@ -21,6 +21,13 @@ from .models import (
     SystemLog,
     User,
 )
+from .lifecycle import (
+    archive_record,
+    filter_lifecycle,
+    invalidate_sessions_for_user_ids,
+    invalidate_user_sessions,
+    restore_record,
+)
 from .permissions import CanAccessClassManagement, CanManageUsers
 from .pagination import StandardResultsSetPagination, paginated_response
 from .auth_throttling import (
@@ -36,6 +43,7 @@ from .serializers import (
     ClassManagementQuickSetupSerializer,
     ClassroomSerializer,
     LoginSerializer,
+    ManagedOrganizationSerializer,
     ManagedUserSerializer,
     ManagedUserWriteSerializer,
     OrganizationSettingsSerializer,
@@ -298,6 +306,8 @@ class UserDetailView(UserManagementMixin, generics.RetrieveUpdateDestroyAPIView)
         was_inactive = serializer.instance.status == User.Status.INACTIVE
         user = serializer.save()
         action = 'Reactivated' if was_inactive and user.status == User.Status.ACTIVE else 'Updated'
+        if user.status == User.Status.INACTIVE:
+            invalidate_user_sessions(user)
         _log_user_change(self.request, action, user)
 
     def destroy(self, request, *args, **kwargs):
@@ -306,12 +316,101 @@ class UserDetailView(UserManagementMixin, generics.RetrieveUpdateDestroyAPIView)
             raise serializers.ValidationError({
                 'detail': 'You cannot deactivate your own account.',
             })
+        if (
+            user.role == User.Role.SYSTEM_ADMIN
+            and user.status == User.Status.ACTIVE
+            and not User.objects.filter(
+                role=User.Role.SYSTEM_ADMIN,
+                status=User.Status.ACTIVE,
+                is_active=True,
+            ).exclude(pk=user.pk).exists()
+        ):
+            raise serializers.ValidationError({
+                'detail': 'At least one active System Administrator is required.',
+            })
+        if user.sessions.filter(ended_at__isnull=True).exists():
+            raise serializers.ValidationError({
+                'detail': 'End this user’s active classroom session before deactivating the account.',
+            })
         if user.status != User.Status.INACTIVE or user.is_active:
             user.status = User.Status.INACTIVE
             user.is_active = False
             user.save(update_fields=['status', 'is_active'])
+            invalidate_user_sessions(user)
             _log_user_change(request, 'Deactivated', user)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class OrganizationListView(APIView):
+    permission_classes = [CanManageUsers]
+
+    def get(self, request):
+        if request.user.role != User.Role.SYSTEM_ADMIN:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        organizations = filter_lifecycle(
+            Organization.objects.order_by('organization_name', 'pk'),
+            request.query_params.get('lifecycle'),
+        )
+        if request.query_params.get('lifecycle', 'active') in ('', 'active'):
+            organizations = organizations.filter(status=Organization.Status.ACTIVE)
+        search = request.query_params.get('search', '').strip()
+        if search:
+            organizations = organizations.filter(
+                Q(organization_name__icontains=search)
+                | Q(organization_code__icontains=search)
+            )
+        return paginated_response(
+            request,
+            organizations,
+            lambda page: ManagedOrganizationSerializer(page, many=True).data,
+        )
+
+
+class OrganizationLifecycleView(APIView):
+    permission_classes = [CanManageUsers]
+
+    def _organization(self, request, pk):
+        return Organization.objects.filter(pk=pk).first()
+
+    def delete(self, request, pk):
+        if request.user.role != User.Role.SYSTEM_ADMIN:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        organization = self._organization(request, pk)
+        if organization is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        if ClassroomSession.objects.filter(
+            subject__classroom__organization=organization,
+            ended_at__isnull=True,
+        ).exists():
+            raise serializers.ValidationError({
+                'detail': 'End every active classroom session before archiving this organization.',
+            })
+        if archive_record(organization, request.user):
+            organization.status = Organization.Status.INACTIVE
+            organization.save(update_fields=['status'])
+            invalidate_sessions_for_user_ids(
+                organization.users.values_list('pk', flat=True),
+            )
+            _log_activity(
+                request,
+                f'Archived organization {organization.pk} ({organization.organization_code}).',
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def post(self, request, pk):
+        if request.user.role != User.Role.SYSTEM_ADMIN:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        organization = self._organization(request, pk)
+        if organization is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        if restore_record(organization):
+            organization.status = Organization.Status.ACTIVE
+            organization.save(update_fields=['status'])
+            _log_activity(
+                request,
+                f'Restored organization {organization.pk} ({organization.organization_code}).',
+            )
+        return Response(ManagedOrganizationSerializer(organization).data)
 
 
 class UserOptionsView(APIView):
@@ -358,7 +457,10 @@ class ConfigurationLookupView(APIView):
         organization = request.query_params.get('organization', '').strip()
 
         if kind == 'organizations':
-            queryset = Organization.objects.filter(status=Organization.Status.ACTIVE)
+            queryset = Organization.objects.filter(
+                status=Organization.Status.ACTIVE,
+                archived_at__isnull=True,
+            )
             if request.user.role == User.Role.ORG_ADMIN:
                 queryset = queryset.filter(pk=request.user.organization_id)
             if search:
@@ -378,6 +480,8 @@ class ConfigurationLookupView(APIView):
         elif kind == 'classrooms':
             queryset = Classroom.objects.filter(
                 organization__status=Organization.Status.ACTIVE,
+                organization__archived_at__isnull=True,
+                archived_at__isnull=True,
             ).select_related('organization').prefetch_related('cameras')
             if request.user.role == User.Role.ORG_ADMIN:
                 queryset = queryset.filter(organization=request.user.organization)
@@ -397,7 +501,11 @@ class ConfigurationLookupView(APIView):
                     'room_code': item.room_code,
                     'building': item.building,
                     'organization': item.organization_id,
-                    'camera_positions': [camera.position for camera in item.cameras.all()],
+                    'camera_positions': [
+                        camera.position
+                        for camera in item.cameras.all()
+                        if not camera.is_archived
+                    ],
                 }
                 for item in page
             ]
@@ -446,14 +554,33 @@ class ClassroomMixin:
         classrooms = Classroom.objects.select_related('organization').prefetch_related(
             'cameras',
         ).annotate(
-            _subject_count=Count('subjects', distinct=True),
-            _camera_count=Count('cameras', distinct=True),
+            _subject_count=Count(
+                'subjects',
+                filter=Q(subjects__archived_at__isnull=True),
+                distinct=True,
+            ),
+            _camera_count=Count(
+                'cameras',
+                filter=Q(cameras__archived_at__isnull=True),
+                distinct=True,
+            ),
         ).order_by('room_code')
         user = self.request.user
         if user.role == User.Role.ORG_ADMIN:
             classrooms = classrooms.filter(organization=user.organization)
         elif user.role == User.Role.TEACHER:
             classrooms = classrooms.filter(subjects__teacher=user).distinct()
+        if not self.kwargs.get('pk'):
+            lifecycle = self.request.query_params.get('lifecycle', 'active')
+            classrooms = filter_lifecycle(
+                classrooms,
+                lifecycle,
+            )
+            if lifecycle in ('', 'active'):
+                classrooms = classrooms.filter(
+                    organization__status=Organization.Status.ACTIVE,
+                    organization__archived_at__isnull=True,
+                )
         search = self.request.query_params.get('search', '').strip()
         if search:
             classrooms = classrooms.filter(
@@ -483,14 +610,34 @@ class ClassroomDetailView(ClassroomMixin, generics.RetrieveUpdateDestroyAPIView)
 
     def destroy(self, request, *args, **kwargs):
         classroom = self.get_object()
-        if classroom.subjects.exists() or classroom.cameras.exists():
+        if classroom.subjects.filter(
+            sessions__isnull=False,
+            sessions__ended_at__isnull=True,
+        ).exists():
             raise serializers.ValidationError({
-                'detail': 'Remove this classroom’s subjects and cameras before deleting it.',
+                'detail': 'End every active session in this classroom before archiving it.',
             })
-        description = f'Deleted classroom {classroom.pk} ({classroom.room_code}).'
-        classroom.delete()
-        _log_activity(request, description)
+        if archive_record(classroom, request.user):
+            _log_activity(
+                request,
+                f'Archived classroom {classroom.pk} ({classroom.room_code}).',
+            )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ClassroomRestoreView(ClassroomMixin, generics.GenericAPIView):
+    def post(self, request, *args, **kwargs):
+        classroom = self.get_object()
+        if classroom.organization.is_archived or classroom.organization.status != Organization.Status.ACTIVE:
+            raise serializers.ValidationError({
+                'detail': 'Restore the classroom organization first.',
+            })
+        if restore_record(classroom):
+            _log_activity(
+                request,
+                f'Restored classroom {classroom.pk} ({classroom.room_code}).',
+            )
+        return Response(self.get_serializer(classroom).data)
 
 
 class SubjectMixin:
@@ -509,6 +656,18 @@ class SubjectMixin:
             subjects = subjects.filter(classroom__organization=user.organization)
         elif user.role == User.Role.TEACHER:
             subjects = subjects.filter(teacher=user)
+        if not self.kwargs.get('pk'):
+            lifecycle = self.request.query_params.get('lifecycle', 'active')
+            subjects = filter_lifecycle(
+                subjects,
+                lifecycle,
+            )
+            if lifecycle in ('', 'active'):
+                subjects = subjects.filter(
+                    classroom__archived_at__isnull=True,
+                    classroom__organization__archived_at__isnull=True,
+                    classroom__organization__status=Organization.Status.ACTIVE,
+                )
         search = self.request.query_params.get('search', '').strip()
         if search:
             subjects = subjects.filter(
@@ -543,23 +702,58 @@ class SubjectDetailView(SubjectMixin, generics.RetrieveUpdateDestroyAPIView):
 
     def destroy(self, request, *args, **kwargs):
         subject = self.get_object()
-        if subject.sessions.exists():
+        if subject.sessions.filter(ended_at__isnull=True).exists():
             raise serializers.ValidationError({
-                'detail': 'A subject with classroom-session history cannot be deleted.',
+                'detail': 'End the active classroom session before archiving this subject.',
             })
-        description = f'Deleted subject {subject.pk} ({subject.subject_code}).'
-        subject.delete()
-        _log_activity(request, description)
+        if archive_record(subject, request.user):
+            _log_activity(
+                request,
+                f'Archived subject {subject.pk} ({subject.subject_code}).',
+            )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class SubjectRestoreView(SubjectMixin, generics.GenericAPIView):
+    def post(self, request, *args, **kwargs):
+        subject = self.get_object()
+        if (
+            subject.classroom.is_archived
+            or subject.classroom.organization.is_archived
+            or subject.classroom.organization.status != Organization.Status.ACTIVE
+        ):
+            raise serializers.ValidationError({
+                'detail': 'Restore the classroom and its organization first.',
+            })
+        if subject.teacher.status != User.Status.ACTIVE or not subject.teacher.is_active:
+            raise serializers.ValidationError({'detail': 'Reactivate the assigned teacher first.'})
+        if restore_record(subject):
+            _log_activity(
+                request,
+                f'Restored subject {subject.pk} ({subject.subject_code}).',
+            )
+        return Response(self.get_serializer(subject).data)
 
 
 class ClassManagementOptionsView(APIView):
     permission_classes = [CanAccessClassManagement]
 
     def get(self, request):
-        classrooms = Classroom.objects.all()
-        subjects = Subject.objects.all()
-        cameras = Camera.objects.all()
+        classrooms = Classroom.objects.filter(
+            archived_at__isnull=True,
+            organization__archived_at__isnull=True,
+            organization__status=Organization.Status.ACTIVE,
+        )
+        subjects = Subject.objects.filter(
+            archived_at__isnull=True,
+            classroom__archived_at__isnull=True,
+        )
+        cameras = Camera.objects.filter(
+            archived_at__isnull=True,
+            classroom__archived_at__isnull=True,
+            classroom__organization__archived_at__isnull=True,
+            classroom__organization__status=Organization.Status.ACTIVE,
+        )
         if request.user.role == User.Role.ORG_ADMIN:
             classrooms = classrooms.filter(organization=request.user.organization)
             subjects = subjects.filter(classroom__organization=request.user.organization)
@@ -607,7 +801,11 @@ class ClassManagementQuickSetupView(APIView):
         setup = input_serializer.validated_data
 
         if 'classroom_id' in setup:
-            classrooms = Classroom.objects.select_related('organization')
+            classrooms = Classroom.objects.filter(
+                archived_at__isnull=True,
+                organization__archived_at__isnull=True,
+                organization__status=Organization.Status.ACTIVE,
+            ).select_related('organization')
             if request.user.role == User.Role.ORG_ADMIN:
                 classrooms = classrooms.filter(organization=request.user.organization)
             classroom = classrooms.filter(pk=setup['classroom_id']).first()
@@ -679,6 +877,18 @@ class CameraMixin:
             cameras = cameras.filter(classroom__organization=user.organization)
         elif user.role == User.Role.TEACHER:
             cameras = cameras.filter(classroom__subjects__teacher=user).distinct()
+        if not self.kwargs.get('pk'):
+            lifecycle = self.request.query_params.get('lifecycle', 'active')
+            cameras = filter_lifecycle(
+                cameras,
+                lifecycle,
+            )
+            if lifecycle in ('', 'active'):
+                cameras = cameras.filter(
+                    classroom__archived_at__isnull=True,
+                    classroom__organization__archived_at__isnull=True,
+                    classroom__organization__status=Organization.Status.ACTIVE,
+                )
         return cameras
 
 
@@ -701,14 +911,35 @@ class CameraDetailView(CameraMixin, generics.RetrieveUpdateDestroyAPIView):
 
     def destroy(self, request, *args, **kwargs):
         camera = self.get_object()
-        if camera.session_cameras.exists():
+        if camera.session_cameras.filter(session__ended_at__isnull=True).exists():
             raise serializers.ValidationError({
-                'detail': 'A camera used by a classroom session cannot be deleted. Deactivate it instead.',
+                'detail': 'End the active classroom session before archiving this camera.',
             })
-        description = f'Deleted camera {camera.pk} ({camera.camera_name}).'
-        camera.delete()
-        _log_activity(request, description)
+        if archive_record(camera, request.user):
+            _log_activity(
+                request,
+                f'Archived camera {camera.pk} ({camera.camera_name}).',
+            )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class CameraRestoreView(CameraMixin, generics.GenericAPIView):
+    def post(self, request, *args, **kwargs):
+        camera = self.get_object()
+        if (
+            camera.classroom.is_archived
+            or camera.classroom.organization.is_archived
+            or camera.classroom.organization.status != Organization.Status.ACTIVE
+        ):
+            raise serializers.ValidationError({
+                'detail': 'Restore the classroom and its organization first.',
+            })
+        if restore_record(camera):
+            _log_activity(
+                request,
+                f'Restored camera {camera.pk} ({camera.camera_name}).',
+            )
+        return Response(self.get_serializer(camera).data)
 
 
 def _engagement_snapshot(sessions):
@@ -753,22 +984,56 @@ class DashboardSummaryView(APIView):
     def get(self, request):
         user = request.user
         if user.role == User.Role.SYSTEM_ADMIN:
-            classrooms = Classroom.objects.all()
-            subjects = Subject.objects.all()
-            cameras = Camera.objects.all()
-            sessions = ClassroomSession.objects.all()
+            classrooms = Classroom.objects.filter(archived_at__isnull=True)
+            subjects = Subject.objects.filter(
+                archived_at__isnull=True,
+                classroom__archived_at__isnull=True,
+                classroom__organization__archived_at__isnull=True,
+            )
+            cameras = Camera.objects.filter(
+                archived_at__isnull=True,
+                classroom__archived_at__isnull=True,
+                classroom__organization__archived_at__isnull=True,
+            )
+            sessions = ClassroomSession.objects.filter(archived_at__isnull=True)
         elif user.role == User.Role.ORG_ADMIN:
-            classrooms = Classroom.objects.filter(organization=user.organization)
-            subjects = Subject.objects.filter(classroom__organization=user.organization)
-            cameras = Camera.objects.filter(classroom__organization=user.organization)
+            classrooms = Classroom.objects.filter(
+                organization=user.organization,
+                archived_at__isnull=True,
+            )
+            subjects = Subject.objects.filter(
+                classroom__organization=user.organization,
+                archived_at__isnull=True,
+                classroom__archived_at__isnull=True,
+            )
+            cameras = Camera.objects.filter(
+                classroom__organization=user.organization,
+                archived_at__isnull=True,
+                classroom__archived_at__isnull=True,
+            )
             sessions = ClassroomSession.objects.filter(
                 subject__classroom__organization=user.organization,
+                archived_at__isnull=True,
             )
         else:
-            subjects = Subject.objects.filter(teacher=user)
-            classrooms = Classroom.objects.filter(subjects__teacher=user).distinct()
-            cameras = Camera.objects.filter(classroom__subjects__teacher=user).distinct()
-            sessions = ClassroomSession.objects.filter(user=user)
+            subjects = Subject.objects.filter(teacher=user, archived_at__isnull=True)
+            classrooms = Classroom.objects.filter(
+                subjects__teacher=user,
+                archived_at__isnull=True,
+                subjects__archived_at__isnull=True,
+            ).distinct()
+            cameras = Camera.objects.filter(
+                classroom__subjects__teacher=user,
+                archived_at__isnull=True,
+                classroom__archived_at__isnull=True,
+                classroom__subjects__archived_at__isnull=True,
+            ).distinct()
+            sessions = ClassroomSession.objects.filter(
+                user=user,
+                archived_at__isnull=True,
+            )
+
+        sessions = sessions.filter(started_at__isnull=False)
 
         today = timezone.localdate()
         today_sessions = sessions.filter(session_date=today)

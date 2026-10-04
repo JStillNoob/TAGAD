@@ -1,6 +1,6 @@
 # TAGAD System Reliability Roadmap
 
-Last updated: September 22, 2026
+Last updated: September 24, 2026
 
 This roadmap tracks application reliability separately from
 `engagement-pipeline-stages.md`. Reliability stages use the `R` prefix so
@@ -36,7 +36,10 @@ The current hardware-independent orchestration goal is tracked in
 | R5 | Operational health and diagnostics | Complete |
 | R6 | Data lifecycle and scaling | Complete |
 | R6.1 | Scalable configuration pickers | Complete |
+| R6.2 | Safe administration and record lifecycle | Complete and verified |
+| R6.3 | Validation and UX hardening | Complete and verified |
 | R7 | Computer-vision pipeline handoff | In progress — offline three-camera orchestration built |
+| R7.1 | Analytics trustworthiness | Complete and verified |
 | R8 | Deployment hardening | Deferred until deployment is close |
 
 ## R0 — Functional application baseline
@@ -291,6 +294,92 @@ classroom, or teacher into the browser.
 - [x] Existing Quick Setup and user-creation workflows still pass.
 - [x] All automated suites, production build, migration, and diff checks pass.
 
+## R6.2 — Safe administration and record lifecycle
+
+**Status: Complete and verified.**
+
+### Objective
+
+Preserve historical classroom evidence while giving administrators safe,
+reversible controls for records that should no longer be used.
+
+### Checklist
+
+- [x] Deactivate and reactivate accounts without deleting their history.
+- [x] Invalidate existing login sessions after account or organization
+      deactivation.
+- [x] Prevent self-deactivation, loss of the final System Administrator, and
+      deactivation while a teacher owns an active classroom session.
+- [x] Archive and restore organizations, classrooms, subjects, cameras, used
+      presentations, and completed classroom sessions.
+- [x] Block archival while an affected classroom session is ongoing.
+- [x] Hide archived records from ordinary lists, selectors, search, dashboards,
+      reporting choices, and pipeline work discovery.
+- [x] Provide Active, Archived, and All filters in the administrative pages.
+- [x] Keep permanent deletion for unused presentations and generated reports.
+- [x] Preserve completed sessions, analytics, reports, and presentation files
+      when referenced records are archived.
+- [x] Reject archived records and deactivated teachers during new
+      configuration and session creation.
+- [x] Audit archive, restore, account lifecycle, and intentional deletion
+      operations.
+
+### Privacy boundary
+
+TAGAD does not persist classroom video, audio, individual frames, face crops,
+facial landmarks, biometric embeddings, or temporary tracking identifiers.
+Only aggregate monitoring results and operational metadata are retained.
+
+### Verification gate
+
+- [x] Backend lifecycle, authorization, organization-isolation, file cleanup,
+      history-preservation, and session-invalidation tests pass.
+- [x] Browser tests cover account deactivation/reactivation, subject
+      archive/restore, used-presentation archive/restore, completed-session
+      archive/restore, and generated-report deletion.
+- [x] Full automated suites, production build, migration check, preflight, and
+      diff review pass.
+
+## R6.3 — Validation and UX hardening
+
+**Status: Complete and verified.**
+
+### Objective
+
+Reject invalid administrative data consistently, preserve form input after a
+failed request, and give operators a specific correction instead of a generic
+failure message.
+
+### Checklist
+
+- [x] Normalize organization, classroom, and subject codes to uppercase.
+- [x] Enforce case-insensitive database uniqueness for organization,
+      classroom, and subject codes.
+- [x] Validate code characters, contact-number formats, email formats, field
+      lengths, required values, and classroom capacity limits in Django.
+- [x] Apply the same rules to registration, account settings, user management,
+      individual class-management forms, and Quick Setup.
+- [x] Keep lifecycle, permission, organization-isolation, and active-record
+      validation enforced by the backend.
+- [x] Return the first useful validation message while retaining structured
+      field errors for inline display.
+- [x] Add missing inline errors and browser limits to administrative forms.
+- [x] Prevent repeated submissions while create, edit, upload, authentication,
+      recovery, or settings requests are pending.
+- [x] Preserve entered form values after validation failures.
+- [x] Keep existing loading, empty, error, and permission-denied states.
+
+### Verification gate
+
+- [x] Backend tests cover normalization, invalid formats, bounds, settings,
+      Quick Setup, and case-insensitive database constraints.
+- [x] Frontend tests cover useful API validation messages, field errors,
+      browser limits, and duplicate-submit guards.
+- [x] A real-browser test rejects an invalid contact number, keeps entered
+      values, accepts the corrected value, and verifies code normalization.
+- [x] Full automated suites, production build, migration check, preflight, and
+      diff review pass.
+
 ## R7 — Computer-vision pipeline handoff
 
 **Status: In progress — offline three-camera orchestration is integrated; live hardware remains.**
@@ -311,8 +400,57 @@ classroom, or teacher into the browser.
 - [x] Run inference in a dedicated worker, never inside a normal Django request.
 - [x] Submit aggregated results through the existing Stage 1 API.
 - [x] Display worker and camera health without exposing credentials.
+- [x] Prevent simulator and pipeline summaries from mixing in a new session,
+      and label analytics provenance for new and historical sessions.
+- [x] Provide one-command Windows preflight, startup, status, and graceful
+      controller shutdown for the prepared pilot computer.
 - [ ] Validate the RTSP source and latency with the selected classroom hardware.
 - [x] Extend the baseline to three isolated simulated camera sources.
+
+## R7.1 — Analytics trustworthiness
+
+**Status: Complete and verified.**
+
+### Objective
+
+Make the evidence behind analytics visible so teachers do not mistake sparse,
+unclassified, simulated, or historically mixed results for validated classroom
+conclusions.
+
+### Checklist
+
+- [x] Display unclassified detections and classified coverage in Analytics.
+- [x] Assign Good, Limited, or Insufficient evidence-quality labels using
+      documented thresholds.
+- [x] Withhold insights and recommendations when evidence is Insufficient.
+- [x] Compare engagement only with an older session for the same subject and
+      the same clean source type.
+- [x] Mark simulator and historically mixed data as not official.
+- [x] Include source, model versions, quality, windows, coverage, and
+      unclassified counts in PDF and CSV reports.
+- [x] Add backend, frontend, and real-browser regression tests.
+
+### Evidence-quality rules
+
+These labels measure evidence completeness, not whether the model's predictions
+are correct. Model accuracy still requires human ground truth.
+
+- **Good:** at least 20 monitoring windows, at least 75% classified coverage,
+  average confidence of at least 70%, and one clean data source.
+- **Limited:** at least 5 monitoring windows, at least 50% classified coverage,
+  and one clean data source, but the Good threshold is not met.
+- **Insufficient:** fewer than 5 monitoring windows, less than 50% classified
+  coverage, no data, or mixed simulator and pipeline data.
+
+### Verification gate
+
+- [x] Backend analytics and report tests cover Good, Limited, Insufficient,
+      simulator, mixed-source, unclassified, and compatible-comparison cases.
+- [x] Analytics displays provenance and quality without hiding unclassified
+      results.
+- [x] PDF and CSV exports preserve the same provenance and quality context.
+- [x] Full backend, frontend, pipeline, browser, build, migration, preflight,
+      and diff checks pass.
 
 ## R8 — Deployment hardening
 
@@ -335,7 +473,9 @@ classroom, or teacher into the browser.
 ## Immediate next action
 
 Complete the **R7 model-quality review** with human ground truth and a
-representative continuous classroom recording when one becomes available. The
+representative continuous classroom recording when one becomes available.
+R7.1 now prevents incomplete or simulated evidence from appearing as an
+unqualified conclusion, but it does not prove classification accuracy. The
 three-camera CUDA pipeline has passed a 60-minute looped stability test. After
 physical cameras are selected, validate one RTSP stream and its placement before
 enabling live classroom use. CAPTCHA, two-factor authentication, OAuth, and R8

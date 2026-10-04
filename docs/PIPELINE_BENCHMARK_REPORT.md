@@ -3,7 +3,9 @@
 CPU benchmark date: September 22, 2026  
 CUDA stability date: September 24, 2026  
 Pipeline: `hierarchical-1`  
-Device: CPU  
+Short baseline device: CPU
+
+Stability device: NVIDIA GeForce RTX 4050 Laptop GPU (CUDA 12.6)
 Requested sampling rate: 8 analyses/second
 
 ## Scope

@@ -4,6 +4,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from .models import Camera, Classroom, Organization, Subject, SystemLog
+from .validation import normalize_business_code, normalize_contact_number
 
 
 User = get_user_model()
@@ -94,8 +95,22 @@ class SettingsOrganizationSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class ManagedOrganizationSerializer(serializers.ModelSerializer):
+    is_archived = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = Organization
+        fields = (
+            'id', 'organization_name', 'organization_code', 'address',
+            'contact_email', 'contact_no', 'status', 'created_at',
+            'archived_at', 'is_archived',
+        )
+        read_only_fields = fields
+
+
 class ProfileSettingsSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(required=False)
+    contact_no = serializers.CharField(required=False, allow_blank=True, max_length=20)
 
     class Meta:
         model = User
@@ -112,13 +127,23 @@ class ProfileSettingsSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('A user with this email address already exists.')
         return value
 
+    def validate_contact_no(self, value):
+        return normalize_contact_number(value)
+
 
 class OrganizationSettingsSerializer(serializers.ModelSerializer):
     contact_email = serializers.EmailField(required=False, allow_blank=True)
+    contact_no = serializers.CharField(required=False, allow_blank=True, max_length=20)
 
     class Meta:
         model = Organization
         fields = ('address', 'contact_email', 'contact_no')
+
+    def validate_contact_email(self, value):
+        return value.strip().lower()
+
+    def validate_contact_no(self, value):
+        return normalize_contact_number(value)
 
 
 class PasswordSettingsSerializer(serializers.Serializer):
@@ -155,6 +180,7 @@ class RegistrationSerializer(serializers.ModelSerializer):
     organization_code = serializers.CharField(write_only=True)
     password = serializers.CharField(write_only=True, trim_whitespace=False)
     password_confirmation = serializers.CharField(write_only=True, trim_whitespace=False)
+    contact_no = serializers.CharField(required=False, allow_blank=True, max_length=20)
 
     class Meta:
         model = User
@@ -184,11 +210,16 @@ class RegistrationSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('A user with this email address already exists.')
         return value
 
+    def validate_contact_no(self, value):
+        return normalize_contact_number(value)
+
     def validate_organization_code(self, value):
+        value = normalize_business_code(value)
         try:
             return Organization.objects.get(
-                organization_code=value.strip(),
+                organization_code__iexact=value,
                 status=Organization.Status.ACTIVE,
+                archived_at__isnull=True,
             )
         except Organization.DoesNotExist:
             raise serializers.ValidationError('Enter a valid active organization code.')
@@ -274,6 +305,7 @@ class ManagedUserWriteSerializer(serializers.ModelSerializer):
         trim_whitespace=False,
         required=False,
     )
+    contact_no = serializers.CharField(required=False, allow_blank=True, max_length=20)
 
     class Meta:
         model = User
@@ -312,6 +344,9 @@ class ManagedUserWriteSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('A user with this email address already exists.')
         return value
 
+    def validate_contact_no(self, value):
+        return normalize_contact_number(value)
+
     def validate(self, attrs):
         request_user = self.context['request'].user
         current_role = self.instance.role if self.instance else User.Role.TEACHER
@@ -329,6 +364,30 @@ class ManagedUserWriteSerializer(serializers.ModelSerializer):
                 errors['status'] = 'You cannot change your own account status.'
             if 'organization' in attrs and organization != current_organization:
                 errors['organization'] = 'You cannot change your own organization.'
+
+        deactivating_last_system_admin = bool(
+            self.instance
+            and self.instance.role == User.Role.SYSTEM_ADMIN
+            and self.instance.status == User.Status.ACTIVE
+            and (
+                status_value == User.Status.INACTIVE
+                or role != User.Role.SYSTEM_ADMIN
+            )
+            and not User.objects.filter(
+                role=User.Role.SYSTEM_ADMIN,
+                status=User.Status.ACTIVE,
+                is_active=True,
+            ).exclude(pk=self.instance.pk).exists()
+        )
+        if deactivating_last_system_admin:
+            errors['status'] = 'At least one active System Administrator is required.'
+        if (
+            self.instance
+            and status_value == User.Status.INACTIVE
+            and current_status == User.Status.ACTIVE
+            and self.instance.sessions.filter(ended_at__isnull=True).exists()
+        ):
+            errors['status'] = 'End this user’s active classroom session before deactivating the account.'
 
         if request_user.role == User.Role.ORG_ADMIN:
             if 'role' in attrs and role != User.Role.TEACHER:
@@ -398,7 +457,13 @@ class ClassroomSerializer(serializers.ModelSerializer):
     subject_count = serializers.SerializerMethodField()
     camera_count = serializers.SerializerMethodField()
     camera_positions = serializers.SerializerMethodField()
-    capacity = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+    capacity = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=10000,
+    )
+    is_archived = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Classroom
@@ -412,24 +477,39 @@ class ClassroomSerializer(serializers.ModelSerializer):
             'subject_count',
             'camera_count',
             'camera_positions',
+            'archived_at',
+            'is_archived',
         )
         read_only_fields = (
             'id', 'organization_name', 'subject_count', 'camera_count', 'camera_positions',
+            'archived_at', 'is_archived',
         )
 
     def get_subject_count(self, classroom):
         annotated_count = getattr(classroom, '_subject_count', None)
-        return annotated_count if annotated_count is not None else classroom.subjects.count()
+        return (
+            annotated_count
+            if annotated_count is not None
+            else classroom.subjects.filter(archived_at__isnull=True).count()
+        )
 
     def get_camera_count(self, classroom):
         annotated_count = getattr(classroom, '_camera_count', None)
-        return annotated_count if annotated_count is not None else classroom.cameras.count()
+        return (
+            annotated_count
+            if annotated_count is not None
+            else classroom.cameras.filter(archived_at__isnull=True).count()
+        )
 
     def get_camera_positions(self, classroom):
-        return [camera.position for camera in classroom.cameras.all()]
+        return [
+            camera.position
+            for camera in classroom.cameras.all()
+            if not camera.is_archived
+        ]
 
     def validate_room_code(self, value):
-        value = value.strip()
+        value = normalize_business_code(value)
         classrooms = Classroom.objects.filter(room_code__iexact=value)
         if self.instance:
             classrooms = classrooms.exclude(pk=self.instance.pk)
@@ -452,8 +532,10 @@ class ClassroomSerializer(serializers.ModelSerializer):
             organization = request_user.organization
         if organization is None:
             raise serializers.ValidationError({'organization': 'An organization is required.'})
-        if organization.status != Organization.Status.ACTIVE:
+        if organization.status != Organization.Status.ACTIVE or organization.is_archived:
             raise serializers.ValidationError({'organization': 'Select an active organization.'})
+        if self.instance and self.instance.is_archived:
+            raise serializers.ValidationError({'detail': 'Restore this classroom before editing it.'})
         if (
             self.instance
             and organization != self.instance.organization
@@ -476,6 +558,7 @@ class SubjectSerializer(serializers.ModelSerializer):
     )
     teacher_name = serializers.SerializerMethodField()
     session_count = serializers.SerializerMethodField()
+    is_archived = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Subject
@@ -492,6 +575,8 @@ class SubjectSerializer(serializers.ModelSerializer):
             'teacher',
             'teacher_name',
             'session_count',
+            'archived_at',
+            'is_archived',
         )
         read_only_fields = (
             'id',
@@ -502,6 +587,8 @@ class SubjectSerializer(serializers.ModelSerializer):
             'organization_name',
             'teacher_name',
             'session_count',
+            'archived_at',
+            'is_archived',
         )
 
     def get_teacher_name(self, subject):
@@ -512,7 +599,7 @@ class SubjectSerializer(serializers.ModelSerializer):
         return annotated_count if annotated_count is not None else subject.sessions.count()
 
     def validate_subject_code(self, value):
-        value = value.strip()
+        value = normalize_business_code(value)
         subjects = Subject.objects.filter(subject_code__iexact=value)
         if self.instance:
             subjects = subjects.exclude(pk=self.instance.pk)
@@ -534,7 +621,11 @@ class SubjectSerializer(serializers.ModelSerializer):
 
         if classroom is None:
             errors['classroom'] = 'A classroom is required.'
-        elif classroom.organization.status != Organization.Status.ACTIVE:
+        elif (
+            classroom.is_archived
+            or classroom.organization.is_archived
+            or classroom.organization.status != Organization.Status.ACTIVE
+        ):
             errors['classroom'] = 'Select a classroom from an active organization.'
         elif (
             request_user.role == User.Role.ORG_ADMIN
@@ -551,6 +642,9 @@ class SubjectSerializer(serializers.ModelSerializer):
         elif classroom and teacher.organization_id != classroom.organization_id:
             errors['teacher'] = 'The teacher must belong to the classroom organization.'
 
+        if self.instance and self.instance.is_archived:
+            errors['detail'] = 'Restore this subject before editing it.'
+
         if errors:
             raise serializers.ValidationError(errors)
         return attrs
@@ -565,6 +659,7 @@ class CameraSerializer(serializers.ModelSerializer):
     )
     position_label = serializers.CharField(source='get_position_display', read_only=True)
     status_label = serializers.CharField(source='get_status_display', read_only=True)
+    is_archived = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Camera
@@ -579,6 +674,8 @@ class CameraSerializer(serializers.ModelSerializer):
             'position_label',
             'status',
             'status_label',
+            'archived_at',
+            'is_archived',
         )
         read_only_fields = (
             'id',
@@ -587,6 +684,8 @@ class CameraSerializer(serializers.ModelSerializer):
             'organization_name',
             'position_label',
             'status_label',
+            'archived_at',
+            'is_archived',
         )
         validators = []
 
@@ -611,7 +710,11 @@ class CameraSerializer(serializers.ModelSerializer):
 
         if classroom is None:
             errors['classroom'] = 'A classroom is required.'
-        elif classroom.organization.status != Organization.Status.ACTIVE:
+        elif (
+            classroom.is_archived
+            or classroom.organization.is_archived
+            or classroom.organization.status != Organization.Status.ACTIVE
+        ):
             errors['classroom'] = 'Select a classroom from an active organization.'
         elif (
             request_user.role == User.Role.ORG_ADMIN
@@ -636,6 +739,9 @@ class CameraSerializer(serializers.ModelSerializer):
             if matching_positions.exists():
                 errors['position'] = 'This camera position is already configured for the classroom.'
 
+        if self.instance and self.instance.is_archived:
+            errors['detail'] = 'Restore this camera before editing it.'
+
         if errors:
             raise serializers.ValidationError(errors)
         return attrs
@@ -645,7 +751,12 @@ class QuickSetupClassroomInputSerializer(serializers.Serializer):
     organization = serializers.IntegerField(min_value=1)
     room_code = serializers.CharField(max_length=30)
     building = serializers.CharField(max_length=100, required=False, allow_blank=True)
-    capacity = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+    capacity = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=10000,
+    )
 
 
 class QuickSetupCameraInputSerializer(serializers.Serializer):

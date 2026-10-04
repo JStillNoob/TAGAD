@@ -3,8 +3,26 @@ import { request } from './http.js'
 
 const safeRequestId = /^[A-Za-z0-9._-]{1,64}$/
 
+function firstValidationMessage(value) {
+  if (typeof value === 'string') return value
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const message = firstValidationMessage(item)
+      if (message) return message
+    }
+  } else if (value && typeof value === 'object') {
+    for (const item of Object.values(value)) {
+      const message = firstValidationMessage(item)
+      if (message) return message
+    }
+  }
+  return ''
+}
+
 export function apiErrorMessage(response, data = null) {
-  if (response.status < 500) return data?.detail || 'Unable to complete the request.'
+  if (response.status < 500) {
+    return data?.detail || firstValidationMessage(data) || 'Unable to complete the request.'
+  }
   const candidate = response.headers?.get?.('X-Request-ID') || data?.request_id || ''
   const reference = safeRequestId.test(candidate) ? ` Reference: ${candidate}` : ''
   return `The server could not complete the request. Please try again.${reference}`

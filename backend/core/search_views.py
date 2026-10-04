@@ -13,7 +13,12 @@ RESULTS_PER_TYPE = 5
 
 
 def _users_for_user(user):
-    users = User.objects.select_related('organization')
+    users = User.objects.filter(
+        status=User.Status.ACTIVE,
+        is_active=True,
+    ).exclude(
+        organization__archived_at__isnull=False,
+    ).select_related('organization')
     if user.role == User.Role.SYSTEM_ADMIN:
         return users
     if user.role == User.Role.ORG_ADMIN:
@@ -22,7 +27,10 @@ def _users_for_user(user):
 
 
 def _classrooms_for_user(user):
-    classrooms = Classroom.objects.select_related('organization')
+    classrooms = Classroom.objects.filter(
+        archived_at__isnull=True,
+        organization__archived_at__isnull=True,
+    ).select_related('organization')
     if user.role == User.Role.SYSTEM_ADMIN:
         return classrooms
     if user.role == User.Role.ORG_ADMIN:
@@ -58,7 +66,10 @@ class GlobalSearchView(APIView):
             | Q(subject_name__icontains=query)
             | Q(classroom__room_code__icontains=query)
             | Q(teacher__first_name__icontains=query)
-            | Q(teacher__last_name__icontains=query)
+            | Q(teacher__last_name__icontains=query),
+            archived_at__isnull=True,
+            classroom__archived_at__isnull=True,
+            classroom__organization__archived_at__isnull=True,
         ).order_by('subject_code')[:RESULTS_PER_TYPE]
         sessions = sessions_for_user(request.user).filter(
             Q(subject__subject_code__icontains=query)
@@ -66,13 +77,20 @@ class GlobalSearchView(APIView):
             | Q(subject__classroom__room_code__icontains=query)
             | Q(presentation__title__icontains=query)
             | Q(user__first_name__icontains=query)
-            | Q(user__last_name__icontains=query)
+            | Q(user__last_name__icontains=query),
+            archived_at__isnull=True,
+            subject__archived_at__isnull=True,
+            subject__classroom__archived_at__isnull=True,
+            subject__classroom__organization__archived_at__isnull=True,
+            started_at__isnull=False,
         ).order_by('-started_at')[:RESULTS_PER_TYPE]
         presentations = presentations_for_user(request.user).filter(
             Q(title__icontains=query)
             | Q(file_name__icontains=query)
             | Q(user__first_name__icontains=query)
-            | Q(user__last_name__icontains=query)
+            | Q(user__last_name__icontains=query),
+            archived_at__isnull=True,
+            user__organization__archived_at__isnull=True,
         ).order_by('-uploaded_at')[:RESULTS_PER_TYPE]
 
         results = []

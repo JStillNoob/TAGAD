@@ -87,6 +87,7 @@ function cancelProfile() {
 }
 
 async function saveProfile() {
+  if (profilePending.value) return
   profilePending.value = true
   profileErrors.value = {}
   profileMessage.value = ''
@@ -110,6 +111,7 @@ function cancelOrganization() {
 }
 
 async function saveOrganization() {
+  if (organizationPending.value) return
   organizationPending.value = true
   organizationErrors.value = {}
   organizationMessage.value = ''
@@ -125,6 +127,7 @@ async function saveOrganization() {
 }
 
 async function savePassword() {
+  if (passwordPending.value || !passwordReady.value) return
   passwordPending.value = true
   passwordErrors.value = {}
   passwordMessage.value = ''
@@ -178,7 +181,7 @@ onMounted(loadSettings)
               ['email', 'Email address'], ['contact_no', 'Contact number'],
             ]" :key="field[0]" class="text-xs font-medium text-gray-600" :class="field[0] === 'email' ? 'sm:col-span-2' : ''">
               {{ field[1] }}
-              <input v-model.trim="profileForm[field[0]]" :type="field[0] === 'email' ? 'email' : 'text'" :disabled="!editingProfile" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm disabled:bg-gray-50 disabled:text-gray-500 outline-none focus:border-brand">
+              <input v-model.trim="profileForm[field[0]]" :type="field[0] === 'email' ? 'email' : 'text'" :maxlength="field[0] === 'middle_name' ? 50 : field[0] === 'contact_no' ? 20 : field[0] === 'email' ? 254 : 150" :inputmode="field[0] === 'contact_no' ? 'tel' : undefined" :disabled="!editingProfile" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm disabled:bg-gray-50 disabled:text-gray-500 outline-none focus:border-brand">
               <span v-if="firstError(profileErrors, field[0])" class="block mt-1 text-xs text-red-600">{{ firstError(profileErrors, field[0]) }}</span>
             </label>
             <div v-if="editingProfile" class="sm:col-span-2 flex justify-end gap-2 pt-2">
@@ -210,7 +213,7 @@ onMounted(loadSettings)
             <form class="space-y-4" @submit.prevent="saveOrganization">
               <label v-for="field in [['address', 'Address'], ['contact_email', 'Contact email'], ['contact_no', 'Contact number']]" :key="field[0]" class="block text-xs font-medium text-gray-600">
                 {{ field[1] }}
-                <input v-model.trim="organizationForm[field[0]]" :type="field[0] === 'contact_email' ? 'email' : 'text'" :disabled="!editingOrganization" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm disabled:bg-gray-50 disabled:text-gray-500 outline-none focus:border-brand">
+                <input v-model.trim="organizationForm[field[0]]" :type="field[0] === 'contact_email' ? 'email' : 'text'" :maxlength="field[0] === 'address' ? 255 : field[0] === 'contact_email' ? 100 : 20" :inputmode="field[0] === 'contact_no' ? 'tel' : undefined" :disabled="!editingOrganization" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm disabled:bg-gray-50 disabled:text-gray-500 outline-none focus:border-brand">
                 <span v-if="firstError(organizationErrors, field[0])" class="block mt-1 text-xs text-red-600">{{ firstError(organizationErrors, field[0]) }}</span>
               </label>
               <p v-if="!canEditOrganization" class="text-xs text-gray-400">Only an organization administrator can edit these details.</p>

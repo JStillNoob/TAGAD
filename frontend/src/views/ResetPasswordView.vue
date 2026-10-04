@@ -96,6 +96,7 @@ async function checkToken() {
 }
 
 async function handleSubmit() {
+  if (submitting.value || !passwordReady.value) return
   submitting.value = true
   error.value = ''
   try {

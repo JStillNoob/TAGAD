@@ -24,4 +24,7 @@ class EngagementConsumer(AsyncJsonWebsocketConsumer):
 
     @database_sync_to_async
     def _can_access(self, user, session_id):
-        return sessions_for_user(user).filter(pk=session_id).exists()
+        return sessions_for_user(user).filter(
+            pk=session_id,
+            started_at__isnull=False,
+        ).exists()

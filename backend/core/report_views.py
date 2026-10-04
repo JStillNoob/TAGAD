@@ -26,6 +26,8 @@ class ReportCreateSerializer(serializers.Serializer):
         session = sessions_for_user(self.context['request'].user).filter(pk=value).first()
         if session is None:
             raise serializers.ValidationError('Select a session available to your account.')
+        if session.is_archived:
+            raise serializers.ValidationError('Restore the session before generating a report.')
         if session.ended_at is None:
             raise serializers.ValidationError('End the classroom session before generating a report.')
         return session
@@ -70,7 +72,10 @@ class ReportOptionsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        sessions = sessions_for_user(request.user).filter(ended_at__isnull=False).order_by('-started_at')
+        sessions = sessions_for_user(request.user).filter(
+            ended_at__isnull=False,
+            archived_at__isnull=True,
+        ).order_by('-started_at')
         return paginated_response(request, sessions, lambda page: [
             {
                 'id': session.pk,
@@ -149,3 +154,20 @@ class ReportDownloadView(APIView):
             as_attachment=True,
             filename=_download_name(report),
         )
+
+
+class ReportDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, pk):
+        report = get_object_or_404(_reports_for_user(request.user), pk=pk)
+        report_path = report.report_path
+        description = (
+            f'Deleted generated {report.report_type.upper()} report {report.pk} '
+            f'for classroom session {report.session_id}.'
+        )
+        report.delete()
+        if report_path and default_storage.exists(report_path):
+            default_storage.delete(report_path)
+        _log_activity(request, description)
+        return Response(status=status.HTTP_204_NO_CONTENT)

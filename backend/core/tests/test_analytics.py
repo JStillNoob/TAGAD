@@ -205,6 +205,22 @@ class AnalyticsTests(TestCase):
             total_detected=10,
             average_confidence='70.00',
         )
+        incompatible = self.create_session(self.teacher, self.subject, minutes_ago=120)
+        EngagementSummary.objects.create(
+            event=incompatible.slide_events.get(),
+            engaged_count=9,
+            attentive_count=1,
+            total_detected=10,
+            average_confidence='95.00',
+            pipeline_version='simulator-1',
+        )
+        for _ in range(2):
+            EngagementSummary.objects.create(
+                event=self.event_three,
+                total_detected=1,
+                unclassified_count=1,
+                average_confidence='0.00',
+            )
         self.client.force_login(self.teacher)
 
         response = self.client.get(reverse('session-analytics', args=[self.session.pk]))
@@ -212,13 +228,25 @@ class AnalyticsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertTrue(payload['has_data'])
+        self.assertEqual(payload['data_source'], {
+            'type': 'pipeline',
+            'label': 'Pipeline results',
+            'pipeline_versions': ['legacy'],
+            'official': True,
+            'notice': 'Official pipeline analytics.',
+        })
+        self.assertEqual(payload['data_quality']['level'], 'limited')
         self.assertEqual(payload['session']['duration_seconds'], 900)
         self.assertEqual(payload['session']['slides_covered'], 2)
         self.assertEqual(payload['summary']['students_detected'], 10)
-        self.assertEqual(payload['summary']['total_detections'], 30)
+        self.assertEqual(payload['summary']['total_detections'], 32)
+        self.assertEqual(payload['summary']['unclassified_detections'], 2)
+        self.assertEqual(payload['summary']['monitoring_windows'], 5)
+        self.assertEqual(payload['summary']['classification_coverage'], 93.8)
         self.assertEqual(payload['summary']['average_engagement'], 50.0)
         self.assertEqual(payload['summary']['average_confidence'], 90.0)
         self.assertEqual(payload['summary']['engagement_change'], 10.0)
+        self.assertEqual(payload['summary']['comparison_session_id'], previous.pk)
         self.assertEqual(payload['distribution'], {
             'engaged': 50.0,
             'attentive': 16.7,
@@ -244,11 +272,76 @@ class AnalyticsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertFalse(payload['has_data'])
+        self.assertEqual(payload['data_source']['type'], 'none')
+        self.assertEqual(payload['data_quality']['level'], 'insufficient')
         self.assertEqual(payload['summary']['total_detections'], 0)
         self.assertIsNone(payload['summary']['average_engagement'])
         self.assertFalse(payload['slides'][0]['has_data'])
         self.assertIsNone(payload['slides'][0]['engaged'])
         self.assertIsNone(payload['insights'])
+
+    def test_analytics_identifies_simulated_and_historical_mixed_results(self):
+        simulator_session = self.create_session(self.teacher, self.subject)
+        simulator_event = simulator_session.slide_events.get()
+        EngagementSummary.objects.create(
+            event=simulator_event,
+            engaged_count=5,
+            total_detected=5,
+            average_confidence='80.00',
+            pipeline_version='simulator-1',
+        )
+        self.client.force_login(self.teacher)
+
+        simulated = self.client.get(
+            reverse('session-analytics', args=[simulator_session.pk]),
+        ).json()
+        self.assertEqual(simulated['data_source']['type'], 'simulator')
+        self.assertFalse(simulated['data_source']['official'])
+        self.assertEqual(simulated['data_quality']['level'], 'insufficient')
+        self.assertIsNone(simulated['insights'])
+
+        EngagementSummary.objects.create(
+            event=simulator_event,
+            attentive_count=5,
+            total_detected=5,
+            average_confidence='80.00',
+            pipeline_version='historical-pipeline-1',
+        )
+        mixed = self.client.get(
+            reverse('session-analytics', args=[simulator_session.pk]),
+        ).json()
+
+        self.assertEqual(mixed['data_source']['type'], 'mixed')
+        self.assertEqual(mixed['data_quality']['level'], 'insufficient')
+        self.assertIsNone(mixed['insights'])
+        self.assertEqual(
+            mixed['data_source']['pipeline_versions'],
+            ['historical-pipeline-1', 'simulator-1'],
+        )
+
+    def test_good_quality_requires_volume_coverage_and_confidence(self):
+        quality_session = self.create_session(self.teacher, self.subject)
+        event = quality_session.slide_events.get()
+        for _ in range(20):
+            EngagementSummary.objects.create(
+                event=event,
+                engaged_count=5,
+                attentive_count=3,
+                total_detected=10,
+                unclassified_count=2,
+                average_confidence='80.00',
+                pipeline_version='quality-pipeline-1',
+            )
+        self.client.force_login(self.teacher)
+
+        payload = self.client.get(
+            reverse('session-analytics', args=[quality_session.pk]),
+        ).json()
+
+        self.assertEqual(payload['data_quality']['level'], 'good')
+        self.assertEqual(payload['summary']['monitoring_windows'], 20)
+        self.assertEqual(payload['summary']['classification_coverage'], 80.0)
+        self.assertIsNotNone(payload['insights'])
 
     def test_teacher_cannot_access_another_teachers_analytics_or_csv(self):
         foreign_session = self.create_session(self.other_teacher, self.other_subject)

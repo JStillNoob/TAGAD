@@ -1,13 +1,18 @@
 # TAGAD Hardware Readiness and Purchasing Guide
 
-Last reviewed: September 23, 2026
+Last reviewed: September 28, 2026
 
 ## Decision
 
-The proposed setup is suitable for TAGAD as a capstone system, but purchasing
-all three cameras should wait until two acceptance gates pass:
+**Current status:** The CUDA and 60-minute simulated stability gates passed on
+September 24, 2026. The remaining purchasing gate is one physical-camera RTSP
+and classroom-placement pilot.
 
-1. CUDA must work in the TAGAD pipeline environment.
+The proposed setup is suitable for TAGAD as a capstone system, but purchasing
+all three cameras should wait until the remaining physical-camera acceptance
+gate passes:
+
+1. ~~CUDA must work in the TAGAD pipeline environment.~~ Passed September 24, 2026.
 2. One physical camera must pass a real-classroom placement and RTSP pilot.
 
 Hardware can provide stable, high-quality video, but it cannot by itself fix
@@ -33,49 +38,39 @@ so sustained performance must be measured rather than assumed.
 
 Official reference: [MSI Thin 15 B12VE specifications](https://www.msi.com/Laptop/Thin-15-B12VX/Specification)
 
-## Current CUDA blocker
+## Verified CUDA acceleration
 
-The TAGAD pipeline environment currently reports:
+The project-local `pipeline\.venv` currently reports:
 
 ```text
-PyTorch: 2.14.0+cpu
-CUDA available: False
-CUDA runtime: None
-Pipeline device: CPU
+PyTorch: 2.14.0+cu126
+CUDA available: True
+CUDA runtime: 12.6
+GPU: NVIDIA GeForce RTX 4050 Laptop GPU
 ```
-
-Therefore, YOLO currently runs on the CPU even though the laptop contains an
-RTX 4050. Do not use projected GPU performance when purchasing hardware until
-a CUDA-enabled PyTorch build is installed and verified.
 
 Verification command:
 
 ```powershell
-D:\TAGAD\tagad_env\Scripts\python.exe -c "import torch; print('Torch:', torch.__version__); print('CUDA:', torch.cuda.is_available()); print('Runtime:', torch.version.cuda); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU ONLY')"
+pipeline\.venv\Scripts\python.exe -c "import torch; print('Torch:', torch.__version__); print('CUDA:', torch.cuda.is_available()); print('Runtime:', torch.version.cuda); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU ONLY')"
 ```
 
-Required result:
-
-```text
-CUDA: True
-GPU: NVIDIA GeForce RTX 4050 Laptop GPU
-```
-
-Use the current Windows and Pip selection from the official
-[PyTorch installation selector](https://pytorch.org/get-started/locally/).
-Do not guess an installation command from an old tutorial.
-
-After installation, rerun all pipeline tests and both the single-camera and
-three-camera benchmarks. MediaPipe, tracking, decoding, and the SVM classifiers
-may still use the CPU even after YOLO uses CUDA.
+The 60-minute three-source CUDA stability run completed 37,779 analyses at
+3.498 analyses/second per source. Process memory peaked at 1,667 MB and ended
+at 775 MB, GPU memory stayed around 422–656 MiB, and observed GPU temperature
+was 47–52°C. This passes the simulated stability gate. MediaPipe, tracking,
+decoding, and the SVM classifiers still use CPU resources, and short repeated
+clips do not validate classroom accuracy. See
+[`PIPELINE_BENCHMARK_REPORT.md`](PIPELINE_BENCHMARK_REPORT.md) for the full
+record.
 
 ## Recommended hardware
 
 | Component | Recommended specification | Quantity | Decision |
 | --- | --- | ---: | --- |
 | IP camera | 4 MP, fixed turret, PoE, RTSP, ONVIF, H.264, adjustable exposure/WDR | Pilot with 1, eventually 3 | Conditionally approved |
-| Lens | 4 mm pilot; select final lenses after measuring coverage | Per camera | Must be tested |
-| PoE switch | Gigabit uplink, 802.3af/at, at least 60 W total budget | 1 | Approved |
+| Lens | 2.8 mm Front pilot; consider 4 mm for Left/Right after measuring coverage | Per camera | Must be tested |
+| PoE switch | At least four Gigabit PoE ports, 802.3af/at, at least 56 W total budget | 1 | Approved |
 | Ethernet | Pure-copper Cat6, not copper-clad aluminium | 3 camera runs plus uplinks | Approved |
 | Mounts | Rigid, adjustable wall or ceiling mounts | 3 | Approved after placement plan |
 | UPS | Approximately 650–1000 VA with adequate watt rating and runtime | 1 | Approved after load calculation |
@@ -116,8 +111,32 @@ Do not assume that all three cameras should use the same 4 mm lens.
 
 | Lens | Approximate horizontal field of view | Tradeoff |
 | --- | ---: | --- |
-| 2.8 mm | 102 degrees | Covers more room, but faces appear smaller |
-| 4 mm | 79 degrees | Larger faces, but less room coverage |
+| 2.8 mm | 88.8 degrees | Covers more room, but faces appear smaller |
+| 4 mm | 75.1 degrees | Larger faces, but less room coverage |
+
+A published study describes UM Matina classrooms as typically seven metres by
+nine metres. It surveyed lecture rooms across the campus and does not establish
+that every Senior High School room has those exact dimensions, so `7 m × 9 m`
+is only a provisional planning assumption. At a four-metre subject distance,
+the 2.8 mm lens covers approximately 7.8 metres horizontally, while the 4 mm
+lens covers approximately 6.1 metres. This makes 2.8 mm the safer first choice
+when the Front camera must cover a roughly seven-metre-wide classroom.
+
+Reference: [Reverberation Time of University of Mindanao Matina Campus
+Classrooms](https://journals.upd.edu.ph/index.php/muhon/article/download/8891/7815/)
+
+Provisional arrangement before the physical-room survey:
+
+| Position | Provisional lens | Reason |
+| --- | --- | --- |
+| Front/Center | 2.8 mm | Prioritize complete classroom-width coverage for official analytics |
+| Left | 4 mm only if measured coverage is sufficient | Gain facial detail across the room |
+| Right | 4 mm only if measured coverage is sufficient | Gain facial detail across the room |
+
+Mixing 2.8 mm and 4 mm C440I variants is supported because each camera is an
+independent RTSP source. Keep resolution, codec, frame rate, and exposure as
+consistent as practical. The Front source remains the official analytics
+source until cross-camera duplicate handling is validated.
 
 Before choosing the final lens, record:
 
@@ -148,33 +167,42 @@ Audio:              Disabled or ignored
 Continuous storage: Disabled unless explicitly required
 ```
 
-The current CPU-only three-source benchmark sustained approximately:
+The verified 60-minute CUDA three-source run sustained:
 
 ```text
-Front: 2.73 analyses/second
-Left:  2.71 analyses/second
-Right: 2.70 analyses/second
+Front: 3.498 analyses/second
+Left:  3.498 analyses/second
+Right: 3.498 analyses/second
 ```
 
-Do not configure 5–10 analyses/second per camera until the CUDA benchmark proves
-that the complete pipeline—including MediaPipe and video decoding—can sustain
-it without overheating, starvation, or growing latency.
+Keep the initial live pilot at 2.5 analyses/second per camera. The CUDA test
+shows headroom, but physical RTSP decoding and a continuous classroom scene
+still need measurement before increasing the rate.
 
-## PoE switch
+## PoE switch: four powered ports are enough
 
-The TP-Link TL-SG1008MP is compatible and provides:
+TAGAD needs three powered camera ports and one ordinary uplink port. An
+eight-port PoE switch is not required for the planned three-camera pilot.
 
-- Eight Gigabit Ethernet ports
-- PoE+ on all eight ports
-- Up to 30 W per port
-- Approximately 126 W total PoE budget on the referenced regional model
+The compact TP-Link TL-SG1005P is the recommended pilot size. Current hardware
+revisions provide:
 
-Official reference: [TL-SG1008MP specifications](https://www.tp-link.com/ph/business-networking/unmanaged-switch/tl-sg1008mp/)
+- Five Gigabit Ethernet ports total
+- Four PoE/PoE+ camera ports and one non-PoE uplink
+- Up to 30 W per PoE+ port on current revisions
+- A 65 W total PoE budget on current revisions; some older regional revisions
+  are 802.3af with a 56 W budget
+- Fanless operation
 
-This is considerably more capacity than three cameras need, but it provides
-room for expansion. The model has a cooling fan, so check noise if it will be
-installed inside a quiet classroom. A reliable fanless switch with at least
-60 W total PoE budget is also sufficient for the initial three-camera setup.
+Official references: [current TL-SG1005P datasheet](https://static.tp-link.com/upload/product-overview/2026/202606/20260612/TL-SG1005P%28UN%296.0_datasheet.pdf)
+and [product specifications](https://www.tp-link.com/us/business-networking/soho-switch-poe/tl-sg1005p/v1/).
+
+Both the 56 W and 65 W versions have ample budget for three C440I cameras. The
+C440I specification lists 5 W maximum on 12 V DC and 802.3af/at PoE class 0;
+even the class-0 allocation for three units remains below 56 W. Confirm the
+exact switch revision, included power adapter, four powered ports, and 802.3af
+compatibility with the seller. Choose an eight-port model only if the school
+expects a fourth camera, access points, phones, or near-term room expansion.
 
 ## Network and privacy setup
 
@@ -211,12 +239,12 @@ more important than raw bandwidth.
 
 Do not purchase everything at once. Use this order:
 
-1. [ ] Install and verify CUDA-enabled PyTorch in the dedicated pipeline environment.
-2. [ ] Rerun the pipeline unit tests.
-3. [ ] Rerun the three-video concurrent benchmark with CUDA.
-4. [ ] Record GPU memory, CPU, RAM, temperatures, and per-camera throughput.
+1. [x] Install and verify CUDA-enabled PyTorch in the dedicated pipeline environment.
+2. [x] Rerun the pipeline unit tests.
+3. [x] Rerun the three-video concurrent benchmark with CUDA.
+4. [x] Record GPU memory, CPU, RAM, temperatures, and per-camera throughput.
 5. [ ] Measure the intended classroom and draw the three coverage zones.
-6. [ ] Borrow or purchase one 4 mm VIGI C440I pilot camera.
+6. [ ] Borrow or purchase one 2.8 mm VIGI C440I Front pilot camera.
 7. [ ] Use a PoE injector or the intended PoE switch for the pilot.
 8. [ ] Confirm the camera opens through RTSP using OpenCV.
 9. [ ] Confirm H.264 1080p at 15 FPS remains stable for 60–90 minutes.
@@ -232,8 +260,8 @@ Do not purchase everything at once. Use this order:
 
 Do not approve the final three-camera purchase until all items pass:
 
-- [ ] `torch.cuda.is_available()` returns `True`.
-- [ ] The benchmark confirms that YOLO is using the RTX 4050.
+- [x] `torch.cuda.is_available()` returns `True`.
+- [x] The benchmark confirms that YOLO is using the RTX 4050.
 - [ ] One physical RTSP stream runs continuously for at least 60–90 minutes.
 - [ ] The farthest occupied seats produce usable head and facial landmarks.
 - [ ] Bright windows do not make students unusably dark.
@@ -248,8 +276,11 @@ Do not approve the final three-camera purchase until all items pass:
 
 ## Final conclusion
 
-The recommended wired PoE architecture is appropriate. The existing laptop is
-strong enough for the pilot, and the proposed camera and switch are compatible
-with TAGAD. Approval remains conditional on CUDA acceleration and a successful
-one-camera classroom test. Camera placement and model validation will affect
-system quality more than purchasing three cameras immediately.
+The recommended wired PoE architecture is appropriate. The existing laptop
+passed the simulated CUDA stability gate, and the proposed C440I camera and a
+four-port PoE switch are compatible with TAGAD. Use a 2.8 mm Front camera for
+the initial coverage pilot; 4 mm Left/Right variants remain an option after the
+actual room is measured. Approval of the final three-camera purchase remains
+conditional on a successful one-camera RTSP and classroom-placement test.
+Camera placement and model validation will affect system quality more than
+purchasing three cameras immediately.

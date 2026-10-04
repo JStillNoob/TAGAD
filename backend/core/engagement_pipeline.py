@@ -17,6 +17,7 @@ from .models import (
 
 
 CATEGORIES = ('engaged', 'attentive', 'confused', 'bored', 'disengaged')
+SIMULATOR_PIPELINE_VERSION = 'simulator-1'
 
 
 def summary_payload(summary, alert=None):
@@ -79,6 +80,8 @@ def ingest_engagement(validated_data):
     )
     if event.session_id != session.pk:
         raise ValueError('The slide event does not belong to this session.')
+    if session.started_at is None:
+        raise ValueError('Engagement cannot be submitted before the session starts.')
     if session.ended_at:
         raise ValueError('Engagement cannot be submitted to a completed session.')
     if validated_data['captured_at'] < session.started_at:
@@ -88,6 +91,25 @@ def ingest_engagement(validated_data):
     current_event = session.slide_events.order_by('-entered_at', '-pk').first()
     if current_event.pk != event.pk:
         raise ValueError('The slide event is no longer active.')
+
+    existing_versions = set(
+        EngagementSummary.objects.filter(event__session=session)
+        .values_list('pipeline_version', flat=True)
+        .distinct()
+    )
+    is_simulator = validated_data['pipeline_version'] == SIMULATOR_PIPELINE_VERSION
+    has_simulator = SIMULATOR_PIPELINE_VERSION in existing_versions
+    has_pipeline = any(
+        version != SIMULATOR_PIPELINE_VERSION for version in existing_versions
+    )
+    if is_simulator and has_pipeline:
+        raise ValueError(
+            'This session already contains pipeline results and cannot use the simulator.'
+        )
+    if not is_simulator and has_simulator:
+        raise ValueError(
+            'This session already contains simulated results and cannot accept pipeline data.'
+        )
 
     camera_id = validated_data.get('camera_id')
     if camera_id is not None:
@@ -100,7 +122,7 @@ def ingest_engagement(validated_data):
         if link.camera.position != Camera.Position.FRONT:
             raise ValueError('Only the Front camera may publish official engagement summaries.')
     elif (
-        validated_data['pipeline_version'] != 'simulator-1'
+        validated_data['pipeline_version'] != SIMULATOR_PIPELINE_VERSION
         and session.session_cameras.count() > 1
     ):
         raise ValueError('Multi-camera sessions require an attributed Front camera.')

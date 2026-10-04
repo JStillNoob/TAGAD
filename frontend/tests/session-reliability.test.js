@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   findOwnActiveSession,
+  findOwnPreparedSession,
   restoreSlideIndex,
   startSessionWithRecovery,
   endSessionWithRecovery,
@@ -26,6 +27,12 @@ test('refresh recovery finds only the signed-in user active session', () => {
 
   assert.equal(findOwnActiveSession(sessions, 7), active)
   assert.equal(findOwnActiveSession(sessions, 99), null)
+})
+
+test('refresh recovery finds a prepared session separately', () => {
+  const prepared = { ...active, id: 11, status: 'preparing', started_at: null }
+  assert.equal(findOwnPreparedSession([active, prepared], 7), prepared)
+  assert.equal(findOwnPreparedSession([prepared], 99), null)
 })
 
 test('refresh recovery restores the persisted slide safely', () => {

@@ -11,6 +11,37 @@ Confirm PostgreSQL is running:
 Get-Service *postgres*
 ```
 
+For the prepared development computer, run the preflight and all three TAGAD
+services—Django, Vite, and the camera controller—with one command from the
+repository root:
+
+```powershell
+.\scripts\tagad.ps1 start
+```
+
+The command checks pending migrations, the database connection, model files
+and checksums, local camera configuration, frontend dependencies, and CUDA. It
+loads `PIPELINE_API_KEY` from the ignored `backend\.env` without printing it.
+Service output and the PID file are stored in the ignored `.runtime` directory.
+Use:
+
+```powershell
+.\scripts\tagad.ps1 status
+.\scripts\tagad.ps1 stop
+```
+
+The stop action first signals the controller to release video files and report
+Stopped worker states, then stops Vite and Django. If PowerShell blocks local
+scripts, use `powershell -ExecutionPolicy Bypass -File .\scripts\tagad.ps1 start`.
+
+Run the preflight without starting anything with:
+
+```powershell
+.\scripts\tagad.ps1 check
+```
+
+The manual three-terminal procedure remains available for troubleshooting.
+
 Start Django in the first terminal:
 
 ```powershell
@@ -29,6 +60,11 @@ npm run dev
 
 Open `http://localhost:5173`. Stop each development server with `Ctrl+C` in
 its terminal. Do not close PostgreSQL while Django is writing data.
+
+When using the manual procedure with camera processing, also set
+`TAGAD_PIPELINE_API_KEY`, set `PYTHONPATH` to `pipeline`, and start
+`pipeline\.venv\Scripts\python.exe -m tagad_pipeline.controller` as documented
+in [`../pipeline/README.md`](../pipeline/README.md).
 
 ## Health and readiness
 
@@ -208,6 +244,36 @@ There is no automatic cleanup schedule in development. A production operator
 may schedule the command only after backup monitoring and dry-run review are in
 place.
 
+## Record lifecycle and privacy
+
+TAGAD uses three different lifecycle actions deliberately:
+
+- **Deactivate** a user account or organization to stop access while preserving
+  ownership and audit history.
+- **Archive** a classroom, subject, camera, used presentation, or completed
+  session to remove it from normal workflows while keeping it restorable.
+- **Delete permanently** only an unused presentation or a generated report.
+
+Administrators can switch supported pages between Active, Archived, and All
+records. Archived records are excluded from new-session selectors, global
+search, dashboard counts, report choices, and camera-controller work. Ongoing
+sessions must be ended before any related account or record can be archived.
+Restoring a child record requires its parent classroom or organization to be
+active. Record codes remain unique while archived so historical references do
+not become ambiguous.
+
+Deleting an unused presentation removes its original upload, converted preview,
+generated slide images, and database row. A presentation referenced by a
+completed session is archived instead. Deleting a generated PDF or CSV removes
+only that export; its session and analytics remain available for regeneration.
+
+The runtime pipeline may temporarily hold frames, landmarks, and tracking IDs
+in memory, but TAGAD does not persist classroom video, audio, individual frames,
+face crops, facial landmarks, biometric embeddings, or temporary tracking
+identifiers. Logs and reports must never include camera credentials or raw
+biometric material. Stored engagement data consists of aggregate counts,
+unclassified counts, confidence, timing, provenance, and operational health.
+
 ## List scaling measurements
 
 User, classroom, subject, camera, presentation, classroom-session, report, and
@@ -257,3 +323,35 @@ Offline after `PIPELINE_HEARTBEAT_TIMEOUT_SECONDS` (10 seconds by default), but
 does not end the session or stop another worker. Stop the controller with
 Ctrl+C; it reports Stopped and releases each source before closing the shared
 models.
+
+The development simulator is allowed only when a session has no assigned
+cameras. Once a session receives either simulator results or real pipeline
+results, the backend rejects the other source for that session. Analytics marks
+results as Pipeline, Development simulation, No source, or Mixed sources. The
+Mixed label exists only to identify older contaminated sessions; those totals
+must not be treated as official analytics.
+
+## Analytics evidence quality
+
+Analytics and generated reports expose monitoring-window count, unclassified
+detections, classified coverage, average confidence, source provenance, and
+pipeline versions. Development simulation and historical mixed-source results
+are explicitly marked as not official.
+
+Evidence quality uses these fixed rules:
+
+- **Good:** at least 20 monitoring windows, at least 75% classified coverage,
+  average confidence of at least 70%, and one clean source.
+- **Limited:** at least 5 monitoring windows and at least 50% classified
+  coverage from one clean source, without meeting every Good threshold.
+- **Insufficient:** fewer than 5 monitoring windows, less than 50% coverage, no
+  data, or mixed simulator and pipeline data.
+
+When quality is Insufficient, TAGAD withholds generated insights and
+recommendations. Session-to-session engagement comparisons use only an older
+session for the same subject and the same clean source type; simulator results
+are never compared with pipeline results.
+
+These labels describe the quantity and completeness of evidence. They do not
+measure classification accuracy or replace validation against human-labeled
+ground truth.

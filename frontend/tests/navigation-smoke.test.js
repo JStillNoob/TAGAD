@@ -9,6 +9,7 @@ const sessionSource = await readFile(new URL('../src/views/SessionView.vue', imp
 const analyticsSource = await readFile(new URL('../src/views/AnalyticsView.vue', import.meta.url), 'utf8')
 const classesSource = await readFile(new URL('../src/views/StudentsView.vue', import.meta.url), 'utf8')
 const classManagementSource = await readFile(new URL('../src/classManagement.js', import.meta.url), 'utf8')
+const userManagementSource = await readFile(new URL('../src/views/UserManagementView.vue', import.meta.url), 'utf8')
 
 test('authenticated shell keeps its core navigation and logout actions', () => {
   assert.match(routerSource, /path: '\/dashboard'/)
@@ -24,10 +25,16 @@ test('live session connects to engagement WebSocket and exposes the development 
 })
 
 test('live session automatically selects classroom cameras and provides bulk controls', () => {
-  assert.match(sessionSource, /watch\(selectedSubjectId, selectAllCameras\)/)
+  assert.match(sessionSource, /if \(!preparedSession\.value\) selectAllCameras\(\)/)
   assert.match(sessionSource, /@click="selectAllCameras">Select all/)
   assert.match(sessionSource, /@click="clearCameraSelection">Clear/)
   assert.match(sessionSource, /You can still start the session and use the development simulator/)
+})
+
+test('prepared session reuses the presentation screen before countdown starts', () => {
+  assert.match(sessionSource, /Review mode · session timing and analytics have not started/)
+  assert.match(sessionSource, /preparedSession.*Start Session/s)
+  assert.match(sessionSource, /if \(preparedSession\.value && !activeSession\.value\)/)
 })
 
 test('active session shows independent camera worker health without combining analytics', () => {
@@ -36,6 +43,17 @@ test('active session shows independent camera worker health without combining an
   assert.match(sessionSource, /Official analytics/)
   assert.match(sessionSource, /Diagnostics only/)
   assert.match(sessionSource, /fetchSessionCameraHealth/)
+  assert.match(sessionSource, /simulatorAvailable/)
+  assert.match(sessionSource, /Simulation is unavailable because this session has assigned camera sources/)
+})
+
+test('analytics labels pipeline, simulation, and historical mixed data', () => {
+  assert.match(analyticsSource, /analytics\.data_source\.label/)
+  assert.match(analyticsSource, /analytics\.data_source\.notice/)
+  assert.match(analyticsSource, /analytics\.data_quality\.label/)
+  assert.match(analyticsSource, /analytics\.summary\.classification_coverage/)
+  assert.match(analyticsSource, /analytics\.summary\.unclassified_detections/)
+  assert.match(analyticsSource, /Insights withheld/)
 })
 
 test('ending a session opens its analytics and the chart renders after loading', () => {
@@ -81,4 +99,17 @@ test('class management exposes one-step room, camera, and subject setup', () => 
   assert.match(classesSource, /v-for="camera in quickForm\.cameras"/)
   assert.match(classesSource, /Complete Setup/)
   assert.match(classesSource, /await createQuickSetup\(payload\)/)
+})
+
+test('administrative records use archive, restore, deactivation, and intentional deletion', () => {
+  assert.match(classesSource, /lifecycleFilter/)
+  assert.match(classesSource, /Archive classroom/)
+  assert.match(classesSource, /restoreArchivedSubject/)
+  assert.match(classesSource, /restoreArchivedCamera/)
+  assert.match(sessionSource, /presentationLifecycle/)
+  assert.match(sessionSource, /Delete permanently/)
+  assert.match(sessionSource, /restoreArchivedPresentation/)
+  assert.match(sessionSource, /restoreArchivedSession/)
+  assert.match(userManagementSource, /archiveOrganizationRecord/)
+  assert.match(userManagementSource, /Deactivate/)
 })

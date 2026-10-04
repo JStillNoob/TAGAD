@@ -1,4 +1,5 @@
 import mimetypes
+from datetime import timedelta
 
 from django.db import IntegrityError, transaction
 from django.db.models import Case, IntegerField, Q, Value, When
@@ -13,7 +14,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Camera, ClassroomSession, Presentation, SlideEvent
+from .models import Camera, CameraWorkerStatus, ClassroomSession, Presentation, SlideEvent
+from .lifecycle import archive_record, filter_lifecycle, restore_record
 from .pagination import paginated_response
 from .presentation_processing import delete_presentation_files, process_presentation
 from .session_access import (
@@ -28,6 +30,7 @@ from .session_serializers import (
     PresentationUploadSerializer,
     SessionCreateSerializer,
 )
+from .session_preparation import expire_prepared_sessions
 from .views import _log_activity
 
 
@@ -35,7 +38,10 @@ class PresentationListCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        presentations = presentations_for_user(request.user).order_by('-uploaded_at', '-pk')
+        presentations = filter_lifecycle(
+            presentations_for_user(request.user),
+            request.query_params.get('lifecycle'),
+        ).order_by('-uploaded_at', '-pk')
         search = request.query_params.get('search', '').strip()
         if search:
             presentations = presentations.filter(
@@ -104,15 +110,39 @@ class PresentationDetailView(APIView):
                 presentations_for_update(request.user),
                 pk=pk,
             )
-            if presentation.sessions.exists():
+            if presentation.sessions.filter(ended_at__isnull=True).exists():
                 raise serializers.ValidationError({
-                    'detail': 'A presentation used by a classroom session cannot be deleted.',
+                    'detail': 'End the active classroom session before archiving this presentation.',
                 })
-            delete_presentation_files(presentation)
-            description = f'Deleted presentation {presentation.pk} ({presentation.title}).'
-            presentation.delete()
-            _log_activity(request, description)
+            if presentation.sessions.exists():
+                if archive_record(presentation, request.user):
+                    _log_activity(
+                        request,
+                        f'Archived presentation {presentation.pk} ({presentation.title}).',
+                    )
+            else:
+                delete_presentation_files(presentation)
+                description = f'Deleted unused presentation {presentation.pk} ({presentation.title}).'
+                presentation.delete()
+                _log_activity(request, description)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class PresentationRestoreView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        with transaction.atomic():
+            presentation = get_object_or_404(
+                presentations_for_update(request.user),
+                pk=pk,
+            )
+            if restore_record(presentation):
+                _log_activity(
+                    request,
+                    f'Restored presentation {presentation.pk} ({presentation.title}).',
+                )
+        return Response(PresentationSerializer(presentation).data)
 
 
 class PresentationRetryView(APIView):
@@ -124,6 +154,10 @@ class PresentationRetryView(APIView):
                 presentations_for_update(request.user),
                 pk=pk,
             )
+            if presentation.is_archived:
+                raise serializers.ValidationError({
+                    'detail': 'Restore this presentation before retrying it.',
+                })
             if presentation.processing_status == Presentation.ProcessingStatus.READY:
                 return Response(PresentationSerializer(presentation).data)
             if presentation.processing_status == Presentation.ProcessingStatus.PROCESSING:
@@ -209,7 +243,7 @@ def _session_subject_data(subject):
                 'status_label': camera.get_status_display(),
             }
             for camera in subject.classroom.cameras.all()
-            if camera.status == Camera.Status.ACTIVE
+            if camera.status == Camera.Status.ACTIVE and not camera.is_archived
         ],
     }
 
@@ -218,7 +252,14 @@ class SessionSubjectListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        subjects = subjects_for_user(request.user)
+        subjects = subjects_for_user(request.user).filter(
+            archived_at__isnull=True,
+            classroom__archived_at__isnull=True,
+            classroom__organization__archived_at__isnull=True,
+            classroom__organization__status='active',
+            teacher__status='active',
+            teacher__is_active=True,
+        )
         search = request.query_params.get('search', '').strip()
         if search:
             subjects = subjects.filter(
@@ -247,7 +288,11 @@ class SessionListCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        sessions = sessions_for_user(request.user).order_by('-started_at')
+        expire_prepared_sessions(user=request.user)
+        sessions = filter_lifecycle(
+            sessions_for_user(request.user),
+            request.query_params.get('lifecycle'),
+        )
         search = request.query_params.get('search', '').strip()
         if search:
             sessions = sessions.filter(
@@ -258,10 +303,18 @@ class SessionListCreateView(APIView):
                 | Q(user__username__icontains=search)
             )
         session_status = request.query_params.get('status', '').strip()
-        if session_status == 'ongoing':
-            sessions = sessions.filter(ended_at__isnull=True)
+        if session_status == 'preparing':
+            sessions = sessions.filter(started_at__isnull=True, ended_at__isnull=True)
+            sessions = sessions.order_by('-prepared_at', '-pk')
+        elif session_status == 'ongoing':
+            sessions = sessions.filter(started_at__isnull=False, ended_at__isnull=True)
+            sessions = sessions.order_by('-started_at', '-pk')
         elif session_status == 'completed':
             sessions = sessions.filter(ended_at__isnull=False)
+            sessions = sessions.order_by('-started_at', '-pk')
+        else:
+            sessions = sessions.filter(started_at__isnull=False)
+            sessions = sessions.order_by('-started_at', '-pk')
         return paginated_response(
             request,
             sessions,
@@ -269,6 +322,7 @@ class SessionListCreateView(APIView):
         )
 
     def post(self, request):
+        expire_prepared_sessions(user=request.user)
         serializer = SessionCreateSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
         try:
@@ -285,6 +339,30 @@ class SessionListCreateView(APIView):
         )
 
 
+class SessionPrepareView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        expire_prepared_sessions(user=request.user)
+        serializer = SessionCreateSerializer(
+            data=request.data,
+            context={'request': request, 'prepared': True},
+        )
+        serializer.is_valid(raise_exception=True)
+        try:
+            with transaction.atomic():
+                session = serializer.save()
+        except IntegrityError:
+            raise serializers.ValidationError({
+                'detail': 'Finish or cancel your current session preparation first.',
+            })
+        _log_activity(request, f'Prepared classroom session {session.pk}.')
+        return Response(
+            ClassroomSessionSerializer(session).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
 class OwnedSessionMixin:
     permission_classes = [IsAuthenticated]
 
@@ -295,14 +373,99 @@ class OwnedSessionMixin:
         return get_object_or_404(sessions, pk=pk)
 
 
+class SessionStartView(OwnedSessionMixin, APIView):
+    def post(self, request, pk):
+        expire_prepared_sessions(user=request.user)
+        with transaction.atomic():
+            session = self.get_session(request, pk, for_update=True)
+            if session.ended_at:
+                raise serializers.ValidationError({'detail': 'This session has already ended.'})
+            if session.started_at:
+                return Response(ClassroomSessionSerializer(session).data)
+
+            front_camera = session.session_cameras.filter(
+                camera__position=Camera.Position.FRONT,
+            ).first()
+            if front_camera:
+                heartbeat_cutoff = timezone.now() - timedelta(
+                    seconds=max(1, settings.PIPELINE_HEARTBEAT_TIMEOUT_SECONDS),
+                )
+                front_online = CameraWorkerStatus.objects.filter(
+                    session=session,
+                    camera_id=front_camera.camera_id,
+                    state=CameraWorkerStatus.State.ONLINE,
+                    last_heartbeat__gte=heartbeat_cutoff,
+                ).exists()
+                if not front_online:
+                    raise serializers.ValidationError({
+                        'detail': 'Wait for the Front camera to become Online before starting.',
+                    })
+
+            started_at = timezone.now()
+            session.started_at = started_at
+            session.session_date = timezone.localdate(started_at)
+            session.save(update_fields=['started_at', 'session_date'])
+            first_slide = session.presentation.slides.order_by('slide_number').first()
+            if first_slide:
+                SlideEvent.objects.create(
+                    session=session,
+                    slide=first_slide,
+                    entered_at=started_at,
+                )
+            _log_activity(request, f'Started classroom session {session.pk}.')
+        return Response(ClassroomSessionSerializer(session).data)
+
+
+class SessionPreparationCancelView(OwnedSessionMixin, APIView):
+    def delete(self, request, pk):
+        expire_prepared_sessions(user=request.user)
+        with transaction.atomic():
+            session = self.get_session(request, pk, for_update=True)
+            if session.started_at or session.ended_at:
+                raise serializers.ValidationError({
+                    'detail': 'Only an unfinished session preparation can be cancelled.',
+                })
+            session_id = session.pk
+            session.delete()
+            _log_activity(request, f'Cancelled classroom session preparation {session_id}.')
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class SessionEndView(OwnedSessionMixin, APIView):
     def post(self, request, pk):
         with transaction.atomic():
             session = self.get_session(request, pk, for_update=True)
+            if session.started_at is None:
+                raise serializers.ValidationError({
+                    'detail': 'Cancel this preparation instead of ending it.',
+                })
             if session.ended_at is None:
                 session.ended_at = timezone.now()
                 session.save(update_fields=['ended_at'])
                 _log_activity(request, f'Ended classroom session {session.pk}.')
+        return Response(ClassroomSessionSerializer(session).data)
+
+
+class SessionLifecycleView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_session(self, request, pk):
+        return get_object_or_404(sessions_for_user(request.user), pk=pk)
+
+    def delete(self, request, pk):
+        session = self.get_session(request, pk)
+        if session.ended_at is None:
+            raise serializers.ValidationError({
+                'detail': 'End this classroom session before archiving it.',
+            })
+        if archive_record(session, request.user):
+            _log_activity(request, f'Archived classroom session {session.pk}.')
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def post(self, request, pk):
+        session = self.get_session(request, pk)
+        if restore_record(session):
+            _log_activity(request, f'Restored classroom session {session.pk}.')
         return Response(ClassroomSessionSerializer(session).data)
 
 
@@ -312,6 +475,8 @@ class SessionEnterSlideView(OwnedSessionMixin, APIView):
             session = self.get_session(request, pk, for_update=True)
             if session.ended_at:
                 raise serializers.ValidationError({'detail': 'This session has already ended.'})
+            if session.started_at is None:
+                raise serializers.ValidationError({'detail': 'Start the session before changing slides.'})
             slide = get_object_or_404(
                 session.presentation.slides,
                 pk=request.data.get('slide'),

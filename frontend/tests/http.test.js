@@ -31,3 +31,25 @@ test('server failures hide sensitive details and include the request reference',
     },
   )
 })
+
+test('validation failures expose the first useful field message', async () => {
+  globalThis.fetch = async () => ({
+    ok: false,
+    status: 400,
+    headers: { get: () => null },
+    json: async () => ({
+      classroom: { room_code: ['Use a valid classroom code.'] },
+    }),
+  })
+
+  await assert.rejects(
+    apiRequest('/api/auth/classrooms/'),
+    (error) => {
+      assert.equal(error.message, 'Use a valid classroom code.')
+      assert.deepEqual(error.fields, {
+        classroom: { room_code: ['Use a valid classroom code.'] },
+      })
+      return true
+    },
+  )
+})

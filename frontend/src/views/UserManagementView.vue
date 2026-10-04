@@ -7,10 +7,13 @@ import SearchablePicker from '../components/SearchablePicker.vue'
 import { currentUser } from '../auth'
 import { fetchConfigurationOptions } from '../configurationOptions'
 import {
+  archiveOrganization,
   createManagedUser,
   deactivateManagedUser,
   fetchManagedUsers,
+  fetchOrganizations,
   fetchUserOptions,
+  restoreOrganization,
   updateManagedUser,
 } from '../userManagement'
 
@@ -31,6 +34,12 @@ const roleFilter = ref('')
 const statusFilter = ref('')
 const showForm = ref(false)
 const editingId = ref(null)
+const organizations = ref([])
+const organizationCount = ref(0)
+const organizationPage = ref(1)
+const organizationLifecycle = ref('active')
+const organizationSearch = ref('')
+const organizationLoading = ref(false)
 
 const blankForm = () => ({
   username: '',
@@ -128,6 +137,53 @@ async function loadPage() {
   }
 }
 
+async function loadOrganizations(page = organizationPage.value) {
+  if (!isSystemAdmin.value) return
+  organizationLoading.value = true
+  pageError.value = ''
+  try {
+    const data = await fetchOrganizations({
+      page,
+      search: organizationSearch.value.trim(),
+      lifecycle: organizationLifecycle.value,
+    })
+    organizations.value = data.results
+    organizationCount.value = data.count
+    organizationPage.value = page
+  } catch (error) {
+    pageError.value = error.message
+  } finally {
+    organizationLoading.value = false
+  }
+}
+
+async function archiveOrganizationRecord(organization) {
+  if (!window.confirm(`Archive ${organization.organization_name}? Its users will be unable to sign in until it is restored.`)) return
+  pageError.value = ''
+  try {
+    await archiveOrganization(organization.id)
+    await loadOrganizations(organizationPage.value)
+  } catch (error) {
+    pageError.value = error.message
+  }
+}
+
+async function restoreOrganizationRecord(organization) {
+  pageError.value = ''
+  try {
+    await restoreOrganization(organization.id)
+    await loadOrganizations(organizationPage.value)
+  } catch (error) {
+    pageError.value = error.message
+  }
+}
+
+let organizationFilterTimer = null
+watch([organizationSearch, organizationLifecycle], () => {
+  clearTimeout(organizationFilterTimer)
+  organizationFilterTimer = setTimeout(() => loadOrganizations(1), 250)
+})
+
 function changePage(page) {
   userPage.value = page
   loadPage()
@@ -142,6 +198,7 @@ watch([search, roleFilter, statusFilter], () => {
 })
 
 async function saveUser() {
+  if (saving.value) return
   saving.value = true
   formError.value = ''
   fieldErrors.value = {}
@@ -184,8 +241,14 @@ async function reactivateUser(user) {
   }
 }
 
-onMounted(loadPage)
-onUnmounted(() => clearTimeout(filterTimer))
+onMounted(async () => {
+  await loadPage()
+  await loadOrganizations()
+})
+onUnmounted(() => {
+  clearTimeout(filterTimer)
+  clearTimeout(organizationFilterTimer)
+})
 </script>
 
 <template>
@@ -268,6 +331,36 @@ onUnmounted(() => clearTimeout(filterTimer))
         </div>
         <PaginationControls :page="userPage" :count="userCount" :page-size="pageSize" :disabled="loading" @change="changePage" />
       </section>
+
+      <section v-if="isSystemAdmin" class="page-card overflow-hidden">
+        <div class="grid gap-3 border-b border-gray-200 p-5 md:grid-cols-[1fr_180px] md:items-end">
+          <label class="text-xs font-semibold text-gray-600">Organizations
+            <input v-model="organizationSearch" type="search" placeholder="Search organization name or code…" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-normal outline-none focus:border-indigo-500" />
+          </label>
+          <label class="text-xs font-semibold text-gray-600">Records
+            <select v-model="organizationLifecycle" class="mt-1.5 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-normal">
+              <option value="active">Active</option>
+              <option value="archived">Archived</option>
+              <option value="all">All</option>
+            </select>
+          </label>
+        </div>
+        <div v-if="organizationLoading" class="p-8 text-center text-sm text-gray-500">Loading organizations…</div>
+        <div v-else-if="!organizations.length" class="p-8 text-center text-sm text-gray-500">No organizations match these filters.</div>
+        <div v-else class="overflow-x-auto">
+          <table class="w-full text-left text-sm">
+            <thead class="bg-gray-50 text-xs uppercase tracking-wide text-gray-500"><tr><th class="px-5 py-3">Organization</th><th class="px-5 py-3">Status</th><th class="px-5 py-3 text-right">Actions</th></tr></thead>
+            <tbody class="divide-y divide-gray-100">
+              <tr v-for="organization in organizations" :key="organization.id">
+                <td class="px-5 py-4"><p class="font-semibold text-gray-900">{{ organization.organization_name }}</p><p class="mt-0.5 text-xs text-gray-500">{{ organization.organization_code }}</p></td>
+                <td class="px-5 py-4"><span class="rounded-full px-2.5 py-1 text-xs font-semibold" :class="organization.is_archived ? 'bg-gray-100 text-gray-600' : 'bg-emerald-50 text-emerald-700'">{{ organization.is_archived ? 'Archived' : 'Active' }}</span></td>
+                <td class="px-5 py-4 text-right"><button v-if="!organization.is_archived" type="button" class="rounded-lg border border-amber-200 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-50" @click="archiveOrganizationRecord(organization)">Archive</button><button v-else type="button" class="rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50" @click="restoreOrganizationRecord(organization)">Restore</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <PaginationControls :page="organizationPage" :count="organizationCount" :page-size="pageSize" :disabled="organizationLoading" @change="loadOrganizations" />
+      </section>
     </div>
 
     <div v-if="showForm" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4" @click.self="closeForm">
@@ -284,25 +377,27 @@ onUnmounted(() => clearTimeout(filterTimer))
           <div v-if="formError" class="sm:col-span-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ formError }}</div>
 
           <label class="text-sm font-medium text-gray-700">First name *
-            <input v-model.trim="form.first_name" required class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
+            <input v-model.trim="form.first_name" required maxlength="150" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
             <span v-if="fieldErrors.first_name" class="mt-1 block text-xs text-red-600">{{ fieldErrors.first_name[0] }}</span>
           </label>
           <label class="text-sm font-medium text-gray-700">Last name *
-            <input v-model.trim="form.last_name" required class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
+            <input v-model.trim="form.last_name" required maxlength="150" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
             <span v-if="fieldErrors.last_name" class="mt-1 block text-xs text-red-600">{{ fieldErrors.last_name[0] }}</span>
           </label>
           <label class="text-sm font-medium text-gray-700">Middle name
-            <input v-model.trim="form.middle_name" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
+            <input v-model.trim="form.middle_name" maxlength="50" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
+            <span v-if="fieldErrors.middle_name" class="mt-1 block text-xs text-red-600">{{ fieldErrors.middle_name[0] }}</span>
           </label>
           <label class="text-sm font-medium text-gray-700">Contact number
-            <input v-model.trim="form.contact_no" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
+            <input v-model.trim="form.contact_no" maxlength="20" inputmode="tel" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
+            <span v-if="fieldErrors.contact_no" class="mt-1 block text-xs text-red-600">{{ fieldErrors.contact_no[0] }}</span>
           </label>
           <label class="text-sm font-medium text-gray-700">Username *
-            <input v-model.trim="form.username" required autocomplete="off" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
+            <input v-model.trim="form.username" required maxlength="150" autocomplete="off" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
             <span v-if="fieldErrors.username" class="mt-1 block text-xs text-red-600">{{ fieldErrors.username[0] }}</span>
           </label>
           <label class="text-sm font-medium text-gray-700">Email address *
-            <input v-model.trim="form.email" required type="email" autocomplete="off" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
+            <input v-model.trim="form.email" required type="email" maxlength="254" autocomplete="off" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
             <span v-if="fieldErrors.email" class="mt-1 block text-xs text-red-600">{{ fieldErrors.email[0] }}</span>
           </label>
           <label class="text-sm font-medium text-gray-700">Role *

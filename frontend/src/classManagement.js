@@ -23,6 +23,10 @@ export function deleteClassroom(id) {
   return apiRequest(`/api/auth/classrooms/${id}/`, { method: 'DELETE' })
 }
 
+export function restoreClassroom(id) {
+  return apiRequest(`/api/auth/classrooms/${id}/restore/`, { method: 'POST' })
+}
+
 export function fetchSubjects(parameters = {}) {
   return apiRequest(`/api/auth/subjects/${paginationQuery(parameters)}`)
 }
@@ -43,6 +47,10 @@ export function updateSubject(id, changes) {
 
 export function deleteSubject(id) {
   return apiRequest(`/api/auth/subjects/${id}/`, { method: 'DELETE' })
+}
+
+export function restoreSubject(id) {
+  return apiRequest(`/api/auth/subjects/${id}/restore/`, { method: 'POST' })
 }
 
 export function fetchClassManagementOptions() {
@@ -76,4 +84,8 @@ export function updateCamera(id, changes) {
 
 export function deleteCamera(id) {
   return apiRequest(`/api/auth/cameras/${id}/`, { method: 'DELETE' })
+}
+
+export function restoreCamera(id) {
+  return apiRequest(`/api/auth/cameras/${id}/restore/`, { method: 'POST' })
 }

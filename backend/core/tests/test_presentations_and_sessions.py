@@ -2,6 +2,7 @@ import io
 import subprocess
 import tempfile
 import zipfile
+from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
@@ -16,6 +17,7 @@ from django.utils import timezone
 
 from ..models import (
     Camera,
+    CameraWorkerStatus,
     Classroom,
     ClassroomSession,
     Organization,
@@ -533,6 +535,101 @@ class PresentationAndSessionTests(TestCase):
         self.assertEqual(session.slide_events.count(), 1)
         self.assertEqual(session.slide_events.get().slide.slide_number, 1)
         self.assertTrue(SystemLog.objects.filter(activity__contains='Started classroom session').exists())
+
+    def test_prepare_session_starts_workers_without_starting_timing_or_analytics(self):
+        presentation = self.create_ready_presentation()
+        self.client.force_login(self.teacher)
+
+        response = self.client.post(
+            reverse('session-prepare'),
+            {
+                'subject': self.subject.pk,
+                'presentation': presentation.pk,
+                'cameras': [self.front_camera.pk],
+            },
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        session = ClassroomSession.objects.get(pk=response.json()['id'])
+        self.assertEqual(response.json()['status'], 'preparing')
+        self.assertIsNone(session.started_at)
+        self.assertFalse(session.slide_events.exists())
+
+        with override_settings(PIPELINE_API_KEY='test-key'):
+            work = self.client.get(
+                reverse('pipeline-work'),
+                HTTP_X_PIPELINE_KEY='test-key',
+            ).json()['sessions']
+        prepared_work = next(item for item in work if item['session_id'] == session.pk)
+        self.assertIsNone(prepared_work['slide_event_id'])
+        self.assertEqual(prepared_work['cameras'][0]['camera_id'], self.front_camera.pk)
+
+    def test_prepared_session_requires_fresh_online_front_camera_before_start(self):
+        presentation = self.create_ready_presentation()
+        session = ClassroomSession.objects.create(
+            user=self.teacher,
+            subject=self.subject,
+            presentation=presentation,
+            session_date=timezone.localdate(),
+            started_at=None,
+        )
+        SessionCamera.objects.create(session=session, camera=self.front_camera)
+        self.client.force_login(self.teacher)
+
+        blocked = self.client.post(reverse('session-start', args=[session.pk]))
+        self.assertEqual(blocked.status_code, 400)
+
+        CameraWorkerStatus.objects.create(
+            session=session,
+            camera=self.front_camera,
+            state=CameraWorkerStatus.State.ONLINE,
+            source_type=CameraWorkerStatus.SourceType.LIVE,
+            reason=CameraWorkerStatus.Reason.PROCESSING,
+            pipeline_version='test-pipeline',
+        )
+        started = self.client.post(reverse('session-start', args=[session.pk]))
+
+        self.assertEqual(started.status_code, 200)
+        self.assertEqual(started.json()['status'], 'ongoing')
+        session.refresh_from_db()
+        self.assertIsNotNone(session.started_at)
+        self.assertEqual(session.slide_events.count(), 1)
+
+    def test_cancel_preparation_deletes_only_the_unused_draft(self):
+        presentation = self.create_ready_presentation()
+        session = ClassroomSession.objects.create(
+            user=self.teacher,
+            subject=self.subject,
+            presentation=presentation,
+            session_date=timezone.localdate(),
+            started_at=None,
+        )
+        self.client.force_login(self.teacher)
+
+        response = self.client.delete(reverse('session-preparation-cancel', args=[session.pk]))
+
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(ClassroomSession.objects.filter(pk=session.pk).exists())
+
+    def test_preparation_expires_after_thirty_minutes_and_stays_out_of_history(self):
+        presentation = self.create_ready_presentation()
+        session = ClassroomSession.objects.create(
+            user=self.teacher,
+            subject=self.subject,
+            presentation=presentation,
+            session_date=timezone.localdate(),
+            prepared_at=timezone.now() - timedelta(minutes=31),
+            started_at=None,
+        )
+        self.client.force_login(self.teacher)
+
+        prepared = self.client.get(reverse('session-list'), {'status': 'preparing'})
+        history = self.client.get(reverse('session-list'))
+
+        self.assertEqual(prepared.json()['count'], 0)
+        self.assertEqual(history.json()['count'], 0)
+        self.assertFalse(ClassroomSession.objects.filter(pk=session.pk).exists())
 
     def test_session_can_start_without_camera_hardware(self):
         presentation = self.create_ready_presentation()

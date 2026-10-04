@@ -93,6 +93,7 @@ const submitting = ref(false)
 const errorMessage = ref('')
 
 async function handleSubmit() {
+  if (submitting.value) return
   submitting.value = true
   errorMessage.value = ''
   try {

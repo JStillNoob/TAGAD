@@ -209,6 +209,52 @@ class EngagementIngestionTests(TestCase):
             404,
         )
 
+    @override_settings(DEBUG=True, ENABLE_PIPELINE_SIMULATOR=True)
+    def test_simulator_rejects_sessions_with_assigned_cameras(self):
+        camera = Camera.objects.create(
+            classroom=self.session.subject.classroom,
+            camera_name='Front Camera',
+            position=Camera.Position.FRONT,
+        )
+        SessionCamera.objects.create(session=self.session, camera=camera)
+        self.client.force_login(self.teacher)
+
+        response = self.client.post(
+            reverse('engagement-simulator', args=[self.session.pk]),
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('without assigned cameras', str(response.json()))
+        self.assertFalse(EngagementSummary.objects.exists())
+
+    def test_pipeline_and_simulator_results_cannot_mix_in_one_session(self):
+        simulator_payload = self.payload(pipeline_version='simulator-1')
+        self.assertEqual(self.submit(simulator_payload).status_code, 201)
+
+        pipeline_response = self.submit()
+
+        self.assertEqual(pipeline_response.status_code, 400)
+        self.assertIn('simulated results', str(pipeline_response.json()))
+        self.assertEqual(EngagementSummary.objects.count(), 1)
+
+        other_session = create_context('pipeline-first')[2]
+        other_event = other_session.slide_events.get()
+        pipeline_payload = self.payload(
+            session_id=other_session.pk,
+            slide_event_id=other_event.pk,
+        )
+        self.assertEqual(self.submit(pipeline_payload).status_code, 201)
+        simulated_payload = self.payload(
+            session_id=other_session.pk,
+            slide_event_id=other_event.pk,
+            pipeline_version='simulator-1',
+        )
+
+        simulator_response = self.submit(simulated_payload)
+
+        self.assertEqual(simulator_response.status_code, 400)
+        self.assertIn('pipeline results', str(simulator_response.json()))
+
     @override_settings(ENABLE_PIPELINE_SIMULATOR=False)
     def test_simulator_is_hidden_when_disabled(self):
         self.client.force_login(self.teacher)

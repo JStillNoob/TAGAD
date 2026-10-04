@@ -15,3 +15,7 @@ export function generateReport(session, reportType) {
     body: JSON.stringify({ session, report_type: reportType }),
   })
 }
+
+export function deleteReport(id) {
+  return apiRequest(`/api/auth/reports/${id}/`, { method: 'DELETE' })
+}

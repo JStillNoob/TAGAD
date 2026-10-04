@@ -220,26 +220,23 @@ class ClassManagementTests(TestCase):
         self.assertEqual(duplicate_code.status_code, 400)
         self.assertIn('room_code', duplicate_code.json())
 
-    def test_classroom_with_dependencies_cannot_be_deleted(self):
+    def test_classroom_with_dependencies_is_archived_without_cascading(self):
         self.client.force_login(self.system_admin)
 
-        subject_response = self.client.delete(
-            reverse('classroom-detail', args=[self.classroom.pk]),
-        )
-        self.subject.delete()
-        Camera.objects.create(
+        camera = Camera.objects.create(
             classroom=self.classroom,
             camera_name='Front Camera',
             position='front',
         )
-        camera_response = self.client.delete(
+        response = self.client.delete(
             reverse('classroom-detail', args=[self.classroom.pk]),
         )
 
-        self.assertEqual(subject_response.status_code, 400)
-        self.assertIn('detail', subject_response.json())
-        self.assertEqual(camera_response.status_code, 400)
-        self.assertTrue(Classroom.objects.filter(pk=self.classroom.pk).exists())
+        self.assertEqual(response.status_code, 204)
+        self.classroom.refresh_from_db()
+        self.assertTrue(self.classroom.is_archived)
+        self.assertTrue(Subject.objects.filter(pk=self.subject.pk, archived_at__isnull=True).exists())
+        self.assertTrue(Camera.objects.filter(pk=camera.pk, archived_at__isnull=True).exists())
 
     def test_classroom_with_dependencies_cannot_change_organization(self):
         self.client.force_login(self.system_admin)
@@ -255,7 +252,7 @@ class ClassManagementTests(TestCase):
         self.classroom.refresh_from_db()
         self.assertEqual(self.classroom.organization, self.organization)
 
-    def test_empty_classroom_can_be_deleted_and_is_logged(self):
+    def test_empty_classroom_is_archived_and_logged(self):
         empty = Classroom.objects.create(
             organization=self.organization,
             room_code='EMPTY-ROOM',
@@ -265,10 +262,11 @@ class ClassManagementTests(TestCase):
         response = self.client.delete(reverse('classroom-detail', args=[empty.pk]))
 
         self.assertEqual(response.status_code, 204)
-        self.assertFalse(Classroom.objects.filter(pk=empty.pk).exists())
+        empty.refresh_from_db()
+        self.assertTrue(empty.is_archived)
         self.assertTrue(SystemLog.objects.filter(
             user=self.org_admin,
-            activity__contains='Deleted classroom',
+            activity__contains='Archived classroom',
         ).exists())
 
     def test_subject_teacher_must_belong_to_classroom_organization(self):
@@ -358,13 +356,14 @@ class ClassManagementTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertTrue(Subject.objects.filter(pk=self.subject.pk).exists())
 
-    def test_subject_without_history_can_be_deleted(self):
+    def test_subject_without_history_is_archived(self):
         self.client.force_login(self.org_admin)
 
         response = self.client.delete(reverse('subject-detail', args=[self.subject.pk]))
 
         self.assertEqual(response.status_code, 204)
-        self.assertFalse(Subject.objects.filter(pk=self.subject.pk).exists())
+        self.subject.refresh_from_db()
+        self.assertTrue(self.subject.is_archived)
 
     def test_class_options_are_scoped_by_role(self):
         self.client.force_login(self.system_admin)
@@ -637,7 +636,7 @@ class ClassManagementTests(TestCase):
                 position='front',
             )
 
-    def test_unused_camera_can_be_deleted_but_session_camera_is_protected(self):
+    def test_unused_camera_is_archived_but_active_session_camera_is_protected(self):
         camera = Camera.objects.create(
             classroom=self.classroom,
             camera_name='Front Camera',
@@ -671,12 +670,13 @@ class ClassManagementTests(TestCase):
         )
 
         self.assertEqual(unused_response.status_code, 204)
-        self.assertFalse(Camera.objects.filter(pk=camera.pk).exists())
+        camera.refresh_from_db()
+        self.assertTrue(camera.is_archived)
         self.assertEqual(protected_response.status_code, 400)
         self.assertTrue(Camera.objects.filter(pk=protected_camera.pk).exists())
         self.assertTrue(SystemLog.objects.filter(
             user=self.org_admin,
-            activity__contains='Deleted camera',
+            activity__contains='Archived camera',
         ).exists())
 
     def test_class_options_include_camera_choices(self):
@@ -692,7 +692,7 @@ class ClassManagementTests(TestCase):
         ])
         self.assertEqual(response.json()['camera_statuses'], [
             {'value': 'active', 'label': 'Active'},
-            {'value': 'inactive', 'label': 'Inactive'},
+            {'value': 'inactive', 'label': 'Disabled'},
         ])
 
     def test_org_admin_quick_setup_creates_room_cameras_and_subject_together(self):

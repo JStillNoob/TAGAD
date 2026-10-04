@@ -85,6 +85,7 @@ function errorFor(field) {
 }
 
 async function handleSubmit() {
+  if (submitting.value) return
   submitting.value = true
   errorMessage.value = ''
   fieldErrors.value = {}

@@ -20,6 +20,24 @@ CONTROLLER_VERSION = f'{PIPELINE_VERSION}-orchestrator-1'
 DEFAULT_CONFIG = Path(__file__).resolve().parents[1] / 'camera_sources.local.json'
 
 
+class StopFileSignal:
+    def __init__(self, path, poll_seconds=0.25):
+        self.path = Path(path)
+        self.poll_seconds = poll_seconds
+
+    def is_set(self):
+        return self.path.exists()
+
+    def wait(self, timeout):
+        deadline = time.monotonic() + timeout
+        while not self.is_set():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            time.sleep(min(self.poll_seconds, remaining))
+        return True
+
+
 def diagnostic_counts(predictions):
     values = Counter(
         str(item['label']).strip().lower()
@@ -330,6 +348,11 @@ def parser():
     result.add_argument('--config', type=Path, default=DEFAULT_CONFIG)
     result.add_argument('--model-dir', type=Path, default=DEFAULT_MODEL_DIR)
     result.add_argument('--backend-url', default='http://127.0.0.1:8000')
+    result.add_argument(
+        '--stop-file',
+        type=Path,
+        help='Stop gracefully when this local signal file is created.',
+    )
     return result
 
 
@@ -343,7 +366,11 @@ def main():
         )
         return 1
     models = None
+    stop_signal = None
     try:
+        if args.stop_file:
+            args.stop_file.unlink(missing_ok=True)
+            stop_signal = StopFileSignal(args.stop_file)
         configuration = load_configuration(args.config)
         verify_artifacts(args.model_dir, MANIFEST_PATH)
         models = ModelBundle(**model_paths(args.model_dir))
@@ -351,7 +378,7 @@ def main():
             client=BackendClient(args.backend_url, api_key),
             models=models,
             configuration=configuration,
-        ).run()
+        ).run(stop_signal)
     except KeyboardInterrupt:
         return 0
     except (
@@ -363,6 +390,8 @@ def main():
     finally:
         if models is not None:
             models.close()
+        if args.stop_file:
+            args.stop_file.unlink(missing_ok=True)
     return 0
 
 

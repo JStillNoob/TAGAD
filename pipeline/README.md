@@ -91,6 +91,11 @@ $env:PYTHONPATH = "$PWD\pipeline"
 pipeline\.venv\Scripts\python.exe -m tagad_pipeline.controller
 ```
 
+When the repository-level `scripts\tagad.ps1 start` command is used, it starts
+this controller automatically and supplies a local stop signal so
+`scripts\tagad.ps1 stop` can shut workers down cleanly. API keys, camera source
+paths, and RTSP credentials remain outside Git.
+
 The controller discovers active work every two seconds, follows slide changes,
 loops simulated files, and stops workers after the teacher ends the session.
 The Live Session page displays Starting, Online, Reconnecting, Offline, or

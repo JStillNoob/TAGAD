@@ -26,3 +26,15 @@ export function updateManagedUser(id, changes) {
 export function deactivateManagedUser(id) {
   return apiRequest(`/api/auth/users/${id}/`, { method: 'DELETE' })
 }
+
+export function fetchOrganizations(parameters = {}) {
+  return apiRequest(`/api/auth/organizations/${paginationQuery(parameters)}`)
+}
+
+export function archiveOrganization(id) {
+  return apiRequest(`/api/auth/organizations/${id}/lifecycle/`, { method: 'DELETE' })
+}
+
+export function restoreOrganization(id) {
+  return apiRequest(`/api/auth/organizations/${id}/lifecycle/`, { method: 'POST' })
+}

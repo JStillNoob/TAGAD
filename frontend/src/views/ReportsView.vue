@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import AppLayout from '../layouts/AppLayout.vue'
 import PaginationControls from '../components/PaginationControls.vue'
-import { fetchReportOptions, fetchReports, generateReport } from '../reports'
+import { deleteReport, fetchReportOptions, fetchReports, generateReport } from '../reports'
 import { currentTheme } from '../theme'
 
 const reports = ref([])
@@ -105,6 +105,20 @@ async function createReport(reportType) {
   }
 }
 
+async function removeReport(report) {
+  if (!window.confirm(`Delete ${report.file_name}? It can be generated again from the preserved session.`)) return
+  error.value = ''
+  try {
+    await deleteReport(report.id)
+    const remaining = Math.max(0, reportCount.value - 1)
+    const finalPage = Math.max(1, Math.ceil(remaining / pageSize))
+    await loadReports(Math.min(reportPage.value, finalPage))
+    success.value = 'Generated report deleted. The classroom session and analytics were preserved.'
+  } catch (requestError) {
+    error.value = requestError.message || 'Unable to delete the report.'
+  }
+}
+
 onMounted(loadReports)
 </script>
 
@@ -177,7 +191,7 @@ onMounted(loadReports)
               <td class="px-6 py-3.5 text-gray-500 whitespace-nowrap">{{ report.generated_by }}</td>
               <td class="px-6 py-3.5 text-gray-500 whitespace-nowrap">{{ formatDateTime(report.generated_at) }}</td>
               <td class="px-6 py-3.5 text-gray-400 font-mono text-xs max-w-[240px] truncate" :title="report.file_name">{{ report.file_name }}</td>
-              <td class="px-6 py-3.5 text-right"><a :href="report.download_url" download class="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-brand hover:bg-brand-light"><svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>Download</a></td>
+              <td class="px-6 py-3.5 text-right"><div class="flex justify-end gap-2"><a :href="report.download_url" download class="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-brand hover:bg-brand-light"><svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>Download</a><button type="button" class="rounded-lg px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50" @click="removeReport(report)">Delete</button></div></td>
             </tr>
           </tbody>
         </table>

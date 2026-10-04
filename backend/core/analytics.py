@@ -1,8 +1,10 @@
 from collections import defaultdict
 
+from django.db.models import Exists, OuterRef
 from django.utils import timezone
 
-from .models import EngagementSummary
+from .engagement_pipeline import SIMULATOR_PIPELINE_VERSION
+from .models import ClassroomSession, EngagementSummary
 
 
 CATEGORIES = ('engaged', 'attentive', 'confused', 'bored', 'disengaged')
@@ -32,6 +34,90 @@ def _insight(row, field):
     }
 
 
+def _data_source(pipeline_versions):
+    versions = sorted(set(pipeline_versions))
+    if not versions:
+        source_type = 'none'
+        label = 'No engagement source'
+        notice = 'No engagement summaries were submitted.'
+    elif versions == [SIMULATOR_PIPELINE_VERSION]:
+        source_type = 'simulator'
+        label = 'Development simulation'
+        notice = 'Development simulation — not official classroom analytics.'
+    elif SIMULATOR_PIPELINE_VERSION in versions:
+        source_type = 'mixed'
+        label = 'Mixed sources (legacy session)'
+        notice = 'Mixed simulator and pipeline results — not official analytics.'
+    else:
+        source_type = 'pipeline'
+        label = 'Pipeline results'
+        notice = 'Official pipeline analytics.'
+    return {
+        'type': source_type,
+        'label': label,
+        'pipeline_versions': versions,
+        'official': source_type == 'pipeline',
+        'notice': notice,
+    }
+
+
+def session_data_source(session):
+    versions = EngagementSummary.objects.filter(
+        event__session=session,
+    ).values_list('pipeline_version', flat=True).distinct()
+    return _data_source(versions)
+
+
+def previous_compatible_session(session, queryset=None):
+    source_type = session_data_source(session)['type']
+    if source_type not in {'pipeline', 'simulator'}:
+        return None
+
+    summaries = EngagementSummary.objects.filter(event__session_id=OuterRef('pk'))
+    candidates = (
+        queryset if queryset is not None else ClassroomSession.objects.all()
+    ).filter(
+        subject=session.subject,
+        started_at__lt=session.started_at,
+    ).annotate(
+        has_simulator=Exists(
+            summaries.filter(pipeline_version=SIMULATOR_PIPELINE_VERSION),
+        ),
+        has_pipeline=Exists(
+            summaries.exclude(pipeline_version=SIMULATOR_PIPELINE_VERSION),
+        ),
+    )
+    if source_type == 'simulator':
+        candidates = candidates.filter(has_simulator=True, has_pipeline=False)
+    else:
+        candidates = candidates.filter(has_simulator=False, has_pipeline=True)
+    return candidates.order_by('-started_at', '-pk').first()
+
+
+def _data_quality(*, source_type, monitoring_windows, coverage, confidence):
+    if source_type == 'mixed':
+        level = 'insufficient'
+        explanation = 'Mixed simulator and pipeline results cannot be treated as official evidence.'
+    elif monitoring_windows < 5:
+        level = 'insufficient'
+        window_word = 'window was' if monitoring_windows == 1 else 'windows were'
+        explanation = f'Only {monitoring_windows} monitoring {window_word} recorded; at least 5 are required.'
+    elif coverage is None or coverage < 50:
+        level = 'insufficient'
+        explanation = 'Less than 50% of detected samples were classified.'
+    elif monitoring_windows >= 20 and coverage >= 75 and confidence is not None and confidence >= 70:
+        level = 'good'
+        explanation = 'Evidence volume, classification coverage, and confidence meet the pilot thresholds.'
+    else:
+        level = 'limited'
+        explanation = 'Usable evidence is available, but one or more good-quality thresholds were not met.'
+    return {
+        'level': level,
+        'label': level.title(),
+        'explanation': explanation,
+    }
+
+
 def build_session_analytics(session, previous_session=None):
     events = list(
         session.slide_events.select_related('slide')
@@ -45,6 +131,8 @@ def build_session_analytics(session, previous_session=None):
     students_detected = 0
     total_detections = 0
     unclassified_detections = 0
+    pipeline_versions = set()
+    monitoring_windows = 0
 
     for index, event in enumerate(events):
         boundary = events[index + 1].entered_at if index + 1 < len(events) else effective_end
@@ -64,6 +152,8 @@ def build_session_analytics(session, previous_session=None):
         row['duration_seconds'] += duration
 
         for summary in event.summaries.all():
+            monitoring_windows += 1
+            pipeline_versions.add(summary.pipeline_version)
             classified = 0
             for category in CATEGORIES:
                 count = getattr(summary, f'{category}_count')
@@ -95,7 +185,25 @@ def build_session_analytics(session, previous_session=None):
 
     classified_detections = overall_counts['total']
     average_engagement = _percentage(overall_counts['engaged'], classified_detections)
-    previous_engagement = _session_engagement(previous_session) if previous_session else None
+    average_confidence = (
+        round(confidence_weighted_total / classified_detections, 1)
+        if classified_detections else None
+    )
+    classification_coverage = _percentage(classified_detections, total_detections)
+    data_source = _data_source(pipeline_versions)
+    data_quality = _data_quality(
+        source_type=data_source['type'],
+        monitoring_windows=monitoring_windows,
+        coverage=classification_coverage,
+        confidence=average_confidence,
+    )
+    previous_engagement = None
+    comparison_session_id = None
+    if previous_session and data_source['type'] in {'pipeline', 'simulator'}:
+        previous_source = session_data_source(previous_session)
+        if previous_source['type'] == data_source['type']:
+            previous_engagement = _session_engagement(previous_session)
+            comparison_session_id = previous_session.pk
     engagement_change = (
         round(average_engagement - previous_engagement, 1)
         if average_engagement is not None and previous_engagement is not None
@@ -104,7 +212,7 @@ def build_session_analytics(session, previous_session=None):
     duration_seconds = max(0, round((effective_end - session.started_at).total_seconds()))
     data_rows = [row for row in slides if row['has_data']]
     insights = None
-    if data_rows:
+    if data_rows and data_quality['level'] != 'insufficient':
         highest = max(data_rows, key=lambda row: row['engaged'])
         confused = max(data_rows, key=lambda row: row['confused'])
         disengaged = max(data_rows, key=lambda row: row['disengaged'])
@@ -133,17 +241,19 @@ def build_session_analytics(session, previous_session=None):
             'slides_covered': len(slides),
         },
         'has_data': bool(classified_detections),
+        'data_source': data_source,
+        'data_quality': data_quality,
         'summary': {
             'students_detected': students_detected,
             'total_detections': total_detections,
             'classified_detections': classified_detections,
             'unclassified_detections': unclassified_detections,
+            'monitoring_windows': monitoring_windows,
+            'classification_coverage': classification_coverage,
             'average_engagement': average_engagement,
-            'average_confidence': (
-                round(confidence_weighted_total / classified_detections, 1)
-                if classified_detections else None
-            ),
+            'average_confidence': average_confidence,
             'engagement_change': engagement_change,
+            'comparison_session_id': comparison_session_id,
         },
         'distribution': {
             category: _percentage(overall_counts[category], classified_detections) or 0

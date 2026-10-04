@@ -18,6 +18,9 @@ import {
   fetchClassManagementOptions,
   fetchClassrooms,
   fetchSubjects,
+  restoreCamera,
+  restoreClassroom,
+  restoreSubject,
   updateClassroom,
   updateCamera,
   updateSubject,
@@ -44,6 +47,7 @@ const pageError = ref('')
 const formError = ref('')
 const fieldErrors = ref({})
 const search = ref('')
+const lifecycleFilter = ref('active')
 const modal = ref(null)
 const editingId = ref(null)
 const quickClassroomDetails = ref(null)
@@ -283,9 +287,9 @@ async function loadPage() {
   pageError.value = ''
   try {
     const [classroomData, subjectData, cameraData, optionData] = await Promise.all([
-      fetchClassrooms({ page: classroomPage.value, search: search.value.trim() }),
-      fetchSubjects({ page: subjectPage.value, search: search.value.trim() }),
-      fetchCameras({ page: cameraPage.value }),
+      fetchClassrooms({ page: classroomPage.value, search: search.value.trim(), lifecycle: lifecycleFilter.value }),
+      fetchSubjects({ page: subjectPage.value, search: search.value.trim(), lifecycle: lifecycleFilter.value }),
+      fetchCameras({ page: cameraPage.value, lifecycle: lifecycleFilter.value }),
       fetchClassManagementOptions(),
     ])
     classrooms.value = classroomData.results
@@ -303,6 +307,7 @@ async function loadPage() {
 }
 
 async function saveClassroom() {
+  if (saving.value) return
   saving.value = true
   resetErrors()
   const payload = {
@@ -326,6 +331,7 @@ async function saveClassroom() {
 }
 
 async function saveSubject() {
+  if (saving.value) return
   saving.value = true
   resetErrors()
   try {
@@ -349,6 +355,7 @@ async function saveSubject() {
 }
 
 async function saveCamera() {
+  if (saving.value) return
   saving.value = true
   resetErrors()
   try {
@@ -367,6 +374,7 @@ async function saveCamera() {
 }
 
 async function saveQuickSetup() {
+  if (saving.value) return
   saving.value = true
   resetErrors()
   const selectedCameras = quickSelectedCameras.value.map((camera) => ({
@@ -408,6 +416,7 @@ async function refreshClassroomCounts() {
   const page = await fetchClassrooms({
     page: classroomPage.value,
     search: search.value.trim(),
+    lifecycle: lifecycleFilter.value,
   })
   classrooms.value = page.results
   classroomCount.value = page.count
@@ -418,14 +427,14 @@ async function refreshClassManagementOptions() {
 }
 
 async function refreshSubjectPage(page = subjectPage.value) {
-  const data = await fetchSubjects({ page, search: search.value.trim() })
+  const data = await fetchSubjects({ page, search: search.value.trim(), lifecycle: lifecycleFilter.value })
   subjectPage.value = page
   subjects.value = data.results
   subjectCount.value = data.count
 }
 
 async function refreshCameraPage(page = cameraPage.value) {
-  const data = await fetchCameras({ page })
+  const data = await fetchCameras({ page, lifecycle: lifecycleFilter.value })
   cameraPage.value = page
   cameras.value = data.results
   cameraCount.value = data.count
@@ -460,19 +469,20 @@ async function changeCameraPage(page) {
   }
 }
 
-watch(search, () => {
+watch([search, lifecycleFilter], () => {
   clearTimeout(classroomSearchTimer)
   classroomSearchTimer = setTimeout(() => {
     classroomPage.value = 1
     subjectPage.value = 1
-    Promise.all([refreshClassroomCounts(), refreshSubjectPage()]).catch((error) => {
+    cameraPage.value = 1
+    Promise.all([refreshClassroomCounts(), refreshSubjectPage(), refreshCameraPage()]).catch((error) => {
       pageError.value = error.message
     })
   }, 250)
 })
 
 async function removeClassroom(classroom) {
-  if (!window.confirm(`Delete classroom ${classroom.room_code}?`)) return
+  if (!window.confirm(`Archive classroom ${classroom.room_code}? Its history will be preserved and it can be restored.`)) return
   pageError.value = ''
   try {
     await deleteClassroom(classroom.id)
@@ -486,8 +496,18 @@ async function removeClassroom(classroom) {
   }
 }
 
+async function restoreArchivedClassroom(classroom) {
+  pageError.value = ''
+  try {
+    await restoreClassroom(classroom.id)
+    await Promise.all([refreshClassroomCounts(), refreshClassManagementOptions()])
+  } catch (error) {
+    pageError.value = error.message
+  }
+}
+
 async function removeSubject(subject) {
-  if (!window.confirm(`Delete subject ${subject.subject_code}?`)) return
+  if (!window.confirm(`Archive subject ${subject.subject_code}? Its sessions and analytics will be preserved.`)) return
   pageError.value = ''
   try {
     await deleteSubject(subject.id)
@@ -500,14 +520,34 @@ async function removeSubject(subject) {
   }
 }
 
+async function restoreArchivedSubject(subject) {
+  pageError.value = ''
+  try {
+    await restoreSubject(subject.id)
+    await Promise.all([refreshClassroomCounts(), refreshSubjectPage()])
+  } catch (error) {
+    pageError.value = error.message
+  }
+}
+
 async function removeCamera(camera) {
-  if (!window.confirm(`Delete camera ${camera.camera_name}?`)) return
+  if (!window.confirm(`Archive camera ${camera.camera_name}? Historical sessions will be preserved.`)) return
   pageError.value = ''
   try {
     await deleteCamera(camera.id)
     cameraCount.value = Math.max(0, cameraCount.value - 1)
     const finalPage = Math.max(1, Math.ceil(cameraCount.value / pageSize))
     cameraPage.value = Math.min(cameraPage.value, finalPage)
+    await Promise.all([refreshClassroomCounts(), refreshCameraPage()])
+  } catch (error) {
+    pageError.value = error.message
+  }
+}
+
+async function restoreArchivedCamera(camera) {
+  pageError.value = ''
+  try {
+    await restoreCamera(camera.id)
     await Promise.all([refreshClassroomCounts(), refreshCameraPage()])
   } catch (error) {
     pageError.value = error.message
@@ -526,11 +566,20 @@ onUnmounted(() => clearTimeout(classroomSearchTimer))
           <h1 class="text-2xl font-bold text-gray-900">Classes</h1>
           <p class="text-sm text-gray-500 mt-1">Real classroom and subject records from TAGAD.</p>
         </div>
-        <div v-if="canManage" class="flex flex-wrap gap-2">
-          <button type="button" class="btn-primary justify-center" @click="openQuickSetup">Quick Setup</button>
+        <div class="flex flex-wrap items-center gap-2">
+          <label v-if="canManage" class="text-xs font-semibold text-gray-600">Records
+            <select v-model="lifecycleFilter" class="ml-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-normal">
+              <option value="active">Active</option>
+              <option value="archived">Archived</option>
+              <option value="all">All</option>
+            </select>
+          </label>
+          <template v-if="canManage">
+          <button type="button" class="btn-primary justify-center disabled:opacity-50" :disabled="lifecycleFilter !== 'active'" @click="openQuickSetup">Quick Setup</button>
           <button type="button" class="btn-navy justify-center" @click="openClassroomCreate">Add Classroom</button>
-          <button type="button" class="rounded-xl border border-gray-300 bg-white px-5 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50" :disabled="!classrooms.length" @click="openSubjectCreate">Add Subject</button>
-          <button type="button" class="btn-teal justify-center" :disabled="!classrooms.length" @click="openCameraCreate">Add Camera</button>
+          <button type="button" class="rounded-xl border border-gray-300 bg-white px-5 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50" :disabled="lifecycleFilter !== 'active' || !classrooms.length" @click="openSubjectCreate">Add Subject</button>
+          <button type="button" class="btn-teal justify-center disabled:opacity-50" :disabled="lifecycleFilter !== 'active' || !classrooms.length" @click="openCameraCreate">Add Camera</button>
+          </template>
         </div>
       </div>
 
@@ -553,10 +602,11 @@ onUnmounted(() => clearTimeout(classroomSearchTimer))
         <div v-else class="grid gap-5 p-5 md:grid-cols-2 xl:grid-cols-3">
           <article v-for="subject in filteredSubjects" :key="subject.id" class="rounded-xl border border-gray-200 p-5">
             <div class="flex items-start justify-between gap-3">
-              <div><span class="rounded-md bg-indigo-50 px-2 py-1 text-xs font-bold text-indigo-700">{{ subject.subject_code }}</span><h3 class="mt-3 font-bold text-gray-900">{{ subject.subject_name }}</h3></div>
+              <div><span class="rounded-md bg-indigo-50 px-2 py-1 text-xs font-bold text-indigo-700">{{ subject.subject_code }}</span><span v-if="subject.is_archived" class="ml-2 rounded-md bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-600">Archived</span><h3 class="mt-3 font-bold text-gray-900">{{ subject.subject_name }}</h3></div>
               <div v-if="canManage" class="flex gap-1">
-                <button type="button" class="rounded-lg p-2 text-gray-500 hover:bg-gray-100" title="Edit subject" @click="openSubjectEdit(subject)">✎</button>
-                <button type="button" class="rounded-lg p-2 text-red-500 hover:bg-red-50" title="Delete subject" @click="removeSubject(subject)">✕</button>
+                <button v-if="!subject.is_archived" type="button" class="rounded-lg p-2 text-gray-500 hover:bg-gray-100" title="Edit subject" @click="openSubjectEdit(subject)">✎</button>
+                <button v-if="!subject.is_archived" type="button" class="rounded-lg p-2 text-amber-600 hover:bg-amber-50" title="Archive subject" @click="removeSubject(subject)">Archive</button>
+                <button v-else type="button" class="rounded-lg p-2 text-emerald-700 hover:bg-emerald-50" title="Restore subject" @click="restoreArchivedSubject(subject)">Restore</button>
               </div>
             </div>
             <dl class="mt-4 space-y-2 text-sm">
@@ -565,27 +615,27 @@ onUnmounted(() => clearTimeout(classroomSearchTimer))
               <div v-if="isSystemAdmin" class="flex justify-between gap-3"><dt class="text-gray-500">Organization</dt><dd class="font-medium text-gray-800 text-right">{{ subject.organization_name }}</dd></div>
               <div class="flex justify-between gap-3"><dt class="text-gray-500">Sessions</dt><dd class="font-medium text-gray-800">{{ subject.session_count }}</dd></div>
             </dl>
-            <RouterLink :to="`/session?subject=${subject.id}`" class="btn-primary mt-5 w-full justify-center">Start Session</RouterLink>
+            <RouterLink v-if="!subject.is_archived" :to="`/session?subject=${subject.id}`" class="btn-primary mt-5 w-full justify-center">Start Session</RouterLink>
           </article>
         </div>
         <PaginationControls :page="subjectPage" :count="subjectCount" :page-size="pageSize" :disabled="loading || subjectPageLoading" @change="changeSubjectPage" />
       </section>
 
       <section class="page-card overflow-hidden" aria-labelledby="classrooms-title">
-        <div class="border-b border-gray-200 p-5"><h2 id="classrooms-title" class="font-bold text-gray-900">Classrooms</h2><p class="text-xs text-gray-500 mt-1">Rooms must be empty before they can be deleted.</p></div>
+        <div class="border-b border-gray-200 p-5"><h2 id="classrooms-title" class="font-bold text-gray-900">Classrooms</h2><p class="text-xs text-gray-500 mt-1">Archived rooms preserve their subjects, cameras, and history.</p></div>
         <div v-if="!loading && !filteredClassrooms.length" class="p-10 text-center text-sm text-gray-500">No classrooms found.</div>
         <div v-else class="overflow-x-auto">
           <table class="w-full text-left text-sm">
             <thead class="bg-gray-50 text-xs uppercase text-gray-500"><tr><th class="px-5 py-3">Room</th><th class="px-5 py-3">Building</th><th class="px-5 py-3">Capacity</th><th class="px-5 py-3">Subjects</th><th class="px-5 py-3">Cameras</th><th v-if="isSystemAdmin" class="px-5 py-3">Organization</th><th v-if="canManage" class="px-5 py-3 text-right">Actions</th></tr></thead>
             <tbody class="divide-y divide-gray-100">
               <tr v-for="classroom in filteredClassrooms" :key="classroom.id">
-                <td class="px-5 py-4 font-semibold text-gray-900">{{ classroom.room_code }}</td>
+                <td class="px-5 py-4 font-semibold text-gray-900">{{ classroom.room_code }} <span v-if="classroom.is_archived" class="ml-2 rounded bg-gray-100 px-2 py-1 text-xs text-gray-600">Archived</span></td>
                 <td class="px-5 py-4 text-gray-600">{{ classroom.building || '—' }}</td>
                 <td class="px-5 py-4 text-gray-600">{{ classroom.capacity || '—' }}</td>
                 <td class="px-5 py-4 text-gray-600">{{ classroom.subject_count }}</td>
                 <td class="px-5 py-4 text-gray-600">{{ classroom.camera_count }}</td>
                 <td v-if="isSystemAdmin" class="px-5 py-4 text-gray-600">{{ classroom.organization_name }}</td>
-                <td v-if="canManage" class="px-5 py-4"><div class="flex justify-end gap-2"><button type="button" class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold hover:bg-gray-50" @click="openClassroomEdit(classroom)">Edit</button><button type="button" class="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50" @click="removeClassroom(classroom)">Delete</button></div></td>
+                <td v-if="canManage" class="px-5 py-4"><div class="flex justify-end gap-2"><button v-if="!classroom.is_archived" type="button" class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold hover:bg-gray-50" @click="openClassroomEdit(classroom)">Edit</button><button v-if="!classroom.is_archived" type="button" class="rounded-lg border border-amber-200 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-50" @click="removeClassroom(classroom)">Archive</button><button v-else type="button" class="rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50" @click="restoreArchivedClassroom(classroom)">Restore</button></div></td>
               </tr>
             </tbody>
           </table>
@@ -606,12 +656,12 @@ onUnmounted(() => clearTimeout(classroomSearchTimer))
             </thead>
             <tbody class="divide-y divide-gray-100">
               <tr v-for="camera in cameras" :key="camera.id">
-                <td class="px-5 py-4 font-semibold text-gray-900">{{ camera.camera_name }}</td>
+                <td class="px-5 py-4 font-semibold text-gray-900">{{ camera.camera_name }} <span v-if="camera.is_archived" class="ml-2 rounded bg-gray-100 px-2 py-1 text-xs text-gray-600">Archived</span></td>
                 <td class="px-5 py-4 text-gray-600">{{ camera.classroom_room_code }}</td>
                 <td class="px-5 py-4 text-gray-600">{{ camera.position_label }}</td>
                 <td class="px-5 py-4"><span :class="camera.status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-600'" class="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold">{{ camera.status_label }}</span></td>
                 <td v-if="isSystemAdmin" class="px-5 py-4 text-gray-600">{{ camera.organization_name }}</td>
-                <td v-if="canManage" class="px-5 py-4"><div class="flex justify-end gap-2"><button type="button" class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold hover:bg-gray-50" @click="openCameraEdit(camera)">Edit</button><button type="button" class="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50" @click="removeCamera(camera)">Delete</button></div></td>
+                <td v-if="canManage" class="px-5 py-4"><div class="flex justify-end gap-2"><button v-if="!camera.is_archived" type="button" class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold hover:bg-gray-50" @click="openCameraEdit(camera)">Edit</button><button v-if="!camera.is_archived" type="button" class="rounded-lg border border-amber-200 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-50" @click="removeCamera(camera)">Archive</button><button v-else type="button" class="rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50" @click="restoreArchivedCamera(camera)">Restore</button></div></td>
               </tr>
             </tbody>
           </table>
@@ -654,9 +704,9 @@ onUnmounted(() => clearTimeout(classroomSearchTimer))
                 <SearchablePicker v-model="quickForm.organization" :loader="loadOrganizationOptions" required placeholder="Select organization" select-label="Quick Setup organization" search-label="Search Quick Setup organizations" search-placeholder="Search organization name or code…" />
                 <span v-if="nestedError('classroom', 'organization')" class="mt-1 block text-xs text-red-600">{{ nestedError('classroom', 'organization') }}</span>
               </label>
-              <label class="text-sm font-medium text-gray-700">Room code *<input v-model.trim="quickForm.room_code" required placeholder="e.g. ROOM-204" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="nestedError('classroom', 'room_code')" class="mt-1 block text-xs text-red-600">{{ nestedError('classroom', 'room_code') }}</span></label>
-              <label class="text-sm font-medium text-gray-700">Building<input v-model.trim="quickForm.building" placeholder="e.g. Main Building" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"></label>
-              <label class="md:col-span-2 text-sm font-medium text-gray-700">Capacity<input v-model="quickForm.capacity" type="number" min="1" placeholder="Optional" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="nestedError('classroom', 'capacity')" class="mt-1 block text-xs text-red-600">{{ nestedError('classroom', 'capacity') }}</span></label>
+              <label class="text-sm font-medium text-gray-700">Room code *<input v-model.trim="quickForm.room_code" required maxlength="30" placeholder="e.g. ROOM-204" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="nestedError('classroom', 'room_code')" class="mt-1 block text-xs text-red-600">{{ nestedError('classroom', 'room_code') }}</span></label>
+              <label class="text-sm font-medium text-gray-700">Building<input v-model.trim="quickForm.building" maxlength="100" placeholder="e.g. Main Building" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="nestedError('classroom', 'building')" class="mt-1 block text-xs text-red-600">{{ nestedError('classroom', 'building') }}</span></label>
+              <label class="md:col-span-2 text-sm font-medium text-gray-700">Capacity<input v-model="quickForm.capacity" type="number" min="1" max="10000" placeholder="Optional" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="nestedError('classroom', 'capacity')" class="mt-1 block text-xs text-red-600">{{ nestedError('classroom', 'capacity') }}</span></label>
             </div>
           </section>
 
@@ -680,8 +730,8 @@ onUnmounted(() => clearTimeout(classroomSearchTimer))
               <label class="flex items-center gap-2 text-sm font-medium text-gray-700"><input v-model="quickForm.include_subject" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-indigo-600">Add subject</label>
             </div>
             <div v-if="quickForm.include_subject" class="mt-4 grid gap-4 md:grid-cols-2">
-              <label class="text-sm font-medium text-gray-700">Subject code *<input v-model.trim="quickForm.subject_code" required placeholder="e.g. IT-301" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="nestedError('subject', 'subject_code')" class="mt-1 block text-xs text-red-600">{{ nestedError('subject', 'subject_code') }}</span></label>
-              <label class="text-sm font-medium text-gray-700">Subject name *<input v-model.trim="quickForm.subject_name" required placeholder="e.g. Data Structures" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="nestedError('subject', 'subject_name')" class="mt-1 block text-xs text-red-600">{{ nestedError('subject', 'subject_name') }}</span></label>
+              <label class="text-sm font-medium text-gray-700">Subject code *<input v-model.trim="quickForm.subject_code" required maxlength="30" placeholder="e.g. IT-301" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="nestedError('subject', 'subject_code')" class="mt-1 block text-xs text-red-600">{{ nestedError('subject', 'subject_code') }}</span></label>
+              <label class="text-sm font-medium text-gray-700">Subject name *<input v-model.trim="quickForm.subject_name" required maxlength="150" placeholder="e.g. Data Structures" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="nestedError('subject', 'subject_name')" class="mt-1 block text-xs text-red-600">{{ nestedError('subject', 'subject_name') }}</span></label>
               <label class="md:col-span-2 text-sm font-medium text-gray-700">Teacher *
                 <SearchablePicker v-model="quickForm.teacher" :loader="loadQuickTeacherOptions" :refresh-key="quickOrganizationId" required placeholder="Select teacher" select-label="Quick Setup teacher" search-label="Search Quick Setup teachers" search-placeholder="Search teacher name, username, or email…" />
                 <span v-if="nestedError('subject', 'teacher')" class="mt-1 block text-xs text-red-600">{{ nestedError('subject', 'teacher') }}</span>
@@ -701,9 +751,9 @@ onUnmounted(() => clearTimeout(classroomSearchTimer))
         <div class="grid gap-4 p-6 sm:grid-cols-2">
           <div v-if="formError" class="sm:col-span-2 rounded-lg bg-red-50 p-3 text-sm text-red-700">{{ formError }}</div>
           <label v-if="isSystemAdmin" class="sm:col-span-2 text-sm font-medium text-gray-700">Organization *<SearchablePicker v-model="classroomForm.organization" :loader="loadOrganizationOptions" required placeholder="Select organization" select-label="Classroom organization" search-label="Search classroom organizations" search-placeholder="Search organization name or code…" /><span v-if="firstError('organization')" class="mt-1 block text-xs text-red-600">{{ firstError('organization') }}</span></label>
-          <label class="text-sm font-medium text-gray-700">Room code *<input v-model.trim="classroomForm.room_code" required class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="firstError('room_code')" class="mt-1 block text-xs text-red-600">{{ firstError('room_code') }}</span></label>
-          <label class="text-sm font-medium text-gray-700">Building<input v-model.trim="classroomForm.building" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"></label>
-          <label class="sm:col-span-2 text-sm font-medium text-gray-700">Capacity<input v-model="classroomForm.capacity" type="number" min="1" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="firstError('capacity')" class="mt-1 block text-xs text-red-600">{{ firstError('capacity') }}</span></label>
+          <label class="text-sm font-medium text-gray-700">Room code *<input v-model.trim="classroomForm.room_code" required maxlength="30" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="firstError('room_code')" class="mt-1 block text-xs text-red-600">{{ firstError('room_code') }}</span></label>
+          <label class="text-sm font-medium text-gray-700">Building<input v-model.trim="classroomForm.building" maxlength="100" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="firstError('building')" class="mt-1 block text-xs text-red-600">{{ firstError('building') }}</span></label>
+          <label class="sm:col-span-2 text-sm font-medium text-gray-700">Capacity<input v-model="classroomForm.capacity" type="number" min="1" max="10000" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="firstError('capacity')" class="mt-1 block text-xs text-red-600">{{ firstError('capacity') }}</span></label>
         </div>
         <div class="flex justify-end gap-3 border-t px-6 py-4"><button type="button" class="rounded-xl border px-5 py-2.5 text-sm font-semibold" @click="closeModal">Cancel</button><button class="btn-primary" :disabled="saving">{{ saving ? 'Saving…' : 'Save Classroom' }}</button></div>
       </form>
@@ -712,8 +762,8 @@ onUnmounted(() => clearTimeout(classroomSearchTimer))
         <div class="flex items-center justify-between border-b px-6 py-4"><h2 class="text-lg font-bold">{{ isEditing ? 'Edit Subject' : 'Add Subject' }}</h2><button type="button" class="text-gray-400" @click="closeModal">✕</button></div>
         <div class="grid gap-4 p-6 sm:grid-cols-2">
           <div v-if="formError" class="sm:col-span-2 rounded-lg bg-red-50 p-3 text-sm text-red-700">{{ formError }}</div>
-          <label class="text-sm font-medium text-gray-700">Subject code *<input v-model.trim="subjectForm.subject_code" required class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="firstError('subject_code')" class="mt-1 block text-xs text-red-600">{{ firstError('subject_code') }}</span></label>
-          <label class="text-sm font-medium text-gray-700">Subject name *<input v-model.trim="subjectForm.subject_name" required class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"></label>
+          <label class="text-sm font-medium text-gray-700">Subject code *<input v-model.trim="subjectForm.subject_code" required maxlength="30" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="firstError('subject_code')" class="mt-1 block text-xs text-red-600">{{ firstError('subject_code') }}</span></label>
+          <label class="text-sm font-medium text-gray-700">Subject name *<input v-model.trim="subjectForm.subject_name" required maxlength="150" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="firstError('subject_name')" class="mt-1 block text-xs text-red-600">{{ firstError('subject_name') }}</span></label>
           <label class="text-sm font-medium text-gray-700">Classroom *<SearchablePicker v-model="subjectForm.classroom" :loader="loadClassroomOptions" required placeholder="Select classroom" select-label="Subject classroom" search-label="Search subject classrooms" search-placeholder="Search room, building, or organization…" @selected="selectSubjectClassroom" /><span v-if="firstError('classroom')" class="mt-1 block text-xs text-red-600">{{ firstError('classroom') }}</span></label>
           <label class="text-sm font-medium text-gray-700">Teacher *<SearchablePicker v-model="subjectForm.teacher" :loader="loadSubjectTeacherOptions" :refresh-key="subjectClassroomOrganization" required placeholder="Select teacher" select-label="Subject teacher" search-label="Search subject teachers" search-placeholder="Search teacher name, username, or email…" /><span v-if="firstError('teacher')" class="mt-1 block text-xs text-red-600">{{ firstError('teacher') }}</span></label>
         </div>
@@ -725,7 +775,7 @@ onUnmounted(() => clearTimeout(classroomSearchTimer))
         <div class="grid gap-4 p-6 sm:grid-cols-2">
           <div v-if="formError" class="sm:col-span-2 rounded-lg bg-red-50 p-3 text-sm text-red-700">{{ formError }}</div>
           <label class="sm:col-span-2 text-sm font-medium text-gray-700">Classroom *<SearchablePicker v-model="cameraForm.classroom" :loader="loadClassroomOptions" required placeholder="Select classroom" select-label="Camera classroom" search-label="Search camera classrooms" search-placeholder="Search room, building, or organization…" /><span v-if="firstError('classroom')" class="mt-1 block text-xs text-red-600">{{ firstError('classroom') }}</span></label>
-          <label class="sm:col-span-2 text-sm font-medium text-gray-700">Camera name *<input v-model.trim="cameraForm.camera_name" required class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="firstError('camera_name')" class="mt-1 block text-xs text-red-600">{{ firstError('camera_name') }}</span></label>
+          <label class="sm:col-span-2 text-sm font-medium text-gray-700">Camera name *<input v-model.trim="cameraForm.camera_name" required maxlength="50" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="firstError('camera_name')" class="mt-1 block text-xs text-red-600">{{ firstError('camera_name') }}</span></label>
           <label class="text-sm font-medium text-gray-700">Position *<select v-model="cameraForm.position" required class="mt-1.5 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5"><option v-for="position in options.camera_positions" :key="position.value" :value="position.value">{{ position.label }}</option></select><span v-if="firstError('position')" class="mt-1 block text-xs text-red-600">{{ firstError('position') }}</span></label>
           <label class="text-sm font-medium text-gray-700">Status *<select v-model="cameraForm.status" required class="mt-1.5 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5"><option v-for="status in options.camera_statuses" :key="status.value" :value="status.value">{{ status.label }}</option></select><span v-if="firstError('status')" class="mt-1 block text-xs text-red-600">{{ firstError('status') }}</span></label>
         </div>

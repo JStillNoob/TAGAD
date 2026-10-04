@@ -45,6 +45,7 @@ const sent = ref(false)
 const error = ref('')
 
 async function handleSubmit() {
+  if (submitting.value) return
   submitting.value = true
   error.value = ''
   try {

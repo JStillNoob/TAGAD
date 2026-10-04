@@ -1,7 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { availableCameraIds, cameraReadinessLabel } from '../src/cameraSelection.js'
+import {
+  availableCameraIds,
+  cameraReadinessLabel,
+} from '../src/cameraSelection.js'
 
 test('active classroom cameras are selected by default', () => {
   const subject = {
@@ -20,7 +23,7 @@ test('a subject without configured cameras remains valid', () => {
   assert.deepEqual(availableCameraIds(null), [])
 })
 
-test('camera readiness never claims that a configured camera is connected', () => {
+test('camera selection labels configuration without opening video', () => {
   assert.equal(cameraReadinessLabel({ status: 'active' }), 'Configured')
   assert.equal(cameraReadinessLabel({ status: 'inactive' }), 'Inactive')
 })

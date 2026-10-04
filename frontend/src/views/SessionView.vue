@@ -2,7 +2,10 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { currentUser } from '../auth'
-import { availableCameraIds, cameraReadinessLabel } from '../cameraSelection'
+import {
+  availableCameraIds,
+  cameraReadinessLabel,
+} from '../cameraSelection'
 import {
   createUploadRequestId,
   presentationDirectionForKey,
@@ -10,6 +13,7 @@ import {
 import {
   endSessionWithRecovery,
   findOwnActiveSession,
+  findOwnPreparedSession,
   restoreSlideIndex,
   startSessionWithRecovery,
 } from '../sessionReliability'
@@ -18,6 +22,8 @@ import { cameraStateClass, cameraStateMessage, mergeCameraHealth } from '../came
 import AppLayout from '../layouts/AppLayout.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import {
+  archiveClassroomSession,
+  cancelPreparedClassroomSession,
   deletePresentation as deletePresentationRequest,
   endClassroomSession,
   enterSessionSlide,
@@ -27,8 +33,11 @@ import {
   fetchSessionCameraHealth,
   fetchSessionSubjectPage,
   fetchSessions,
+  prepareClassroomSession,
   retryPresentation as retryPresentationRequest,
-  startClassroomSession,
+  restoreClassroomSession,
+  restorePresentation,
+  startPreparedClassroomSession,
   simulateEngagement,
   uploadPresentation,
 } from '../sessions'
@@ -47,12 +56,15 @@ const subjectSearch = ref('')
 const subjectPageLoading = ref(false)
 const presentationCount = ref(0)
 const presentationPage = ref(1)
+const presentationLibrary = ref([])
+const presentationLifecycle = ref('active')
 const pageSize = 20
 const sessions = ref([])
 const sessionCount = ref(0)
 const sessionPage = ref(1)
 const sessionPageSize = 5
 const sessionPageLoading = ref(false)
+const sessionLifecycle = ref('active')
 const selectedSubjectId = ref('')
 const selectedPresentationId = ref('')
 const selectedCameraIds = ref([])
@@ -62,6 +74,7 @@ const uploadRequestId = ref(null)
 const uploadProgress = ref(null)
 const fileInput = ref(null)
 const presentationBusyId = ref(null)
+const preparedSession = ref(null)
 const activeSession = ref(null)
 const presentationStage = ref(null)
 const isFullscreen = ref(false)
@@ -88,7 +101,7 @@ const sessionCountdown = createSessionCountdown({
   onTick: value => { countdownSeconds.value = value },
   onComplete: () => {
     countdownSeconds.value = null
-    beginSession()
+    startPreparedSession()
   },
 })
 
@@ -107,14 +120,36 @@ const selectedPresentation = computed(() => options.value.presentations.find(
   (presentation) => presentation.id === Number(selectedPresentationId.value),
 ))
 const availableCameras = computed(() => selectedSubject.value?.cameras || [])
-const slides = computed(() => activeSession.value?.presentation?.slides || [])
+const monitoredSession = computed(() => activeSession.value || preparedSession.value)
+const slides = computed(() => monitoredSession.value?.presentation?.slides || [])
 const currentSlide = computed(() => slides.value[currentSlideIndex.value] || null)
 const activeCameras = computed(() => mergeCameraHealth(
-  activeSession.value?.cameras || [], cameraHealth.value,
+  monitoredSession.value?.cameras || [], cameraHealth.value,
 ))
-const canStart = computed(() => (
+const preparedFrontCamera = computed(() => (
+  preparedSession.value?.cameras?.find(camera => camera.position === 'front') || null
+))
+const preparedFrontOnline = computed(() => (
+  !preparedFrontCamera.value
+  || cameraHealth.value.some(camera => (
+    camera.camera_id === preparedFrontCamera.value.id && camera.state === 'online'
+  ))
+))
+const simulatorAvailable = computed(() => (
+  options.value.simulator_enabled
+  && Boolean(activeSession.value)
+  && !(activeSession.value?.cameras || []).length
+))
+const canPrepare = computed(() => (
   selectedSubject.value
   && selectedPresentation.value?.processing_status === 'ready'
+  && !preparedSession.value
+  && !activeSession.value
+  && !actionBusy.value
+))
+const canStartPrepared = computed(() => (
+  preparedSession.value
+  && preparedFrontOnline.value
   && !actionBusy.value
   && countdownSeconds.value === null
 ))
@@ -216,7 +251,7 @@ async function emitSimulation() {
 }
 
 function startSimulation() {
-  if (simulationRunning.value) return
+  if (simulationRunning.value || !simulatorAvailable.value) return
   simulationRunning.value = true
   emitSimulation()
   simulationTimer = setInterval(emitSimulation, 2000)
@@ -239,15 +274,22 @@ function disconnectEngagement() {
 }
 
 async function loadCameraHealth(sessionId) {
-  if (cameraHealthRequestActive || activeSession.value?.id !== sessionId) return
+  if (cameraHealthRequestActive || monitoredSession.value?.id !== sessionId) return
   cameraHealthRequestActive = true
   try {
     const response = await fetchSessionCameraHealth(sessionId)
-    if (activeSession.value?.id !== sessionId) return
+    if (monitoredSession.value?.id !== sessionId) return
     cameraHealth.value = response.cameras || []
     cameraHealthStatus.value = 'ready'
-  } catch {
-    if (activeSession.value?.id === sessionId) cameraHealthStatus.value = 'unavailable'
+  } catch (requestError) {
+    if (preparedSession.value?.id === sessionId && requestError.status === 404) {
+      selectedPresentationId.value = ''
+      preparedSession.value = null
+      stopCameraHealth()
+      error.value = 'Session preparation expired. Prepare the session again.'
+    } else if (monitoredSession.value?.id === sessionId) {
+      cameraHealthStatus.value = 'unavailable'
+    }
   } finally {
     cameraHealthRequestActive = false
   }
@@ -269,10 +311,19 @@ function stopCameraHealth() {
 }
 
 function activateSession(session) {
+  preparedSession.value = null
   activeSession.value = session
   currentSlideIndex.value = restoreSlideIndex(session)
   startTimer()
   connectEngagement(session.id)
+  startCameraHealth(session.id)
+}
+
+function activatePreparation(session) {
+  activeSession.value = null
+  preparedSession.value = session
+  currentSlideIndex.value = 0
+  elapsedSeconds.value = 0
   startCameraHealth(session.id)
 }
 
@@ -295,29 +346,50 @@ async function loadPage() {
   loading.value = true
   error.value = ''
   try {
-    const [sessionOptions, subjectData, presentationData, sessionHistory, activeSessions] = await Promise.all([
+    const [sessionOptions, subjectData, presentationData, sessionHistory, activeSessions, preparedSessions] = await Promise.all([
       fetchSessionOptions(),
       fetchSessionSubjectPage({
         page: subjectPage.value,
         selected: route.query.subject || '',
       }),
-      fetchPresentationPage({ page: presentationPage.value }),
-      fetchSessionPage({ page: sessionPage.value, page_size: sessionPageSize }),
+      fetchPresentationPage({ page: presentationPage.value, lifecycle: 'active' }),
+      fetchSessionPage({ page: sessionPage.value, page_size: sessionPageSize, lifecycle: sessionLifecycle.value }),
       fetchSessions({ status: 'ongoing', page_size: 100 }),
+      fetchSessions({ status: 'preparing', page_size: 100 }),
     ])
+    const ongoing = findOwnActiveSession(activeSessions, currentUser.value?.id)
+    const prepared = findOwnPreparedSession(preparedSessions, currentUser.value?.id)
+    let resolvedSubjectData = subjectData
+    if (prepared && !subjectData.results.some(subject => subject.id === prepared.subject)) {
+      resolvedSubjectData = await fetchSessionSubjectPage({
+        selected: prepared.subject,
+        page_size: subjectPageSize,
+      })
+    }
+    const restoredPresentation = prepared?.presentation
+    const restoredPresentations = (
+      restoredPresentation
+      && !presentationData.results.some(item => item.id === restoredPresentation.id)
+    ) ? [restoredPresentation, ...presentationData.results] : presentationData.results
     options.value = {
       ...sessionOptions,
-      subjects: subjectData.results,
-      presentations: presentationData.results,
+      subjects: resolvedSubjectData.results,
+      presentations: restoredPresentations,
     }
-    subjectCount.value = subjectData.count
+    subjectCount.value = resolvedSubjectData.count
     presentationCount.value = presentationData.count
+    presentationLibrary.value = presentationData.results
     sessions.value = sessionHistory.results
     sessionCount.value = sessionHistory.count
-    applyRouteSelection()
-    const ongoing = findOwnActiveSession(activeSessions, currentUser.value?.id)
     if (ongoing) {
       activateSession(ongoing)
+    } else if (prepared) {
+      activatePreparation(prepared)
+      selectedSubjectId.value = prepared.subject
+      selectedPresentationId.value = prepared.presentation.id
+      selectedCameraIds.value = prepared.cameras.map(camera => camera.id)
+    } else {
+      applyRouteSelection()
     }
   } catch (requestError) {
     error.value = messageFrom(requestError)
@@ -351,7 +423,7 @@ async function changeSessionPage(page) {
   sessionPageLoading.value = true
   error.value = ''
   try {
-    const data = await fetchSessionPage({ page, page_size: sessionPageSize })
+    const data = await fetchSessionPage({ page, page_size: sessionPageSize, lifecycle: sessionLifecycle.value })
     sessionPage.value = page
     sessions.value = data.results
     sessionCount.value = data.count
@@ -366,13 +438,10 @@ async function changePresentationPage(page) {
   presentationBusyId.value = null
   error.value = ''
   try {
-    const data = await fetchPresentationPage({ page })
+    const data = await fetchPresentationPage({ page, lifecycle: presentationLifecycle.value })
     presentationPage.value = page
     presentationCount.value = data.count
-    options.value.presentations = data.results
-    if (!data.results.some((item) => item.id === Number(selectedPresentationId.value))) {
-      selectedPresentationId.value = ''
-    }
+    presentationLibrary.value = data.results
   } catch (requestError) {
     error.value = messageFrom(requestError)
   }
@@ -387,7 +456,7 @@ function chooseFile(event) {
 }
 
 async function submitUpload() {
-  if (!uploadFile.value || !uploadTitle.value.trim()) return
+  if (actionBusy.value || !uploadFile.value || !uploadTitle.value.trim()) return
   actionBusy.value = true
   error.value = ''
   uploadProgress.value = { phase: 'uploading', percent: 0 }
@@ -398,6 +467,11 @@ async function submitUpload() {
       requestId: uploadRequestId.value || createUploadRequestId(),
       onProgress: (progress) => { uploadProgress.value = progress },
     })
+    options.value.presentations = [
+      presentation,
+      ...options.value.presentations.filter(item => item.id !== presentation.id),
+    ]
+    presentationLifecycle.value = 'active'
     presentationPage.value = 1
     await changePresentationPage(1)
     selectedPresentationId.value = presentation.id
@@ -420,6 +494,9 @@ function replacePresentation(updated) {
   options.value.presentations = options.value.presentations.map(
     (presentation) => presentation.id === updated.id ? updated : presentation,
   )
+  presentationLibrary.value = presentationLibrary.value.map(
+    (presentation) => presentation.id === updated.id ? updated : presentation,
+  )
 }
 
 async function retryPresentation(presentation) {
@@ -440,8 +517,12 @@ async function retryPresentation(presentation) {
 }
 
 async function deletePresentation(presentation) {
-  if (presentationBusyId.value || presentation.in_use) return
-  if (!window.confirm(`Delete “${presentation.title}” and all of its generated files?`)) return
+  if (presentationBusyId.value) return
+  const action = presentation.in_use ? 'Archive' : 'Permanently delete'
+  const detail = presentation.in_use
+    ? 'Completed sessions and reports will be preserved.'
+    : 'The original, preview, and generated slides will be removed. This cannot be undone.'
+  if (!window.confirm(`${action} “${presentation.title}”? ${detail}`)) return
   presentationBusyId.value = presentation.id
   error.value = ''
   try {
@@ -462,18 +543,86 @@ async function deletePresentation(presentation) {
   }
 }
 
-async function beginSession() {
-  if (!canStart.value) return
+async function restoreArchivedPresentation(presentation) {
+  if (presentationBusyId.value) return
+  presentationBusyId.value = presentation.id
+  error.value = ''
+  try {
+    const restored = await restorePresentation(presentation.id)
+    if (!options.value.presentations.some(item => item.id === restored.id)) {
+      options.value.presentations.unshift(restored)
+    }
+    await changePresentationPage(presentationPage.value)
+  } catch (requestError) {
+    error.value = messageFrom(requestError)
+  } finally {
+    presentationBusyId.value = null
+  }
+}
+
+async function archiveSession(session) {
+  if (!window.confirm(`Archive the ${session.subject_code} session? Analytics and reports will be preserved.`)) return
+  error.value = ''
+  try {
+    await archiveClassroomSession(session.id)
+    await changeSessionPage(sessionPage.value)
+  } catch (requestError) {
+    error.value = messageFrom(requestError)
+  }
+}
+
+async function restoreArchivedSession(session) {
+  error.value = ''
+  try {
+    await restoreClassroomSession(session.id)
+    await changeSessionPage(sessionPage.value)
+  } catch (requestError) {
+    error.value = messageFrom(requestError)
+  }
+}
+
+watch(presentationLifecycle, () => {
+  presentationPage.value = 1
+  changePresentationPage(1)
+})
+
+watch(sessionLifecycle, () => {
+  sessionPage.value = 1
+  changeSessionPage(1)
+})
+
+async function prepareSession() {
+  if (!canPrepare.value) return
   actionBusy.value = true
   error.value = ''
   try {
+    const prepared = await prepareClassroomSession({
+      subject: Number(selectedSubjectId.value),
+      presentation: Number(selectedPresentationId.value),
+      cameras: selectedCameraIds.value,
+    })
+    activatePreparation(prepared)
+  } catch (requestError) {
+    error.value = messageFrom(requestError)
+  } finally {
+    actionBusy.value = false
+  }
+}
+
+function beginPreparedSession() {
+  if (!canStartPrepared.value) return
+  sessionCountdown.start()
+}
+
+async function startPreparedSession() {
+  if (!preparedSession.value || !preparedFrontOnline.value || actionBusy.value) return
+  actionBusy.value = true
+  error.value = ''
+  const sessionId = preparedSession.value.id
+  try {
     const started = await startSessionWithRecovery({
-      start: () => startClassroomSession({
-        subject: Number(selectedSubjectId.value),
-        presentation: Number(selectedPresentationId.value),
-        cameras: selectedCameraIds.value,
-      }),
-      fetchSessions,
+      start: () => startPreparedClassroomSession(sessionId),
+      fetchSessions: () => fetchSessions({ status: 'ongoing', page_size: 100 }),
       userId: currentUser.value?.id,
     })
     sessionPage.value = 1
@@ -487,9 +636,21 @@ async function beginSession() {
   }
 }
 
-function prepareSession() {
-  if (!canStart.value) return
-  sessionCountdown.start()
+async function cancelPreparation() {
+  if (!preparedSession.value || actionBusy.value) return
+  if (!window.confirm('Cancel this session preparation? The camera worker will stop.')) return
+  actionBusy.value = true
+  error.value = ''
+  try {
+    await cancelPreparedClassroomSession(preparedSession.value.id)
+    cancelSessionCountdown()
+    stopCameraHealth()
+    preparedSession.value = null
+  } catch (requestError) {
+    error.value = messageFrom(requestError)
+  } finally {
+    actionBusy.value = false
+  }
 }
 
 function cancelSessionCountdown() {
@@ -499,6 +660,10 @@ function cancelSessionCountdown() {
 
 async function changeSlide(nextIndex) {
   if (nextIndex < 0 || nextIndex >= slides.value.length || actionBusy.value) return
+  if (preparedSession.value && !activeSession.value) {
+    currentSlideIndex.value = nextIndex
+    return
+  }
   actionBusy.value = true
   error.value = ''
   try {
@@ -512,7 +677,7 @@ async function changeSlide(nextIndex) {
 }
 
 function handlePresentationKey(event) {
-  const direction = presentationDirectionForKey(event, Boolean(activeSession.value))
+  const direction = presentationDirectionForKey(event, Boolean(monitoredSession.value))
   if (!direction) return
   event.preventDefault()
   changeSlide(currentSlideIndex.value + direction)
@@ -573,7 +738,9 @@ function formatHeartbeat(value) {
   return value ? formatDate(value) : 'No heartbeat yet'
 }
 
-watch(selectedSubjectId, selectAllCameras)
+watch(selectedSubjectId, () => {
+  if (!preparedSession.value) selectAllCameras()
+})
 watch(() => [route.query.subject, route.query.presentation], applyRouteSelection)
 watch(subjectSearch, () => {
   clearTimeout(subjectSearchTimer)
@@ -601,8 +768,8 @@ onUnmounted(() => {
 
 <template>
   <AppLayout
-    :page-title="activeSession ? 'Live Classroom Session' : 'Start New Session'"
-    :focus-mode="Boolean(activeSession)"
+    :page-title="activeSession ? 'Live Classroom Session' : preparedSession ? 'Review Classroom Session' : 'Start New Session'"
+    :focus-mode="Boolean(activeSession || preparedSession)"
   >
     <div v-if="error" class="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
       {{ error }}
@@ -613,7 +780,7 @@ onUnmounted(() => {
       Loading session setup…
     </div>
 
-    <div v-else-if="!activeSession" class="grid grid-cols-1 xl:grid-cols-3 gap-5">
+    <div v-else-if="!activeSession && !preparedSession" class="grid grid-cols-1 xl:grid-cols-3 gap-5">
       <div class="xl:col-span-2 space-y-5">
         <section class="page-card p-6">
           <h2 class="font-semibold text-navy mb-5">Session Details</h2>
@@ -651,7 +818,7 @@ onUnmounted(() => {
             <div class="flex items-center justify-between gap-3">
               <div>
                 <h3 class="text-sm font-semibold text-navy">Session cameras</h3>
-                <p class="text-xs text-gray-400 mt-1">Active cameras from the selected classroom are chosen automatically.</p>
+                <p class="text-xs text-gray-400 mt-1">Selected cameras open before the session starts. Camera video is never shown.</p>
               </div>
               <span v-if="availableCameras.length" class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">{{ selectedCameraIds.length }}/{{ availableCameras.length }} selected</span>
               <span v-else class="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">No active cameras</span>
@@ -662,10 +829,10 @@ onUnmounted(() => {
                 <button type="button" class="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50" @click="clearCameraSelection">Clear</button>
               </div>
               <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <label v-for="camera in availableCameras" :key="camera.id" class="flex cursor-pointer items-center gap-3 rounded-lg border p-3 text-sm" :class="selectedCameraIds.includes(camera.id) ? 'border-indigo-300 bg-indigo-50/50 text-navy' : 'border-gray-200 text-gray-600'">
+                <label v-for="camera in availableCameras" :key="camera.id" class="flex items-center gap-3 rounded-lg border p-3 text-sm" :class="selectedCameraIds.includes(camera.id) ? 'border-indigo-300 bg-indigo-50/50 text-navy' : 'border-gray-200 text-gray-600'">
                   <input v-model="selectedCameraIds" type="checkbox" :value="camera.id" class="accent-brand">
                   <span class="min-w-0 flex-1"><strong class="block truncate font-semibold">{{ camera.name }}</strong><small class="block text-gray-400">{{ camera.position_label || camera.position }}</small></span>
-                  <span class="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">{{ camera.status_label || 'Active' }}</span>
+                  <span class="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-500">{{ cameraReadinessLabel(camera) }}</span>
                 </label>
               </div>
             </template>
@@ -675,8 +842,8 @@ onUnmounted(() => {
             <p v-else class="mt-4 text-sm text-gray-400">Select a subject to load its classroom cameras.</p>
           </div>
 
-          <button type="button" class="btn-primary mt-5" :disabled="!canStart" @click="prepareSession">
-            {{ actionBusy ? 'Starting…' : countdownSeconds !== null ? 'Preparing…' : 'Start Session' }}
+          <button type="button" class="btn-primary mt-5" :disabled="!canPrepare" @click="prepareSession">
+            {{ actionBusy ? 'Preparing…' : 'Prepare Session' }}
           </button>
         </section>
 
@@ -721,51 +888,69 @@ onUnmounted(() => {
             </div>
             <p class="mt-2 text-xs text-indigo-700">PPTX conversion can take up to two minutes.</p>
           </div>
-          <div v-if="options.presentations.length" role="region" aria-labelledby="presentation-library-title" class="mt-5 border-t border-gray-100 pt-4">
-            <h3 id="presentation-library-title" class="text-xs font-semibold uppercase tracking-wide text-gray-400">Presentation Library</h3>
+          <div role="region" aria-labelledby="presentation-library-title" class="mt-5 border-t border-gray-100 pt-4">
+            <div class="flex items-center justify-between gap-3">
+              <h3 id="presentation-library-title" class="text-xs font-semibold uppercase tracking-wide text-gray-400">Presentation Library</h3>
+              <select v-model="presentationLifecycle" aria-label="Presentation records" class="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs text-gray-600">
+                <option value="active">Active</option>
+                <option value="archived">Archived</option>
+                <option value="all">All</option>
+              </select>
+            </div>
+            <p v-if="!presentationLibrary.length" class="py-6 text-center text-xs text-gray-400">No presentations match this filter.</p>
             <div class="mt-3 max-h-64 space-y-2 overflow-y-auto">
-              <div v-for="presentation in options.presentations" :key="presentation.id" class="rounded-lg border border-gray-100 p-3">
+              <div v-for="presentation in presentationLibrary" :key="presentation.id" class="rounded-lg border border-gray-100 p-3">
                 <div class="flex items-start justify-between gap-2">
                   <div class="min-w-0">
                     <p class="truncate text-sm font-medium text-navy">{{ presentation.title }}</p>
                     <a :href="presentation.source_url" target="_blank" rel="noopener" class="text-xs text-brand hover:underline">Open original {{ presentation.file_type.toUpperCase() }}</a>
                   </div>
                   <span class="rounded-full px-2 py-0.5 text-xs font-semibold" :class="presentation.processing_status === 'ready' ? 'bg-emerald-50 text-emerald-600' : presentation.processing_status === 'failed' ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-700'">
-                    {{ presentation.processing_status }}
+                    {{ presentation.is_archived ? 'archived' : presentation.processing_status }}
                   </span>
                 </div>
                 <p v-if="presentation.processing_status === 'ready'" class="mt-1 text-xs text-gray-400">{{ presentation.total_slides }} generated slides</p>
                 <p v-else-if="presentation.processing_error" class="mt-2 text-xs leading-5 text-red-600">{{ presentation.processing_error }}</p>
-                <p v-if="presentation.in_use" class="mt-2 text-xs text-gray-400">Used by a recorded session · deletion protected</p>
+                <p v-if="presentation.in_use" class="mt-2 text-xs text-gray-400">Used by a recorded session · permanent deletion protected</p>
                 <div class="mt-3 flex flex-wrap items-center gap-3 text-xs font-semibold">
                   <a v-if="presentation.preview_url" :href="presentation.preview_url" target="_blank" rel="noopener" class="text-brand hover:underline">Preview</a>
-                  <button v-if="presentation.processing_status === 'failed'" type="button" class="text-brand hover:underline disabled:opacity-50" :disabled="presentationBusyId === presentation.id" @click="retryPresentation(presentation)">
+                  <button v-if="presentation.processing_status === 'failed' && !presentation.is_archived" type="button" class="text-brand hover:underline disabled:opacity-50" :disabled="presentationBusyId === presentation.id" @click="retryPresentation(presentation)">
                     {{ presentationBusyId === presentation.id ? 'Retrying…' : 'Retry conversion' }}
                   </button>
-                  <button type="button" class="text-red-600 hover:underline disabled:cursor-not-allowed disabled:opacity-40" :disabled="presentation.in_use || presentationBusyId === presentation.id" @click="deletePresentation(presentation)">
-                    Delete
+                  <button v-if="!presentation.is_archived" type="button" :class="presentation.in_use ? 'text-amber-700' : 'text-red-600'" class="hover:underline disabled:cursor-not-allowed disabled:opacity-40" :disabled="presentationBusyId === presentation.id" @click="deletePresentation(presentation)">
+                    {{ presentation.in_use ? 'Archive' : 'Delete permanently' }}
+                  </button>
+                  <button v-else type="button" class="text-emerald-700 hover:underline disabled:opacity-40" :disabled="presentationBusyId === presentation.id" @click="restoreArchivedPresentation(presentation)">
+                    Restore
                   </button>
                 </div>
               </div>
             </div>
             <PaginationControls :page="presentationPage" :count="presentationCount" :page-size="pageSize" :disabled="Boolean(presentationBusyId)" @change="changePresentationPage" />
           </div>
-          <div v-else class="mt-5 rounded-lg border border-dashed border-gray-200 px-4 py-6 text-center">
-            <p class="text-sm font-medium text-navy">No presentations yet</p>
-            <p class="mt-1 text-xs text-gray-400">Upload a PDF or PPTX to create the first one.</p>
-          </div>
         </section>
 
         <section class="page-card p-5" aria-labelledby="recent-sessions-title">
-          <h2 id="recent-sessions-title" class="font-semibold text-navy mb-3">Recent Sessions</h2>
+          <div class="mb-3 flex items-center justify-between gap-3">
+            <h2 id="recent-sessions-title" class="font-semibold text-navy">Recent Sessions</h2>
+            <select v-model="sessionLifecycle" aria-label="Session records" class="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs text-gray-600">
+              <option value="active">Active</option>
+              <option value="archived">Archived</option>
+              <option value="all">All</option>
+            </select>
+          </div>
           <p v-if="!sessions.length" class="py-6 text-center text-sm text-gray-400">No sessions recorded yet.</p>
           <div v-else class="space-y-3">
             <div v-for="session in sessions" :key="session.id" class="rounded-lg border border-gray-100 p-3">
               <div class="flex justify-between gap-3">
                 <p class="text-sm font-medium text-navy">{{ session.subject_code }}</p>
-                <span class="text-xs font-semibold" :class="session.status === 'completed' ? 'text-emerald-600' : 'text-brand'">{{ session.status }}</span>
+                <span class="text-xs font-semibold" :class="session.is_archived ? 'text-gray-500' : session.status === 'completed' ? 'text-emerald-600' : 'text-brand'">{{ session.is_archived ? 'archived' : session.status }}</span>
               </div>
               <p class="text-xs text-gray-400 mt-1">{{ formatDate(session.started_at) }}</p>
+              <div v-if="session.status === 'completed'" class="mt-2 text-right text-xs font-semibold">
+                <button v-if="!session.is_archived" type="button" class="text-amber-700 hover:underline" @click="archiveSession(session)">Archive</button>
+                <button v-else type="button" class="text-emerald-700 hover:underline" @click="restoreArchivedSession(session)">Restore</button>
+              </div>
             </div>
           </div>
           <PaginationControls class="-mx-5 -mb-5 mt-5" :page="sessionPage" :count="sessionCount" :page-size="sessionPageSize" :disabled="loading || sessionPageLoading || actionBusy" @change="changeSessionPage" />
@@ -776,12 +961,19 @@ onUnmounted(() => {
     <div v-else class="space-y-5">
       <div class="page-card px-5 py-4 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <p class="text-xs text-gray-400">{{ activeSession.subject_code }} · {{ activeSession.classroom }}</p>
-          <h2 class="font-semibold text-navy">{{ activeSession.presentation_title }}</h2>
+          <p class="text-xs text-gray-400">{{ monitoredSession.subject_code }} · {{ monitoredSession.classroom }}</p>
+          <h2 class="font-semibold text-navy">{{ monitoredSession.presentation_title }}</h2>
+          <p v-if="preparedSession" class="mt-1 text-xs text-amber-700">Review mode · session timing and analytics have not started</p>
         </div>
         <div class="flex items-center gap-4">
           <span class="font-mono text-lg font-semibold text-navy">{{ elapsedDisplay }}</span>
-          <button type="button" class="rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" :disabled="actionBusy" @click="finishSession">
+          <button v-if="preparedSession" type="button" class="rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-600 disabled:opacity-50" :disabled="actionBusy" @click="cancelPreparation">
+            Change setup
+          </button>
+          <button v-if="preparedSession" type="button" class="btn-primary" :disabled="!canStartPrepared" @click="beginPreparedSession">
+            {{ countdownSeconds !== null ? 'Starting…' : 'Start Session' }}
+          </button>
+          <button v-else type="button" class="rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" :disabled="actionBusy" @click="finishSession">
             End Session
           </button>
         </div>
@@ -812,14 +1004,14 @@ onUnmounted(() => {
           <section class="page-card p-5">
             <div class="flex items-center justify-between gap-2">
               <h3 class="text-sm font-semibold text-navy">Camera & Worker Health</h3>
-              <span v-if="activeSession.cameras.length" class="rounded-full bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">{{ cameraHealthStatus === 'ready' ? 'Live status' : cameraHealthStatus === 'unavailable' ? 'Status unavailable' : 'Loading status' }}</span>
+              <span v-if="monitoredSession.cameras.length" class="rounded-full bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">{{ cameraHealthStatus === 'ready' ? 'Live status' : cameraHealthStatus === 'unavailable' ? 'Status unavailable' : 'Loading status' }}</span>
               <span v-else class="rounded-full bg-violet-50 px-2 py-1 text-xs font-semibold text-violet-700">Simulator only</span>
             </div>
             <p class="mt-3 text-xs leading-5 text-gray-500">Each source runs independently. Front publishes official analytics; side-camera counts are diagnostics only.</p>
             <div v-if="cameraHealthStatus === 'unavailable'" class="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
               Worker health is temporarily unavailable. Slides and session controls are unaffected.
             </div>
-            <div v-if="activeSession.cameras.length" class="space-y-2 mt-4">
+            <div v-if="monitoredSession.cameras.length" class="space-y-2 mt-4">
               <div v-for="camera in activeCameras" :key="camera.id" class="rounded-lg border border-gray-100 p-3">
                 <div class="flex items-start justify-between gap-2">
                   <div class="min-w-0"><p class="truncate text-sm font-medium text-navy">{{ camera.name }}</p><p class="text-xs text-gray-400">{{ camera.position_label || camera.position }} position</p></div>
@@ -835,9 +1027,11 @@ onUnmounted(() => {
               </div>
             </div>
             <div v-else class="mt-4 rounded-lg border border-violet-200 bg-violet-50 p-3"><p class="text-xs font-semibold text-violet-700">No cameras linked</p><p class="mt-1 text-xs leading-5 text-violet-600">This session can continue with simulated engagement data.</p></div>
+            <div v-if="preparedFrontCamera && !preparedFrontOnline" class="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">Start Session unlocks when the Front camera becomes Online.</div>
+            <div v-else-if="preparedFrontCamera" class="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">Front camera is Online. You can start the session.</div>
           </section>
 
-          <section class="page-card p-5">
+          <section v-if="activeSession" class="page-card p-5">
             <h3 class="text-sm font-semibold text-navy">Engagement Monitoring</h3>
             <div class="mt-2 flex items-center justify-between text-xs text-gray-500">
               <span>Live updates</span>
@@ -859,9 +1053,12 @@ onUnmounted(() => {
             </div>
             <p v-else class="mt-3 text-xs leading-5 text-gray-500">Waiting for the first aggregated monitoring window.</p>
             <div v-if="options.simulator_enabled" class="mt-4 border-t border-gray-100 pt-4">
-              <button v-if="!simulationRunning" type="button" class="btn-primary w-full justify-center" @click="startSimulation">Start Simulation</button>
-              <button v-else type="button" class="w-full rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50" @click="stopSimulation">Stop Simulation</button>
-              <p class="mt-2 text-xs text-gray-400">Development only · one result every two seconds</p>
+              <template v-if="simulatorAvailable">
+                <button v-if="!simulationRunning" type="button" class="btn-primary w-full justify-center" @click="startSimulation">Start Simulation</button>
+                <button v-else type="button" class="w-full rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50" @click="stopSimulation">Stop Simulation</button>
+                <p class="mt-2 text-xs text-gray-400">Development only · one result every two seconds</p>
+              </template>
+              <p v-else class="text-xs leading-5 text-gray-500">Simulation is unavailable because this session has assigned camera sources.</p>
             </div>
           </section>
         </aside>
@@ -881,7 +1078,7 @@ onUnmounted(() => {
           <p class="text-sm font-semibold uppercase tracking-[0.25em] text-indigo-300">Get Ready</p>
           <h2 id="session-countdown-title" class="mt-3 text-2xl font-semibold">Your classroom session is about to begin</h2>
           <p class="mt-8 text-8xl font-bold tabular-nums" aria-live="assertive">{{ countdownSeconds }}</p>
-          <p class="mt-6 text-sm text-slate-300">Cameras, timing, and analytics will start after the countdown.</p>
+          <p class="mt-6 text-sm text-slate-300">Session timing and analytics will start after the countdown.</p>
           <button
             type="button"
             class="mt-8 rounded-lg border border-white/25 px-5 py-2.5 text-sm font-semibold text-white hover:bg-white/10"

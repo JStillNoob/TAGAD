@@ -148,6 +148,11 @@ class ReportTests(TestCase):
         self.assertIn('IT-301 - Data Structures', text)
         self.assertIn('Engagement Distribution', text)
         self.assertIn('Slide-by-Slide Breakdown', text)
+        self.assertIn('Source: Pipeline results', text)
+        self.assertIn('Quality: Insufficient', text)
+        self.assertIn('UNCLASSIFIED', text)
+        self.assertIn('CLASSIFIED COVERAGE', text)
+        self.assertIn('INSIGHTS WITHHELD', text)
         self.assertTrue(SystemLog.objects.filter(
             user=self.teacher,
             activity=f'Generated PDF report for classroom session {self.session.pk}.',
@@ -167,7 +172,34 @@ class ReportTests(TestCase):
         self.assertIn('it-301-', downloaded['Content-Disposition'])
         self.assertIn('engagement-data.csv', downloaded['Content-Disposition'])
         self.assertIn('Slide,Topic,Timestamp,Duration Seconds,Detected', content)
+        self.assertIn('Data Source,Source Notice,Pipeline Versions,Data Quality', content)
+        self.assertIn('Pipeline results,Official pipeline analytics.,legacy,Insufficient', content)
         self.assertIn('1,Introduction to Data', content)
+
+    def test_simulated_pdf_and_csv_are_marked_not_official(self):
+        EngagementSummary.objects.filter(event__session=self.session).update(
+            pipeline_version='simulator-1',
+        )
+        self.client.force_login(self.teacher)
+
+        pdf_response = self.generate(report_type='pdf')
+        pdf_report = Report.objects.get(pk=pdf_response.json()['id'])
+        with default_storage.open(pdf_report.report_path, 'rb') as report_file:
+            document = pymupdf.open(stream=report_file.read(), filetype='pdf')
+        pdf_text = ''.join(page.get_text() for page in document)
+        document.close()
+
+        csv_response = self.generate(report_type='csv')
+        csv_report = Report.objects.get(pk=csv_response.json()['id'])
+        with default_storage.open(csv_report.report_path, 'rb') as report_file:
+            csv_text = report_file.read().decode('utf-8')
+
+        self.assertEqual(pdf_response.status_code, 201)
+        self.assertEqual(csv_response.status_code, 201)
+        self.assertIn('SIMULATION - NOT OFFICIAL', pdf_text)
+        self.assertIn('Development simulation', pdf_text)
+        self.assertIn('Development simulation', csv_text)
+        self.assertIn('not official classroom analytics', csv_text)
 
     def test_list_and_options_are_role_scoped(self):
         own_report = Report.objects.create(
