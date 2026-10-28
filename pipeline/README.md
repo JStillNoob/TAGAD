@@ -79,8 +79,12 @@ ends.
 
 Copy `pipeline/camera_sources.example.json` to the ignored
 `pipeline/camera_sources.local.json`, then change only the local copy to point
-to the three recordings. Positions must be `front`, `left`, and `right` and
-must match the camera records assigned to the active classroom session.
+to the camera sources. Set the matching IPv4 address on each camera record in
+TAGAD's Classes page. For live RTSP sources, the controller matches that saved
+IP to the host in the private RTSP URL, so cameras with the same Front, Left,
+or Right position in different classrooms cannot be mixed up. Legacy records
+without an IP use position matching only when exactly one source has that
+position.
 
 Run Django, start a classroom session in the browser, then open a separate
 PowerShell window at the repository root:
@@ -96,7 +100,9 @@ this controller automatically and supplies a local stop signal so
 `scripts\tagad.ps1 stop` can shut workers down cleanly. API keys, camera source
 paths, and RTSP credentials remain outside Git.
 
-The controller discovers active work every two seconds, follows slide changes,
+The setup page checks each saved camera IP on RTSP port 554 and reports
+Checking, Available, Offline, or Not initialized without exposing video or
+credentials. The controller discovers active work every two seconds, follows slide changes,
 loops simulated files, and stops workers after the teacher ends the session.
 The Live Session page displays Starting, Online, Reconnecting, Offline, or
 Stopped for each source. To exercise recovery, add these optional fields to one
@@ -107,8 +113,9 @@ camera in the ignored local file:
 "simulate_disconnect_seconds": 2
 ```
 
-The Front source alone submits official summaries. Left and Right counts stay
-source-specific diagnostics; they are never added together.
+Front, Left, and Right each submit camera-attributed official summaries. Session
+analytics combine those observations; overlapping views can still observe the
+same student more than once until seating zones are calibrated.
 
 Run the aggregate-only concurrent load smoke test with:
 

@@ -98,8 +98,8 @@ cd backend
 The dedicated workers in `pipeline/` verify artifact checksums, implement the
 two-SVM hierarchy, and submit camera-attributed Stage 1 aggregates. The offline
 controller discovers active sessions and manages isolated Front, Left, and
-Right simulated sources; Front alone publishes official engagement while the
-side views remain diagnostics. An
+Right sources; all selected cameras publish camera-attributed official
+engagement summaries. An
 obstructed face or failed landmark extraction uses `label=None`, which is
 counted as unclassified rather than disengaged. See
 [`pipeline/README.md`](pipeline/README.md) for its offline and live commands.

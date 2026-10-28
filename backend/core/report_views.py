@@ -4,12 +4,12 @@ from django.db.models import Q
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
 from rest_framework import serializers, status
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import Report
 from .pagination import paginated_response
+from .permissions import IsOrganizationUser
 from .report_generation import generate_report_content, report_storage_name
 from .session_access import sessions_for_user
 from .views import _log_activity
@@ -69,7 +69,7 @@ def _reports_for_user(user):
 
 
 class ReportOptionsView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOrganizationUser]
 
     def get(self, request):
         sessions = sessions_for_user(request.user).filter(
@@ -92,7 +92,7 @@ class ReportOptionsView(APIView):
 
 
 class ReportListCreateView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOrganizationUser]
 
     def get(self, request):
         reports = _reports_for_user(request.user).order_by('-generated_at', '-pk')
@@ -141,7 +141,7 @@ class ReportListCreateView(APIView):
 
 
 class ReportDownloadView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOrganizationUser]
 
     def get(self, request, pk):
         report = get_object_or_404(_reports_for_user(request.user), pk=pk)
@@ -157,7 +157,7 @@ class ReportDownloadView(APIView):
 
 
 class ReportDetailView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOrganizationUser]
 
     def delete(self, request, pk):
         report = get_object_or_404(_reports_for_user(request.user), pk=pk)

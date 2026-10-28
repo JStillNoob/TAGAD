@@ -283,7 +283,7 @@ class CameraController:
         desired = {}
         for session in sessions:
             for camera in session.get('cameras', []):
-                source = self.configuration.source_for(camera.get('position'))
+                source = self.configuration.source_for(camera)
                 if source is None:
                     continue
                 key = session['session_id'], camera['camera_id']

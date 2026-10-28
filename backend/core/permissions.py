@@ -20,5 +20,17 @@ class CanAccessClassManagement(BasePermission):
         if not user.is_authenticated:
             return False
         if request.method in ('GET', 'HEAD', 'OPTIONS'):
-            return user.role in user.Role.values
-        return user.role in (user.Role.SYSTEM_ADMIN, user.Role.ORG_ADMIN)
+            return user.role in (user.Role.ORG_ADMIN, user.Role.TEACHER)
+        return user.role == user.Role.ORG_ADMIN
+
+
+class IsOrganizationUser(BasePermission):
+    message = 'This area is only available to organization users.'
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(
+            user.is_authenticated
+            and user.role in (user.Role.ORG_ADMIN, user.Role.TEACHER)
+            and user.organization_id
+        )

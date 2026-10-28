@@ -17,6 +17,7 @@ from .views import (
     LogoutView,
     AccountSettingsView,
     OrganizationSettingsView,
+    OrganizationDetailView,
     OrganizationLifecycleView,
     OrganizationListView,
     PasswordSettingsView,
@@ -31,6 +32,7 @@ from .views import (
     UserOptionsView,
 )
 from .session_views import (
+    CameraAvailabilityView,
     PresentationDetailView,
     PresentationListCreateView,
     PresentationPreviewView,
@@ -89,6 +91,7 @@ urlpatterns = [
     path('configuration-options/', ConfigurationLookupView.as_view(), name='configuration-options'),
     path('users/<int:pk>/', UserDetailView.as_view(), name='user-detail'),
     path('organizations/', OrganizationListView.as_view(), name='organization-list'),
+    path('organizations/<int:pk>/', OrganizationDetailView.as_view(), name='organization-detail'),
     path('organizations/<int:pk>/lifecycle/', OrganizationLifecycleView.as_view(), name='organization-lifecycle'),
     path('classrooms/', ClassroomListCreateView.as_view(), name='classroom-list'),
     path('classrooms/<int:pk>/', ClassroomDetailView.as_view(), name='classroom-detail'),
@@ -119,6 +122,11 @@ urlpatterns = [
         name='presentation-slide-image',
     ),
     path('session-options/', SessionOptionsView.as_view(), name='session-options'),
+    path(
+        'session-cameras/availability/',
+        CameraAvailabilityView.as_view(),
+        name='session-camera-availability',
+    ),
     path('session-subjects/', SessionSubjectListView.as_view(), name='session-subject-list'),
     path('sessions/', SessionListCreateView.as_view(), name='session-list'),
     path('sessions/prepare/', SessionPrepareView.as_view(), name='session-prepare'),

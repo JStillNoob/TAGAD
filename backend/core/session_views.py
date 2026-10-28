@@ -1,4 +1,6 @@
 import mimetypes
+import socket
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
 from django.db import IntegrityError, transaction
@@ -10,13 +12,13 @@ from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.clickjacking import xframe_options_sameorigin
 from rest_framework import serializers, status
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import Camera, CameraWorkerStatus, ClassroomSession, Presentation, SlideEvent
 from .lifecycle import archive_record, filter_lifecycle, restore_record
 from .pagination import paginated_response
+from .permissions import IsOrganizationUser
 from .presentation_processing import delete_presentation_files, process_presentation
 from .session_access import (
     presentations_for_update,
@@ -35,7 +37,7 @@ from .views import _log_activity
 
 
 class PresentationListCreateView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOrganizationUser]
 
     def get(self, request):
         presentations = filter_lifecycle(
@@ -96,7 +98,7 @@ class PresentationListCreateView(APIView):
 
 
 class PresentationDetailView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOrganizationUser]
 
     def get_object(self, request, pk):
         return get_object_or_404(presentations_for_user(request.user), pk=pk)
@@ -129,7 +131,7 @@ class PresentationDetailView(APIView):
 
 
 class PresentationRestoreView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOrganizationUser]
 
     def post(self, request, pk):
         with transaction.atomic():
@@ -146,7 +148,7 @@ class PresentationRestoreView(APIView):
 
 
 class PresentationRetryView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOrganizationUser]
 
     def post(self, request, pk):
         with transaction.atomic():
@@ -175,7 +177,7 @@ class PresentationRetryView(APIView):
 
 
 class PresentationFileMixin:
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOrganizationUser]
 
     def get_presentation(self, request, pk):
         return get_object_or_404(presentations_for_user(request.user), pk=pk)
@@ -215,12 +217,60 @@ class PresentationSlideImageView(PresentationFileMixin, APIView):
 
 
 class SessionOptionsView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOrganizationUser]
 
     def get(self, request):
         return Response({
             'simulator_enabled': bool(settings.DEBUG and settings.ENABLE_PIPELINE_SIMULATOR),
         })
+
+
+class CameraAvailabilitySerializer(serializers.Serializer):
+    camera_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+        max_length=3,
+    )
+
+    def validate_camera_ids(self, value):
+        if len(value) != len(set(value)):
+            raise serializers.ValidationError('Camera IDs must be unique.')
+        return value
+
+
+def _camera_availability(camera):
+    if not camera.ip_address:
+        return {'camera_id': camera.pk, 'state': 'uninitialized'}
+    try:
+        # RTSP uses port 554 on the supported VIGI cameras.
+        with socket.create_connection((camera.ip_address, 554), timeout=1):
+            state = 'available'
+    except OSError:
+        state = 'offline'
+    return {'camera_id': camera.pk, 'state': state}
+
+
+class CameraAvailabilityView(APIView):
+    permission_classes = [IsOrganizationUser]
+
+    def post(self, request):
+        serializer = CameraAvailabilitySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        camera_ids = serializer.validated_data['camera_ids']
+        allowed_classrooms = subjects_for_user(request.user).values('classroom_id')
+        cameras = list(Camera.objects.filter(
+            pk__in=camera_ids,
+            classroom_id__in=allowed_classrooms,
+            archived_at__isnull=True,
+            status=Camera.Status.ACTIVE,
+        ))
+        if len(cameras) != len(camera_ids):
+            raise Http404
+        cameras_by_id = {camera.pk: camera for camera in cameras}
+        ordered = [cameras_by_id[camera_id] for camera_id in camera_ids]
+        with ThreadPoolExecutor(max_workers=len(ordered)) as executor:
+            results = list(executor.map(_camera_availability, ordered))
+        return Response({'cameras': results})
 
 
 def _session_subject_data(subject):
@@ -237,6 +287,7 @@ def _session_subject_data(subject):
             {
                 'id': camera.pk,
                 'name': camera.camera_name,
+                'ip_address': camera.ip_address,
                 'position': camera.position,
                 'position_label': camera.get_position_display(),
                 'status': camera.status,
@@ -249,7 +300,7 @@ def _session_subject_data(subject):
 
 
 class SessionSubjectListView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOrganizationUser]
 
     def get(self, request):
         subjects = subjects_for_user(request.user).filter(
@@ -285,7 +336,7 @@ class SessionSubjectListView(APIView):
 
 
 class SessionListCreateView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOrganizationUser]
 
     def get(self, request):
         expire_prepared_sessions(user=request.user)
@@ -340,7 +391,7 @@ class SessionListCreateView(APIView):
 
 
 class SessionPrepareView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOrganizationUser]
 
     def post(self, request):
         expire_prepared_sessions(user=request.user)
@@ -364,7 +415,7 @@ class SessionPrepareView(APIView):
 
 
 class OwnedSessionMixin:
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOrganizationUser]
 
     def get_session(self, request, pk, *, for_update=False):
         sessions = sessions_for_user(request.user).filter(user=request.user)
@@ -383,22 +434,22 @@ class SessionStartView(OwnedSessionMixin, APIView):
             if session.started_at:
                 return Response(ClassroomSessionSerializer(session).data)
 
-            front_camera = session.session_cameras.filter(
-                camera__position=Camera.Position.FRONT,
-            ).first()
-            if front_camera:
+            camera_ids = list(
+                session.session_cameras.values_list('camera_id', flat=True),
+            )
+            if camera_ids:
                 heartbeat_cutoff = timezone.now() - timedelta(
                     seconds=max(1, settings.PIPELINE_HEARTBEAT_TIMEOUT_SECONDS),
                 )
-                front_online = CameraWorkerStatus.objects.filter(
+                online_camera_count = CameraWorkerStatus.objects.filter(
                     session=session,
-                    camera_id=front_camera.camera_id,
+                    camera_id__in=camera_ids,
                     state=CameraWorkerStatus.State.ONLINE,
                     last_heartbeat__gte=heartbeat_cutoff,
-                ).exists()
-                if not front_online:
+                ).count()
+                if online_camera_count != len(camera_ids):
                     raise serializers.ValidationError({
-                        'detail': 'Wait for the Front camera to become Online before starting.',
+                        'detail': 'Wait for all selected cameras to become Online before starting.',
                     })
 
             started_at = timezone.now()
@@ -447,7 +498,7 @@ class SessionEndView(OwnedSessionMixin, APIView):
 
 
 class SessionLifecycleView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOrganizationUser]
 
     def get_session(self, request, pk):
         return get_object_or_404(sessions_for_user(request.user), pk=pk)

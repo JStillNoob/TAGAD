@@ -134,22 +134,18 @@ class DashboardTests(TestCase):
 
         self.assertIn(response.status_code, (401, 403))
 
-    def test_system_admin_dashboard_counts_all_accessible_records(self):
+    def test_system_admin_dashboard_contains_only_platform_setup_counts(self):
         self.client.force_login(self.system_admin)
 
         response = self.client.get(self.url)
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()['counts'], {
-            'classrooms': 2,
-            'subjects': 2,
-            'cameras': 2,
-            'sessions_today': 2,
-        })
-        self.assertEqual(
-            {item['id'] for item in response.json()['recent_sessions']},
-            {self.session.pk, self.other_session.pk},
-        )
+        self.assertEqual(response.json(), {'platform': {
+            'organizations': 2,
+            'active_organizations': 2,
+            'organization_admins': 1,
+            'organizations_without_admin': 1,
+        }})
 
     def test_organization_admin_dashboard_is_limited_to_organization(self):
         self.client.force_login(self.org_admin)

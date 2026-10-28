@@ -39,16 +39,17 @@ testing before physical RTSP cameras are available.
 - [x] Document process/thread ownership and model-loading strategy.
 - [x] Define shutdown, timeout, and retry timing.
 
-### Recommended interim analytics rule
+### Superseded interim analytics rule
 
-Use Center as the only source allowed to publish official engagement summaries.
-Run Left and Right for health, coverage, and performance diagnostics only. This
-prevents double-counting without inventing an unreliable fusion algorithm.
+Center was initially the only source allowed to publish official engagement
+summaries. After physical three-camera RTSP validation, Front, Left, and Right
+were promoted to camera-attributed official sources. Seating-zone calibration
+remains required to limit duplicate observations from overlapping views.
 
 ### Verification gate
 
 - [x] Every schema-v2 request and stored row is attributed to one camera source.
-- [x] No code path can sum unfused source counts into an official total.
+- [ ] Calibrate non-overlapping seating zones before claiming unique combined student totals.
 - [x] The controller can discover work without exposing camera credentials.
 
 ## O1 — Backend orchestration API
@@ -188,7 +189,7 @@ prevents double-counting without inventing an unreliable fusion algorithm.
 - [x] The three recordings behave like isolated simulated cameras.
 - [x] Session start/end and slide changes control workers automatically.
 - [x] Failure and recovery are visible and do not cascade.
-- [x] No cross-camera double-counting reaches official analytics.
+- [ ] Calibrated seating zones limit cross-camera duplicate observations.
 - [x] Automated real-browser acceptance covers the health panel and normal
       teacher workflow.
 - [x] Remaining hardware-only work is explicitly listed under P4/P5.

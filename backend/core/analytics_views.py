@@ -1,13 +1,13 @@
 from django.db.models import Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .analytics import build_session_analytics, previous_compatible_session
 from .lifecycle import filter_lifecycle
 from .pagination import paginated_response
+from .permissions import IsOrganizationUser
 from .report_generation import analytics_csv_content
 from .session_access import sessions_for_user
 from .views import _log_activity
@@ -21,7 +21,7 @@ def _previous_session(request, session):
 
 
 class AnalyticsSessionMixin:
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOrganizationUser]
 
     def get_session(self, request, pk):
         return get_object_or_404(
@@ -37,7 +37,7 @@ class AnalyticsSessionMixin:
 
 
 class AnalyticsSessionListView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOrganizationUser]
 
     def get(self, request):
         sessions = filter_lifecycle(

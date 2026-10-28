@@ -108,7 +108,10 @@ async function renderChart() {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: context => `${context.dataset.label}: ${context.parsed.y}%` } },
+      },
       scales: {
         x: { stacked: true, grid: { display: false }, ticks: { color: labelColor } },
         y: { stacked: true, max: 100, grid: { color: gridColor }, ticks: { color: labelColor, callback: value => `${value}%` } },
@@ -229,14 +232,14 @@ onBeforeUnmount(destroyChart)
         <p class="mt-1 text-xs">{{ analytics.data_quality.explanation }}</p>
       </div>
       <div class="grid grid-cols-2 md:grid-cols-4 gap-5 mb-6">
-        <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Students Detected</div><div class="text-3xl font-bold text-navy">{{ analytics.summary.students_detected }}</div><div class="text-xs text-gray-400 mt-1">Highest simultaneous count</div></div>
-        <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Session Duration</div><div class="text-3xl font-bold text-navy">{{ formatDuration(analytics.session.duration_seconds) }}</div><div class="text-xs text-gray-400 mt-1">{{ analytics.session.slides_covered }} slides covered</div></div>
-        <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Avg. Engagement</div><div class="text-3xl font-bold" style="color:#2D3CC8">{{ percentage(analytics.summary.average_engagement) }}</div><div class="text-xs text-gray-400 mt-1"><template v-if="analytics.summary.engagement_change !== null">{{ analytics.summary.engagement_change >= 0 ? '▲' : '▼' }} {{ Math.abs(analytics.summary.engagement_change) }}% vs previous session</template><template v-else>No previous comparison</template></div></div>
-        <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Most Confused Slide</div><div class="text-2xl font-bold" style="color:#D97706">{{ analytics.insights ? `Slide ${analytics.insights.most_confusion.slide_number}` : '—' }}</div><div class="text-xs text-gray-400 mt-1">{{ analytics.insights ? `${analytics.insights.most_confusion.percentage}% confused` : 'No supported insight' }}</div></div>
-        <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Total Detections</div><div class="text-3xl font-bold text-navy">{{ analytics.summary.total_detections }}</div><div class="text-xs text-gray-400 mt-1">Across all samples</div></div>
-        <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Unclassified</div><div class="text-3xl font-bold text-navy">{{ analytics.summary.unclassified_detections }}</div><div class="text-xs text-gray-400 mt-1">Preserved as unknown, not disengaged</div></div>
-        <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Classification Coverage</div><div class="text-3xl font-bold text-navy">{{ percentage(analytics.summary.classification_coverage) }}</div><div class="text-xs text-gray-400 mt-1">{{ analytics.summary.monitoring_windows }} monitoring windows</div></div>
-        <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Avg. Confidence</div><div class="text-3xl font-bold text-navy">{{ percentage(analytics.summary.average_confidence) }}</div><div class="text-xs text-gray-400 mt-1">Detection-weighted score</div></div>
+        <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Students Detected</div><div class="text-3xl font-bold text-navy text-right">{{ analytics.summary.students_detected }}</div><div class="text-xs text-gray-400 mt-1">Highest simultaneous count</div></div>
+        <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Session Duration</div><div class="text-3xl font-bold text-navy text-right">{{ formatDuration(analytics.session.duration_seconds) }}</div><div class="text-xs text-gray-400 mt-1">{{ analytics.session.slides_covered }} slides covered</div></div>
+        <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Avg. Engagement</div><div class="text-3xl font-bold text-right" style="color:#2D3CC8">{{ percentage(analytics.summary.average_engagement) }}</div><div class="text-xs text-gray-400 mt-1"><template v-if="analytics.summary.engagement_change !== null">{{ analytics.summary.engagement_change >= 0 ? '▲' : '▼' }} {{ Math.abs(analytics.summary.engagement_change) }}% vs previous session</template><template v-else>No previous comparison</template></div></div>
+        <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Most Confused Slide</div><div class="text-2xl font-bold text-right" style="color:#D97706">{{ analytics.insights ? `Slide ${analytics.insights.most_confusion.slide_number}` : '—' }}</div><div class="text-xs text-gray-400 mt-1">{{ analytics.insights ? `${analytics.insights.most_confusion.percentage}% confused` : 'No supported insight' }}</div></div>
+        <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Total Detections</div><div class="text-3xl font-bold text-navy text-right">{{ analytics.summary.total_detections }}</div><div class="text-xs text-gray-400 mt-1">Across all samples</div></div>
+        <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Unclassified</div><div class="text-3xl font-bold text-navy text-right">{{ analytics.summary.unclassified_detections }}</div><div class="text-xs text-gray-400 mt-1">Preserved as unknown, not disengaged</div></div>
+        <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Classification Coverage</div><div class="text-3xl font-bold text-navy text-right">{{ percentage(analytics.summary.classification_coverage) }}</div><div class="text-xs text-gray-400 mt-1">{{ analytics.summary.monitoring_windows }} monitoring windows</div></div>
+        <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Avg. Confidence</div><div class="text-3xl font-bold text-navy text-right">{{ percentage(analytics.summary.average_confidence) }}</div><div class="text-xs text-gray-400 mt-1">Detection-weighted score</div></div>
       </div>
 
       <div v-if="!analytics.has_data" class="page-card p-10 mb-6 text-center">

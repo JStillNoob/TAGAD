@@ -61,8 +61,8 @@ class ControllerLifecycleTests(unittest.TestCase):
             'slide_event_id': 10,
             'cameras': [
                 {'camera_id': 1, 'position': 'front', 'official_analytics': True},
-                {'camera_id': 2, 'position': 'left', 'official_analytics': False},
-                {'camera_id': 3, 'position': 'right', 'official_analytics': False},
+                {'camera_id': 2, 'position': 'left', 'official_analytics': True},
+                {'camera_id': 3, 'position': 'right', 'official_analytics': True},
             ],
         }
 
@@ -281,7 +281,7 @@ class WorkerRecoveryTests(unittest.TestCase):
         self.assertIn('offline', states)
         self.assertEqual(states[-1], 'stopped')
 
-    def test_side_camera_never_submits_official_analytics(self):
+    def test_side_camera_submits_official_analytics(self):
         client = FakeBackendClient()
         configuration = ControllerConfiguration(
             cameras=(), poll_seconds=0.01, heartbeat_seconds=0.01,
@@ -291,7 +291,7 @@ class WorkerRecoveryTests(unittest.TestCase):
         worker = CameraWorker(
             work={
                 'session_id': 4, 'camera_id': 2, 'position': 'left',
-                'slide_event_id': 10, 'official_analytics': False,
+                'slide_event_id': 10, 'official_analytics': True,
             },
             source=CameraSource('left', 'private.mp4', 'live', False, True),
             client=client,
@@ -307,7 +307,8 @@ class WorkerRecoveryTests(unittest.TestCase):
         worker.join(1)
 
         self.assertFalse(worker.is_alive())
-        self.assertEqual(client.submissions, [])
+        self.assertEqual(len(client.submissions), 1)
+        self.assertEqual(client.submissions[0]['camera_id'], 2)
 
 
 if __name__ == '__main__':

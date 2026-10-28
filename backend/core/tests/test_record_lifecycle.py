@@ -37,10 +37,15 @@ class RecordLifecycleTests(TestCase):
             username='lifecycle.admin',
             email='lifecycle.admin@example.test',
             password='StrongPass123!',
-            role=User.Role.SYSTEM_ADMIN,
+            organization=self.organization,
+            role=User.Role.ORG_ADMIN,
             status=User.Status.ACTIVE,
-            is_staff=True,
-            is_superuser=True,
+        )
+        self.platform_admin = User.objects.create_superuser(
+            username='platform.admin',
+            email='platform.admin@example.test',
+            password='StrongPass123!',
+            role=User.Role.SYSTEM_ADMIN,
         )
         self.teacher = User.objects.create_user(
             username='lifecycle.teacher',
@@ -246,6 +251,7 @@ class RecordLifecycleTests(TestCase):
         self.assertEqual(restored.status_code, 200)
 
     def test_organization_archive_blocks_active_sessions_and_is_reversible(self):
+        self.client.force_login(self.platform_admin)
         teacher_client = Client()
         teacher_client.force_login(self.teacher)
         self.assertEqual(teacher_client.get(reverse('current-user')).status_code, 200)

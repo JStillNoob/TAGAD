@@ -7,7 +7,6 @@ from django.db import transaction
 from django.utils import timezone
 
 from .models import (
-    Camera,
     ClassroomSession,
     EngagementAlert,
     EngagementSummary,
@@ -119,13 +118,11 @@ def ingest_engagement(validated_data):
         ).first()
         if link is None:
             raise ValueError('The camera is not assigned to this session.')
-        if link.camera.position != Camera.Position.FRONT:
-            raise ValueError('Only the Front camera may publish official engagement summaries.')
     elif (
         validated_data['pipeline_version'] != SIMULATOR_PIPELINE_VERSION
         and session.session_cameras.count() > 1
     ):
-        raise ValueError('Multi-camera sessions require an attributed Front camera.')
+        raise ValueError('Multi-camera sessions require an attributed camera.')
 
     counts = validated_data['counts']
     summary, created = EngagementSummary.objects.get_or_create(

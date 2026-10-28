@@ -9,6 +9,7 @@ import ReportsView from '../views/ReportsView.vue'
 import SystemLogsView from '../views/SystemLogsView.vue'
 import SettingsView from '../views/SettingsView.vue'
 import UserManagementView from '../views/UserManagementView.vue'
+import OrganizationsView from '../views/OrganizationsView.vue'
 import ForgotPasswordView from '../views/ForgotPasswordView.vue'
 import ResetPasswordView from '../views/ResetPasswordView.vue'
 import NotFoundView from '../views/NotFoundView.vue'
@@ -22,17 +23,22 @@ export const router = createRouter({
     { path: '/forgot-password', component: ForgotPasswordView, meta: { public: true } },
     { path: '/reset-password/:uid/:token', component: ResetPasswordView, meta: { public: true, allowAuthenticated: true } },
     { path: '/dashboard',  component: DashboardView },
-    { path: '/session',    component: SessionView },
-    { path: '/analytics',  component: AnalyticsView },
-    { path: '/classes',    component: ClassesView },
+    { path: '/session',    component: SessionView, meta: { roles: ['org_admin', 'teacher'] } },
+    { path: '/analytics',  component: AnalyticsView, meta: { roles: ['org_admin', 'teacher'] } },
+    { path: '/classes',    component: ClassesView, meta: { roles: ['org_admin', 'teacher'] } },
     { path: '/students',   redirect: '/classes' },
-    { path: '/reports',    component: ReportsView },
-    { path: '/logs',       component: SystemLogsView },
+    { path: '/reports',    component: ReportsView, meta: { roles: ['org_admin', 'teacher'] } },
+    { path: '/logs',       component: SystemLogsView, meta: { roles: ['org_admin', 'teacher'] } },
     { path: '/settings',   component: SettingsView },
     {
       path: '/users',
       component: UserManagementView,
       meta: { roles: ['system_admin', 'org_admin'] },
+    },
+    {
+      path: '/organizations',
+      component: OrganizationsView,
+      meta: { roles: ['system_admin'] },
     },
     { path: '/:pathMatch(.*)*', component: NotFoundView, meta: { public: true, allowAuthenticated: true } },
   ],

@@ -102,14 +102,14 @@ class GlobalSearchTests(TestCase):
     def result_keys(self, response):
         return {(item['type'], item['id']) for item in response.json()['results']}
 
-    def test_system_admin_can_search_every_supported_type(self):
+    def test_system_admin_search_is_limited_to_platform_setup_records(self):
         response = self.search(self.system_admin, 'Alpha')
         result_types = {item['type'] for item in response.json()['results']}
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             result_types,
-            {'user', 'classroom', 'subject', 'session', 'presentation'},
+            {'organization', 'user'},
         )
         for result in response.json()['results']:
             self.assertEqual(set(result), {'type', 'id', 'title', 'subtitle', 'url'})

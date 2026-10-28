@@ -311,14 +311,20 @@ three positions, and set `TAGAD_PIPELINE_API_KEY` in the controller process to
 the same private value as backend `PIPELINE_API_KEY`. Apply Django migrations
 before starting the controller.
 
+In Classes > Camera Setup, save the physical IPv4 address for every live
+camera. The session setup page tests RTSP port 554 and displays Available or
+Offline. The controller also uses that IP to select the exact private RTSP URL;
+position alone is not sufficient when multiple classrooms have camera batches.
+
 The current CPU-safe three-camera target is 2.5 analyses/second per source. A
 20-second looping smoke test delivered 2.70–2.73 analyses/second per source,
 used one shared model bundle (about 118 MB added at load), peaked near 724 MB
 process RSS, and finished near 522 MB. This is evidence for short offline load
 operation only, not full-class stability or RTSP readiness.
 
-Front is the sole official analytics source. Left and Right health and counts
-are diagnostic and must not be combined. A stale heartbeat is displayed as
+Front, Left, and Right are official analytics sources. Their camera-attributed
+observations are combined in session analytics; calibrate seating zones to
+limit duplicate observations in overlapping views. A stale heartbeat is displayed as
 Offline after `PIPELINE_HEARTBEAT_TIMEOUT_SECONDS` (10 seconds by default), but
 does not end the session or stop another worker. Stop the controller with
 Ctrl+C; it reports Stopped and releases each source before closing the shared

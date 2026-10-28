@@ -29,11 +29,9 @@ The pipeline processes camera frames but does not retain student video. Aggregat
 ## Current hardware and pipeline state
 
 - CUDA preflight passed on the development laptop.
-- One physical TP-Link VIGI C440I 2.8 mm camera has been connected successfully over RTSP.
-- The physical Front camera reached `Online` and produced official analytics in a real session.
-- Only the Front source is authoritative for analytics.
-- Left and Right sources are diagnostic only and must remain separate to prevent double-counting.
-- Only one physical camera currently exists. Left and Right may still use simulated recordings when intentionally selected.
+- Three physical TP-Link VIGI C440I cameras have connected successfully over RTSP.
+- Front, Left, and Right are official analytics sources and publish camera-attributed summaries.
+- Session analytics combine observations from all selected cameras. Overlapping views can still observe the same student more than once until seating zones are calibrated.
 - Camera workers operate independently; one failed source must not stop the others.
 - Worker states include Starting, Online, Reconnecting, Offline, and Stopped.
 
@@ -56,7 +54,7 @@ This workflow is intentional and must not be collapsed into a single automatic s
    - Camera & Worker Health is visible;
    - no session timing, slide events, or analytics are recorded;
    - the action is **Start Session**, not **End Session**.
-5. When the Front camera is Online, the teacher presses **Start Session**.
+5. When all selected cameras are Online, the teacher presses **Start Session**.
 6. A five-second countdown appears on the same presentation screen.
 7. Only after the countdown completes does the backend set `started_at`, create the first slide event, and allow analytics submission.
 8. The same screen becomes the active session and displays **End Session**.
@@ -124,9 +122,9 @@ From the repository root:
 
 ## Recommended next goal
 
-The next useful goal is **Front Camera Pilot Stability and Calibration**:
+The next useful goal is **Three-Camera Pilot Stability and Calibration**:
 
-1. Run a real Front-camera classroom-style session for 60–90 minutes.
+1. Run a real three-camera classroom-style session for 60–90 minutes.
 2. Confirm preparation, manual start, countdown, slide navigation, end-session shutdown, and analytics generation.
 3. Monitor worker FPS, CPU, GPU, and memory for stalls or continuous growth.
 4. Disconnect and reconnect the camera network cable and verify Reconnecting to Online recovery.
@@ -134,7 +132,7 @@ The next useful goal is **Front Camera Pilot Stability and Calibration**:
 6. Compare predicted states against a small human ground-truth worksheet by timestamp.
 7. Record false classifications and camera placement/lighting limitations.
 
-Do not retrain or declare the model accurate without representative classroom recordings and ground-truth labels. After the one-camera pilot is stable, acquire and validate the physical Left and Right cameras and then repeat the load and recovery test with all three sources.
+Do not retrain or declare the model accurate without representative classroom recordings and ground-truth labels. Calibrate non-overlapping seating zones before claiming unique combined student totals.
 
 ## New-account continuation prompt
 

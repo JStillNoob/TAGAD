@@ -1,0 +1,20 @@
+from django.db import migrations, models
+
+
+class Migration(migrations.Migration):
+    dependencies = [
+        ('core', '0013_session_preparation'),
+    ]
+
+    operations = [
+        migrations.AddField(
+            model_name='camera',
+            name='ip_address',
+            field=models.GenericIPAddressField(
+                blank=True,
+                null=True,
+                protocol='IPv4',
+                unique=True,
+            ),
+        ),
+    ]

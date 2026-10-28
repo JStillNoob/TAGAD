@@ -1,6 +1,7 @@
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 
 POSITIONS = {'front', 'left', 'right'}
@@ -40,8 +41,20 @@ class ControllerConfiguration:
     reconnect_attempts: int = 3
     reconnect_backoff_seconds: float = 1.0
 
-    def source_for(self, position):
-        return next((item for item in self.cameras if item.position == position), None)
+    def source_for(self, camera):
+        if isinstance(camera, dict):
+            ip_address = str(camera.get('ip_address') or '').strip()
+            if ip_address:
+                matches = [
+                    item for item in self.cameras
+                    if urlparse(item.source).hostname == ip_address
+                ]
+                return matches[0] if len(matches) == 1 else None
+            position = camera.get('position')
+        else:
+            position = camera
+        matches = [item for item in self.cameras if item.position == position]
+        return matches[0] if len(matches) == 1 else None
 
 
 def _positive_number(data, name, default):
@@ -67,7 +80,6 @@ def load_configuration(path):
         raise CameraConfigurationError('At least one camera must be configured.')
 
     cameras = []
-    positions = set()
     for raw in raw_cameras:
         if not isinstance(raw, dict):
             raise CameraConfigurationError('Each camera configuration must be an object.')
@@ -77,9 +89,6 @@ def load_configuration(path):
         position = str(raw.get('position', '')).strip().lower()
         if position not in POSITIONS:
             raise CameraConfigurationError('Camera position must be front, left, or right.')
-        if position in positions:
-            raise CameraConfigurationError(f'Duplicate {position} camera configuration.')
-        positions.add(position)
         source_type = str(raw.get('source_type', '')).strip().lower()
         if source_type not in SOURCE_TYPES:
             raise CameraConfigurationError(f'{position} camera has an invalid source type.')
@@ -119,6 +128,9 @@ def load_configuration(path):
             position, source, source_type, loop, available,
             disconnect_after, float(disconnect_seconds),
         ))
+
+    if len({item.source for item in cameras}) != len(cameras):
+        raise CameraConfigurationError('Camera sources must be unique.')
 
     reconnect_attempts = data.get('reconnect_attempts', 3)
     if isinstance(reconnect_attempts, bool) or not isinstance(reconnect_attempts, int):

@@ -129,14 +129,14 @@ Provisional arrangement before the physical-room survey:
 
 | Position | Provisional lens | Reason |
 | --- | --- | --- |
-| Front/Center | 2.8 mm | Prioritize complete classroom-width coverage for official analytics |
+| Front/Center | 2.8 mm | Prioritize complete classroom-width coverage |
 | Left | 4 mm only if measured coverage is sufficient | Gain facial detail across the room |
 | Right | 4 mm only if measured coverage is sufficient | Gain facial detail across the room |
 
 Mixing 2.8 mm and 4 mm C440I variants is supported because each camera is an
 independent RTSP source. Keep resolution, codec, frame rate, and exposure as
-consistent as practical. The Front source remains the official analytics
-source until cross-camera duplicate handling is validated.
+consistent as practical. All three sources publish camera-attributed official
+analytics. Calibrate their seating zones to limit duplicate observations.
 
 Before choosing the final lens, record:
 

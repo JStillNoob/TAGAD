@@ -27,7 +27,7 @@ export function mergeCameraHealth(cameras, health) {
     state_label: 'Stopped',
     source_type: null,
     source_label: null,
-    official_analytics: camera.position === 'front',
+    official_analytics: true,
     reason: '',
     last_heartbeat: null,
     confirmed_students: 0,

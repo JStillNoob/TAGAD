@@ -187,13 +187,11 @@ class AnalyticsTests(TestCase):
             item['id'] for item in self.client.get(reverse('analytics-session-list')).json()['results']
         }
         self.client.force_login(self.system_admin)
-        system_ids = {
-            item['id'] for item in self.client.get(reverse('analytics-session-list')).json()['results']
-        }
+        system_response = self.client.get(reverse('analytics-session-list'))
 
         self.assertEqual(teacher_ids, [ongoing.pk, self.session.pk])
         self.assertEqual(org_ids, {self.session.pk, ongoing.pk, colleague_session.pk})
-        self.assertEqual(system_ids, {self.session.pk, ongoing.pk, colleague_session.pk, foreign_session.pk})
+        self.assertEqual(system_response.status_code, 403)
 
     def test_analytics_aggregates_revisited_slides_duration_and_engagement(self):
         previous = self.create_session(self.teacher, self.subject, minutes_ago=180)

@@ -5,7 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Classroom, User
+from .models import Classroom, Organization, User
 from .session_access import presentations_for_user, sessions_for_user, subjects_for_user
 
 
@@ -20,7 +20,7 @@ def _users_for_user(user):
         organization__archived_at__isnull=False,
     ).select_related('organization')
     if user.role == User.Role.SYSTEM_ADMIN:
-        return users
+        return users.filter(role=User.Role.ORG_ADMIN)
     if user.role == User.Role.ORG_ADMIN:
         return users.filter(organization=user.organization)
     return users.filter(pk=user.pk)
@@ -49,6 +49,35 @@ class GlobalSearchView(APIView):
         query = request.query_params.get('q', '').strip()
         if len(query) < 2:
             return Response({'results': []})
+
+        if request.user.role == User.Role.SYSTEM_ADMIN:
+            organizations = Organization.objects.filter(
+                Q(organization_name__icontains=query)
+                | Q(organization_code__icontains=query),
+                archived_at__isnull=True,
+            ).order_by('organization_name')[:RESULTS_PER_TYPE]
+            users = _users_for_user(request.user).filter(
+                Q(username__icontains=query)
+                | Q(email__icontains=query)
+                | Q(first_name__icontains=query)
+                | Q(last_name__icontains=query)
+            ).order_by('first_name', 'last_name', 'username')[:RESULTS_PER_TYPE]
+            return Response({'results': [
+                *({
+                    'type': 'organization',
+                    'id': organization.pk,
+                    'title': organization.organization_name,
+                    'subtitle': organization.organization_code,
+                    'url': _query_url('/organizations', search=organization.organization_code),
+                } for organization in organizations),
+                *({
+                    'type': 'user',
+                    'id': user.pk,
+                    'title': user.get_full_name() or user.username,
+                    'subtitle': f'{user.username} · {user.organization.organization_name}',
+                    'url': _query_url('/users', search=user.username),
+                } for user in users),
+            ]})
 
         users = _users_for_user(request.user).filter(
             Q(username__icontains=query)

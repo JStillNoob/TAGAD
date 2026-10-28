@@ -161,10 +161,10 @@ onMounted(loadReports)
     </section>
 
     <div class="grid grid-cols-2 xl:grid-cols-4 gap-5 mb-6">
-      <div class="stat-card"><p class="text-2xl font-bold text-navy">{{ reportCount }}</p><p class="text-xs text-gray-400 mt-1">Total Reports</p></div>
-      <div class="stat-card"><p class="text-2xl font-bold" style="color:#2D3CC8">{{ pdfCount }}</p><p class="text-xs text-gray-400 mt-1">Polished PDFs</p></div>
-      <div class="stat-card"><p class="text-2xl font-bold" style="color:#059669">{{ csvCount }}</p><p class="text-xs text-gray-400 mt-1">Raw CSV Exports</p></div>
-      <div class="stat-card"><p class="text-base font-bold text-navy">{{ formatDate(latestSession) }}</p><p class="text-xs text-gray-400 mt-1">Latest Reported Session</p></div>
+      <div class="stat-card"><p class="text-2xl font-bold text-navy text-right">{{ reportCount }}</p><p class="text-xs text-gray-400 mt-1">Total Reports</p></div>
+      <div class="stat-card"><p class="text-2xl font-bold text-right" style="color:#2D3CC8">{{ pdfCount }}</p><p class="text-xs text-gray-400 mt-1">Polished PDFs</p></div>
+      <div class="stat-card"><p class="text-2xl font-bold text-right" style="color:#059669">{{ csvCount }}</p><p class="text-xs text-gray-400 mt-1">Raw CSV Exports</p></div>
+      <div class="stat-card"><p class="text-base font-bold text-navy text-right">{{ formatDate(latestSession) }}</p><p class="text-xs text-gray-400 mt-1">Latest Reported Session</p></div>
     </div>
 
     <section class="page-card">

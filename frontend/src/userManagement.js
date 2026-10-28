@@ -31,6 +31,20 @@ export function fetchOrganizations(parameters = {}) {
   return apiRequest(`/api/auth/organizations/${paginationQuery(parameters)}`)
 }
 
+export function createOrganization(organization) {
+  return apiRequest('/api/auth/organizations/', {
+    method: 'POST',
+    body: JSON.stringify(organization),
+  })
+}
+
+export function updateOrganization(id, changes) {
+  return apiRequest(`/api/auth/organizations/${id}/`, {
+    method: 'PATCH',
+    body: JSON.stringify(changes),
+  })
+}
+
 export function archiveOrganization(id) {
   return apiRequest(`/api/auth/organizations/${id}/lifecycle/`, { method: 'DELETE' })
 }

@@ -109,28 +109,21 @@ class ClassManagementTests(TestCase):
         payload = {
             'classroom': self.classroom.pk,
             'camera_name': 'Front Camera',
+            'ip_address': '192.0.2.20',
             'position': 'front',
             'status': 'active',
         }
         payload.update(overrides)
         return payload
 
-    def test_system_admin_lists_all_classrooms_and_subjects(self):
+    def test_system_admin_cannot_access_organization_class_data(self):
         self.client.force_login(self.system_admin)
 
         classrooms = self.client.get(reverse('classroom-list'))
         subjects = self.client.get(reverse('subject-list'))
 
-        self.assertEqual(classrooms.status_code, 200)
-        self.assertEqual(subjects.status_code, 200)
-        self.assertEqual(
-            {item['id'] for item in classrooms.json()['results']},
-            {self.classroom.pk, self.other_classroom.pk},
-        )
-        self.assertEqual(
-            {item['id'] for item in subjects.json()['results']},
-            {self.subject.pk, self.other_subject.pk},
-        )
+        self.assertEqual(classrooms.status_code, 403)
+        self.assertEqual(subjects.status_code, 403)
 
     def test_org_admin_is_scoped_to_own_organization(self):
         self.client.force_login(self.org_admin)
@@ -202,7 +195,7 @@ class ClassManagementTests(TestCase):
         ).exists())
 
     def test_classroom_validation_rejects_bad_capacity_and_duplicate_code(self):
-        self.client.force_login(self.system_admin)
+        self.client.force_login(self.org_admin)
 
         bad_capacity = self.client.post(
             reverse('classroom-list'),
@@ -221,7 +214,7 @@ class ClassManagementTests(TestCase):
         self.assertIn('room_code', duplicate_code.json())
 
     def test_classroom_with_dependencies_is_archived_without_cascading(self):
-        self.client.force_login(self.system_admin)
+        self.client.force_login(self.org_admin)
 
         camera = Camera.objects.create(
             classroom=self.classroom,
@@ -239,7 +232,7 @@ class ClassManagementTests(TestCase):
         self.assertTrue(Camera.objects.filter(pk=camera.pk, archived_at__isnull=True).exists())
 
     def test_classroom_with_dependencies_cannot_change_organization(self):
-        self.client.force_login(self.system_admin)
+        self.client.force_login(self.org_admin)
 
         response = self.client.patch(
             reverse('classroom-detail', args=[self.classroom.pk]),
@@ -270,7 +263,7 @@ class ClassManagementTests(TestCase):
         ).exists())
 
     def test_subject_teacher_must_belong_to_classroom_organization(self):
-        self.client.force_login(self.system_admin)
+        self.client.force_login(self.org_admin)
 
         response = self.client.post(
             reverse('subject-list'),
@@ -323,7 +316,7 @@ class ClassManagementTests(TestCase):
         ).exists())
 
     def test_subject_validation_rejects_duplicate_code(self):
-        self.client.force_login(self.system_admin)
+        self.client.force_login(self.org_admin)
 
         response = self.client.post(
             reverse('subject-list'),
@@ -367,7 +360,7 @@ class ClassManagementTests(TestCase):
 
     def test_class_options_are_scoped_by_role(self):
         self.client.force_login(self.system_admin)
-        system_options = self.client.get(reverse('class-management-options')).json()
+        system_response = self.client.get(reverse('class-management-options'))
 
         self.client.force_login(self.org_admin)
         org_options = self.client.get(reverse('class-management-options')).json()
@@ -375,8 +368,7 @@ class ClassManagementTests(TestCase):
         self.client.force_login(self.teacher)
         teacher_options = self.client.get(reverse('class-management-options')).json()
 
-        self.assertNotIn('organizations', system_options)
-        self.assertNotIn('teachers', system_options)
+        self.assertEqual(system_response.status_code, 403)
         self.assertNotIn('organizations', org_options)
         self.assertNotIn('teachers', teacher_options)
         self.assertEqual(org_options['summary'], {
@@ -481,10 +473,7 @@ class ClassManagementTests(TestCase):
         self.client.force_login(self.teacher)
         teacher_response = self.client.get(reverse('camera-list'))
 
-        self.assertEqual(
-            {item['id'] for item in system_response.json()['results']},
-            {camera.pk, other_camera.pk},
-        )
+        self.assertEqual(system_response.status_code, 403)
         self.assertEqual([item['id'] for item in org_response.json()['results']], [camera.pk])
         self.assertEqual([item['id'] for item in teacher_response.json()['results']], [camera.pk])
 
@@ -537,6 +526,7 @@ class ClassManagementTests(TestCase):
 
         self.assertEqual(created.status_code, 201)
         self.assertEqual(created.json()['classroom_room_code'], self.classroom.room_code)
+        self.assertEqual(created.json()['ip_address'], '192.0.2.20')
         self.assertEqual(updated.status_code, 200)
         self.assertEqual(updated.json()['camera_name'], 'Main Front Camera')
         self.assertEqual(updated.json()['status'], 'inactive')
@@ -572,6 +562,45 @@ class ClassManagementTests(TestCase):
         self.assertIn('classroom', create_response.json())
         self.assertEqual(update_response.status_code, 404)
 
+    def test_camera_ip_address_is_unique_within_each_organization(self):
+        second_classroom = Classroom.objects.create(
+            organization=self.organization,
+            room_code='ROOM-102-IP',
+        )
+        other_org_admin = User.objects.create_user(
+            username='other.org.admin',
+            email='other.org.admin@example.com',
+            password=self.password,
+            organization=self.other_organization,
+            role=User.Role.ORG_ADMIN,
+        )
+        self.client.force_login(self.org_admin)
+        first = self.client.post(
+            reverse('camera-list'),
+            self.camera_payload(),
+            content_type='application/json',
+        )
+        duplicate_in_organization = self.client.post(
+            reverse('camera-list'),
+            self.camera_payload(
+                classroom=second_classroom.pk,
+                camera_name='Second Front Camera',
+            ),
+            content_type='application/json',
+        )
+
+        self.client.force_login(other_org_admin)
+        reused_by_other_organization = self.client.post(
+            reverse('camera-list'),
+            self.camera_payload(classroom=self.other_classroom.pk),
+            content_type='application/json',
+        )
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(duplicate_in_organization.status_code, 400)
+        self.assertIn('ip_address', duplicate_in_organization.json())
+        self.assertEqual(reused_by_other_organization.status_code, 201)
+
     def test_teacher_and_anonymous_user_cannot_mutate_cameras(self):
         self.client.force_login(self.teacher)
         teacher_response = self.client.post(
@@ -591,7 +620,7 @@ class ClassManagementTests(TestCase):
             camera_name='Front Camera',
             position='front',
         )
-        self.client.force_login(self.system_admin)
+        self.client.force_login(self.org_admin)
 
         bad_position = self.client.post(
             reverse('camera-list'),
@@ -708,8 +737,21 @@ class ClassManagementTests(TestCase):
                     'capacity': 45,
                 },
                 'cameras': [
-                    {'camera_name': 'ROOM-QUICK Front Camera', 'position': 'front'},
-                    {'camera_name': 'ROOM-QUICK Left Camera', 'position': 'left'},
+                    {
+                        'camera_name': 'ROOM-QUICK Front Camera',
+                        'ip_address': '192.0.2.60',
+                        'position': 'front',
+                    },
+                    {
+                        'camera_name': 'ROOM-QUICK Left Camera',
+                        'ip_address': '192.0.2.61',
+                        'position': 'left',
+                    },
+                    {
+                        'camera_name': 'ROOM-QUICK Right Camera',
+                        'ip_address': '192.0.2.62',
+                        'position': 'right',
+                    },
                 ],
                 'subject': {
                     'subject_code': 'IT-QUICK',
@@ -723,7 +765,15 @@ class ClassManagementTests(TestCase):
         self.assertEqual(response.status_code, 201, response.json())
         classroom = Classroom.objects.get(room_code='ROOM-QUICK')
         self.assertEqual(classroom.organization, self.organization)
-        self.assertEqual(classroom.cameras.count(), 2)
+        self.assertEqual(classroom.cameras.count(), 3)
+        self.assertEqual(
+            dict(classroom.cameras.values_list('position', 'ip_address')),
+            {
+                'front': '192.0.2.60',
+                'left': '192.0.2.61',
+                'right': '192.0.2.62',
+            },
+        )
         self.assertTrue(Subject.objects.filter(
             classroom=classroom,
             teacher=self.teacher,

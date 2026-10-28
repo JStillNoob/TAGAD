@@ -80,7 +80,7 @@ class ValidationHardeningTests(TestCase):
             self.registration_payload(contact_no='call me maybe'),
             content_type='application/json',
         )
-        self.client.force_login(self.admin)
+        self.client.force_login(self.org_admin)
         managed_user = self.client.post(
             reverse('user-list'),
             {
@@ -122,7 +122,7 @@ class ValidationHardeningTests(TestCase):
         self.assertIn('contact_no', organization.json())
 
     def test_classroom_and_subject_codes_are_normalized_and_capacity_is_bounded(self):
-        self.client.force_login(self.admin)
+        self.client.force_login(self.org_admin)
         classroom = self.client.post(
             reverse('classroom-list'),
             {
@@ -174,7 +174,7 @@ class ValidationHardeningTests(TestCase):
         self.assertIn('room_code', invalid_code.json())
 
     def test_quick_setup_applies_the_same_normalization_and_validation(self):
-        self.client.force_login(self.admin)
+        self.client.force_login(self.org_admin)
         response = self.client.post(
             reverse('class-management-quick-setup'),
             {

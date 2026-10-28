@@ -220,12 +220,12 @@ class ReportTests(TestCase):
         self.client.force_login(self.org_admin)
         org_reports = self.client.get(reverse('report-list-create')).json()['results']
         self.client.force_login(self.system_admin)
-        system_reports = self.client.get(reverse('report-list-create')).json()['results']
+        system_response = self.client.get(reverse('report-list-create'))
 
         self.assertEqual([item['id'] for item in teacher_reports], [own_report.pk])
         self.assertEqual([item['id'] for item in teacher_options], [self.session.pk])
         self.assertEqual([item['id'] for item in org_reports], [own_report.pk])
-        self.assertEqual({item['id'] for item in system_reports}, {own_report.pk, foreign_report.pk})
+        self.assertEqual(system_response.status_code, 403)
 
     def test_generation_rejects_foreign_ongoing_and_invalid_types(self):
         ongoing = self.create_session(self.teacher, self.subject, ended=False)
@@ -256,7 +256,7 @@ class ReportTests(TestCase):
         missing = self.client.get(reverse('report-download', args=[report.pk]))
 
         self.assertEqual(foreign.status_code, 404)
-        self.assertEqual(missing.status_code, 404)
+        self.assertEqual(missing.status_code, 403)
 
     def test_report_endpoints_require_authentication(self):
         list_response = self.client.get(reverse('report-list-create'))

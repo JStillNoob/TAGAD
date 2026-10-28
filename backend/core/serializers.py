@@ -97,6 +97,8 @@ class SettingsOrganizationSerializer(serializers.ModelSerializer):
 
 class ManagedOrganizationSerializer(serializers.ModelSerializer):
     is_archived = serializers.BooleanField(read_only=True)
+    contact_email = serializers.EmailField(required=False, allow_blank=True)
+    contact_no = serializers.CharField(required=False, allow_blank=True, max_length=20)
 
     class Meta:
         model = Organization
@@ -105,7 +107,26 @@ class ManagedOrganizationSerializer(serializers.ModelSerializer):
             'contact_email', 'contact_no', 'status', 'created_at',
             'archived_at', 'is_archived',
         )
-        read_only_fields = fields
+        read_only_fields = (
+            'id', 'status', 'created_at', 'archived_at', 'is_archived',
+        )
+
+    def validate_organization_code(self, value):
+        value = normalize_business_code(value)
+        organizations = Organization.objects.filter(organization_code__iexact=value)
+        if self.instance:
+            organizations = organizations.exclude(pk=self.instance.pk)
+        if organizations.exists():
+            raise serializers.ValidationError(
+                'An organization with this code already exists.',
+            )
+        return value
+
+    def validate_contact_email(self, value):
+        return value.strip().lower()
+
+    def validate_contact_no(self, value):
+        return normalize_contact_number(value)
 
 
 class ProfileSettingsSerializer(serializers.ModelSerializer):
@@ -399,6 +420,9 @@ class ManagedUserWriteSerializer(serializers.ModelSerializer):
             role = User.Role.TEACHER
             organization = request_user.organization
 
+        if request_user.role == User.Role.SYSTEM_ADMIN and role != User.Role.ORG_ADMIN:
+            errors['role'] = 'Platform Administrators can only manage Organization Administrators here.'
+
         if role == User.Role.SYSTEM_ADMIN:
             if organization is not None:
                 errors['organization'] = 'System Administrators are not assigned to an organization.'
@@ -651,6 +675,11 @@ class SubjectSerializer(serializers.ModelSerializer):
 
 
 class CameraSerializer(serializers.ModelSerializer):
+    ip_address = serializers.IPAddressField(
+        protocol='IPv4',
+        required=False,
+        allow_null=True,
+    )
     classroom_room_code = serializers.CharField(source='classroom.room_code', read_only=True)
     organization = serializers.IntegerField(source='classroom.organization_id', read_only=True)
     organization_name = serializers.CharField(
@@ -670,6 +699,7 @@ class CameraSerializer(serializers.ModelSerializer):
             'organization',
             'organization_name',
             'camera_name',
+            'ip_address',
             'position',
             'position_label',
             'status',
@@ -706,6 +736,10 @@ class CameraSerializer(serializers.ModelSerializer):
             'position',
             self.instance.position if self.instance else None,
         )
+        ip_address = attrs.get(
+            'ip_address',
+            self.instance.ip_address if self.instance else None,
+        )
         errors = {}
 
         if classroom is None:
@@ -738,6 +772,15 @@ class CameraSerializer(serializers.ModelSerializer):
                 errors['camera_name'] = 'A camera with this name already exists in the classroom.'
             if matching_positions.exists():
                 errors['position'] = 'This camera position is already configured for the classroom.'
+            if ip_address:
+                matching_ips = Camera.objects.filter(
+                    classroom__organization=classroom.organization,
+                    ip_address=ip_address,
+                )
+                if self.instance:
+                    matching_ips = matching_ips.exclude(pk=self.instance.pk)
+                if matching_ips.exists():
+                    errors['ip_address'] = 'A camera with this IP address already exists in the organization.'
 
         if self.instance and self.instance.is_archived:
             errors['detail'] = 'Restore this camera before editing it.'
@@ -761,6 +804,7 @@ class QuickSetupClassroomInputSerializer(serializers.Serializer):
 
 class QuickSetupCameraInputSerializer(serializers.Serializer):
     camera_name = serializers.CharField(max_length=50)
+    ip_address = serializers.IPAddressField(protocol='IPv4', required=False, allow_null=True)
     position = serializers.ChoiceField(choices=Camera.Position.choices)
 
 

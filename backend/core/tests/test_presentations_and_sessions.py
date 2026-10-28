@@ -117,6 +117,7 @@ class PresentationAndSessionTests(TestCase):
         self.front_camera = Camera.objects.create(
             classroom=self.classroom,
             camera_name='Front Camera',
+            ip_address='192.0.2.10',
             position=Camera.Position.FRONT,
         )
         self.left_camera = Camera.objects.create(
@@ -429,7 +430,7 @@ class PresentationAndSessionTests(TestCase):
         self.assertEqual(foreign_file.status_code, 404)
         own_file.close()
 
-    def test_organization_admin_sees_only_organization_presentations(self):
+    def test_organization_admin_is_scoped_and_system_admin_is_denied(self):
         own = self.create_ready_presentation()
         foreign = self.create_ready_presentation(user=self.other_teacher, title='Foreign Presentation')
         self.client.force_login(self.org_admin)
@@ -439,10 +440,7 @@ class PresentationAndSessionTests(TestCase):
         system_response = self.client.get(reverse('presentation-list'))
 
         self.assertEqual([item['id'] for item in org_response.json()['results']], [own.pk])
-        self.assertEqual(
-            {item['id'] for item in system_response.json()['results']},
-            {own.pk, foreign.pk},
-        )
+        self.assertEqual(system_response.status_code, 403)
 
     def test_session_subjects_are_paginated_scoped_and_only_include_active_cameras(self):
         presentation = self.create_ready_presentation()
@@ -464,6 +462,7 @@ class PresentationAndSessionTests(TestCase):
             [{
                 'id': self.front_camera.pk,
                 'name': self.front_camera.camera_name,
+                'ip_address': self.front_camera.ip_address,
                 'position': self.front_camera.position,
                 'position_label': self.front_camera.get_position_display(),
                 'status': self.front_camera.status,
@@ -476,6 +475,62 @@ class PresentationAndSessionTests(TestCase):
         failed_data = next(item for item in presentation_data if item['id'] == failed.pk)
         self.assertEqual(failed_data['processing_status'], 'failed')
         self.assertEqual(failed_data['processing_error'], 'Conversion failed.')
+
+    def test_camera_availability_checks_only_cameras_the_user_can_access(self):
+        self.client.force_login(self.teacher)
+        with patch('core.session_views.socket.create_connection') as connect:
+            response = self.client.post(
+                reverse('session-camera-availability'),
+                {'camera_ids': [self.front_camera.pk]},
+                content_type='application/json',
+            )
+
+        self.assertEqual(response.status_code, 200)
+        connect.assert_called_once_with(('192.0.2.10', 554), timeout=1)
+        self.assertEqual(response.json()['cameras'], [{
+            'camera_id': self.front_camera.pk,
+            'state': 'available',
+        }])
+
+        foreign_camera = Camera.objects.create(
+            classroom=self.other_classroom,
+            camera_name='Foreign Camera',
+            ip_address='192.0.2.11',
+            position=Camera.Position.FRONT,
+        )
+        denied = self.client.post(
+            reverse('session-camera-availability'),
+            {'camera_ids': [foreign_camera.pk]},
+            content_type='application/json',
+        )
+        self.assertEqual(denied.status_code, 404)
+
+        with patch('core.session_views.socket.create_connection', side_effect=OSError):
+            offline = self.client.post(
+                reverse('session-camera-availability'),
+                {'camera_ids': [self.front_camera.pk]},
+                content_type='application/json',
+            )
+        self.assertEqual(offline.json()['cameras'][0]['state'], 'offline')
+
+    def test_camera_without_ip_is_not_initialized(self):
+        camera = Camera.objects.create(
+            classroom=self.classroom,
+            camera_name='Right Camera',
+            position=Camera.Position.RIGHT,
+        )
+        self.client.force_login(self.teacher)
+
+        response = self.client.post(
+            reverse('session-camera-availability'),
+            {'camera_ids': [camera.pk]},
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.json()['cameras'], [{
+            'camera_id': camera.pk,
+            'state': 'uninitialized',
+        }])
 
     def test_session_subject_search_and_selected_order_remain_scoped(self):
         selected = Subject.objects.create(
@@ -565,8 +620,13 @@ class PresentationAndSessionTests(TestCase):
         self.assertIsNone(prepared_work['slide_event_id'])
         self.assertEqual(prepared_work['cameras'][0]['camera_id'], self.front_camera.pk)
 
-    def test_prepared_session_requires_fresh_online_front_camera_before_start(self):
+    def test_prepared_session_requires_a_fresh_online_assigned_camera_before_start(self):
         presentation = self.create_ready_presentation()
+        side_camera = Camera.objects.create(
+            classroom=self.classroom,
+            camera_name='Right Camera',
+            position=Camera.Position.RIGHT,
+        )
         session = ClassroomSession.objects.create(
             user=self.teacher,
             subject=self.subject,
@@ -574,11 +634,25 @@ class PresentationAndSessionTests(TestCase):
             session_date=timezone.localdate(),
             started_at=None,
         )
-        SessionCamera.objects.create(session=session, camera=self.front_camera)
+        SessionCamera.objects.bulk_create([
+            SessionCamera(session=session, camera=self.front_camera),
+            SessionCamera(session=session, camera=side_camera),
+        ])
         self.client.force_login(self.teacher)
 
         blocked = self.client.post(reverse('session-start', args=[session.pk]))
         self.assertEqual(blocked.status_code, 400)
+
+        CameraWorkerStatus.objects.create(
+            session=session,
+            camera=side_camera,
+            state=CameraWorkerStatus.State.ONLINE,
+            source_type=CameraWorkerStatus.SourceType.LIVE,
+            reason=CameraWorkerStatus.Reason.PROCESSING,
+            pipeline_version='test-pipeline',
+        )
+        still_blocked = self.client.post(reverse('session-start', args=[session.pk]))
+        self.assertEqual(still_blocked.status_code, 400)
 
         CameraWorkerStatus.objects.create(
             session=session,
@@ -838,7 +912,7 @@ class PresentationAndSessionTests(TestCase):
 
         self.assertEqual(ended.status_code, 404)
 
-    def test_session_lists_are_scoped_for_teacher_org_admin_and_system_admin(self):
+    def test_session_lists_are_scoped_and_system_admin_is_denied(self):
         presentation = self.create_ready_presentation()
         other_presentation = self.create_ready_presentation(
             user=self.other_teacher,
@@ -873,10 +947,7 @@ class PresentationAndSessionTests(TestCase):
             [item['id'] for item in org_response.json()['results']],
             [own_session.pk],
         )
-        self.assertEqual(
-            {item['id'] for item in system_response.json()['results']},
-            {own_session.pk, foreign_session.pk},
-        )
+        self.assertEqual(system_response.status_code, 403)
 
     def test_upload_and_session_mutations_require_csrf(self):
         presentation = self.create_ready_presentation()

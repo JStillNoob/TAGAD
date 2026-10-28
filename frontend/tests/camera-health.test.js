@@ -8,7 +8,7 @@ import {
 } from '../src/cameraHealth.js'
 
 
-test('camera health is merged by camera ID without combining source counts', () => {
+test('camera health marks every camera as an official source', () => {
   const result = mergeCameraHealth([
     { id: 1, name: 'Center', position: 'front' },
     { id: 2, name: 'Left', position: 'left' },
@@ -26,7 +26,7 @@ test('camera health is merged by camera ID without combining source counts', () 
   assert.equal(result[0].official_analytics, true)
   assert.equal(result[0].confirmed_students, 0)
   assert.equal(result[1].state, 'online')
-  assert.equal(result[1].official_analytics, false)
+  assert.equal(result[1].official_analytics, true)
   assert.deepEqual(result[1].counts, { engaged: 4, attentive: 3 })
 })
 

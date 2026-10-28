@@ -126,7 +126,7 @@ Offline lifecycle and health preparation is tracked separately in
 - [x] Define Front, Left, and Right simulated positions; physical coverage remains pending.
 - [x] Use one isolated logical worker per camera with a safely shared model bundle.
 - [x] Keep per-camera health and timing visible in the Live Session page.
-- [x] Prevent double-counting by allowing Front alone to publish official analytics.
+- [x] Allow Front, Left, and Right to publish camera-attributed official analytics.
 - [ ] Synchronize aggregate windows from all active cameras.
 - [x] Test degraded operation when one camera is unavailable.
 - [x] Benchmark CPU, GPU, and memory with all simulated cameras active; live
@@ -134,7 +134,7 @@ Offline lifecycle and health preparation is tracked separately in
 
 ### Verification gate
 
-- [x] The official student count is never the sum of duplicate observations.
+- [ ] Calibrate non-overlapping seating zones so students are not observed by multiple cameras.
 - [x] One failed camera does not stop the other camera workers.
 - [x] Three-camera offline throughput meets the CPU-safe 2.5 Hz target.
 

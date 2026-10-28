@@ -127,7 +127,7 @@ class EngagementIngestionTests(TestCase):
         self.assertEqual(mismatch.status_code, 400)
         self.assertEqual(unsupported.status_code, 400)
 
-    def test_schema_two_requires_an_assigned_front_camera(self):
+    def test_schema_two_accepts_each_assigned_camera(self):
         classroom = self.session.subject.classroom
         front = Camera.objects.create(
             classroom=classroom, camera_name='Front Camera', position=Camera.Position.FRONT,
@@ -142,12 +142,15 @@ class EngagementIngestionTests(TestCase):
 
         missing = self.submit(self.payload(schema_version=2))
         side = self.submit(self.payload(schema_version=2, camera_id=left.pk))
-        accepted = self.submit(self.payload(schema_version=2, camera_id=front.pk))
+        front_response = self.submit(self.payload(schema_version=2, camera_id=front.pk))
 
         self.assertEqual(missing.status_code, 400)
-        self.assertEqual(side.status_code, 400)
-        self.assertEqual(accepted.status_code, 201)
-        self.assertEqual(EngagementSummary.objects.get().camera_id, front.pk)
+        self.assertEqual(side.status_code, 201)
+        self.assertEqual(front_response.status_code, 201)
+        self.assertEqual(
+            set(EngagementSummary.objects.values_list('camera_id', flat=True)),
+            {front.pk, left.pk},
+        )
 
     def test_legacy_payload_is_rejected_for_a_real_multi_camera_session(self):
         classroom = self.session.subject.classroom
@@ -162,7 +165,7 @@ class EngagementIngestionTests(TestCase):
         response = self.submit()
 
         self.assertEqual(response.status_code, 400)
-        self.assertIn('attributed Front camera', str(response.json()))
+        self.assertIn('attributed camera', str(response.json()))
 
     def test_duplicate_ingestion_is_idempotent(self):
         payload = self.payload()
@@ -270,7 +273,8 @@ class CameraOrchestrationApiTests(TestCase):
         _, self.teacher, self.session, self.event, self.second_slide = create_context('orchestration')
         classroom = self.session.subject.classroom
         self.front = Camera.objects.create(
-            classroom=classroom, camera_name='Center', position=Camera.Position.FRONT,
+            classroom=classroom, camera_name='Center', ip_address='192.0.2.10',
+            position=Camera.Position.FRONT,
         )
         self.left = Camera.objects.create(
             classroom=classroom, camera_name='Left', position=Camera.Position.LEFT,
@@ -320,10 +324,10 @@ class CameraOrchestrationApiTests(TestCase):
         self.assertEqual(work['session_id'], self.session.pk)
         self.assertEqual(work['slide_event_id'], self.event.pk)
         self.assertEqual([item['position'] for item in work['cameras']], ['front', 'left', 'right'])
+        self.assertEqual(work['cameras'][0]['ip_address'], '192.0.2.10')
         self.assertNotIn('source_path', str(response.json()).lower())
         self.assertNotIn('source_url', str(response.json()).lower())
-        self.assertTrue(work['cameras'][0]['official_analytics'])
-        self.assertFalse(work['cameras'][1]['official_analytics'])
+        self.assertTrue(all(camera['official_analytics'] for camera in work['cameras']))
 
     def test_work_discovery_tracks_slide_and_excludes_ended_sessions(self):
         new_event = SlideEvent.objects.create(

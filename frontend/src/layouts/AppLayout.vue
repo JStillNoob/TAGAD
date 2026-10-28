@@ -39,6 +39,7 @@ const roleLabel = computed(() =>
 const canManageUsers = computed(() =>
   ["system_admin", "org_admin"].includes(currentUser.value?.role),
 );
+const isSystemAdmin = computed(() => currentUser.value?.role === "system_admin");
 
 watch(
   () => props.focusMode,
@@ -88,7 +89,7 @@ async function handleLogout() {
         <p
           class="text-xs font-semibold text-gray-400 uppercase tracking-widest px-2 mb-3"
         >
-          MENU
+          {{ isSystemAdmin ? "PLATFORM" : "MENU" }}
         </p>
 
         <RouterLink
@@ -113,6 +114,7 @@ async function handleLogout() {
         </RouterLink>
 
         <RouterLink
+          v-if="!isSystemAdmin"
           to="/session"
           :class="['nav-link', isActive('/session') ? 'active' : '']"
         >
@@ -134,6 +136,18 @@ async function handleLogout() {
         </RouterLink>
 
         <RouterLink
+          v-if="isSystemAdmin"
+          to="/organizations"
+          :class="['nav-link', isActive('/organizations') ? 'active' : '']"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15l-.75 18H5.25L4.5 3Zm3.75 4.5h.008v.008H8.25V7.5Zm0 4.5h.008v.008H8.25V12Zm3.75-4.5h.008v.008H12V7.5Zm0 4.5h.008v.008H12V12Zm3.75-4.5h.008v.008h-.008V7.5Zm0 4.5h.008v.008h-.008V12ZM9.75 21v-4.5h4.5V21" />
+          </svg>
+          Organizations
+        </RouterLink>
+
+        <RouterLink
+          v-if="!isSystemAdmin"
           to="/analytics"
           :class="['nav-link', isActive('/analytics') ? 'active' : '']"
         >
@@ -155,6 +169,7 @@ async function handleLogout() {
         </RouterLink>
 
         <RouterLink
+          v-if="!isSystemAdmin"
           to="/classes"
           :class="['nav-link', isActive('/classes') ? 'active' : '']"
         >
@@ -194,7 +209,7 @@ async function handleLogout() {
               d="M18 7.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM9 8.25a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0ZM3.75 18a5.25 5.25 0 0 1 10.5 0v.75h-10.5V18ZM14.25 18a5.23 5.23 0 0 0-1.086-3.2A4.5 4.5 0 0 1 21 17.85v.9h-6.75V18Z"
             />
           </svg>
-          User Management
+          {{ isSystemAdmin ? "Organization Admins" : "User Management" }}
         </RouterLink>
 
         <div class="pt-4 mt-3 border-t border-gray-100 space-y-0.5">
@@ -205,6 +220,7 @@ async function handleLogout() {
           </p>
 
           <RouterLink
+            v-if="!isSystemAdmin"
             to="/reports"
             :class="['nav-link', isActive('/reports') ? 'active' : '']"
           >
@@ -226,6 +242,7 @@ async function handleLogout() {
           </RouterLink>
 
           <RouterLink
+            v-if="!isSystemAdmin"
             to="/logs"
             :class="['nav-link', isActive('/logs') ? 'active' : '']"
           >
@@ -334,14 +351,6 @@ async function handleLogout() {
 
         <!-- Right actions -->
         <div class="flex items-center gap-1">
-          <a
-            v-if="currentUser?.can_access_admin"
-            href="/admin/"
-            class="mr-2 px-3 py-2 text-sm font-semibold rounded-lg text-white"
-            style="background: #1d2a3b"
-          >
-            Admin Console
-          </a>
           <ThemeToggle />
 
           <div class="w-px h-6 bg-gray-200 mx-2"></div>

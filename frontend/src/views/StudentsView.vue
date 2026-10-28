@@ -56,7 +56,7 @@ let classroomSearchTimer = null
 
 const classroomForm = reactive({ organization: '', room_code: '', building: '', capacity: '' })
 const subjectForm = reactive({ subject_code: '', subject_name: '', classroom: '', teacher: '' })
-const cameraForm = reactive({ classroom: '', camera_name: '', position: 'front', status: 'active' })
+const cameraForm = reactive({ classroom: '', camera_name: '', ip_address: '', position: 'front', status: 'active' })
 const quickForm = reactive({
   mode: 'new',
   classroom_id: '',
@@ -190,6 +190,7 @@ function resetQuickCameras() {
     selected: false,
     configured: configured.has(position.value),
     camera_name: '',
+    ip_address: '',
   }))
   const firstAvailable = quickForm.cameras.find((camera) => !camera.configured)
   if (firstAvailable) firstAvailable.selected = true
@@ -259,6 +260,7 @@ function openCameraCreate() {
   Object.assign(cameraForm, {
     classroom: classrooms.value[0]?.id || '',
     camera_name: '',
+    ip_address: '',
     position: options.value.camera_positions[0]?.value || 'front',
     status: 'active',
   })
@@ -271,6 +273,7 @@ function openCameraEdit(camera) {
   Object.assign(cameraForm, {
     classroom: camera.classroom,
     camera_name: camera.camera_name,
+    ip_address: camera.ip_address || '',
     position: camera.position,
     status: camera.status,
   })
@@ -359,7 +362,11 @@ async function saveCamera() {
   saving.value = true
   resetErrors()
   try {
-    const payload = { ...cameraForm, classroom: Number(cameraForm.classroom) }
+    const payload = {
+      ...cameraForm,
+      classroom: Number(cameraForm.classroom),
+      ip_address: cameraForm.ip_address || null,
+    }
     isEditing.value
       ? await updateCamera(editingId.value, payload)
       : await createCamera(payload)
@@ -380,6 +387,7 @@ async function saveQuickSetup() {
   const selectedCameras = quickSelectedCameras.value.map((camera) => ({
     position: camera.position,
     camera_name: camera.camera_name.trim() || generatedCameraName(camera),
+    ip_address: camera.ip_address || null,
   }))
   const payload = {
     cameras: selectedCameras,
@@ -586,10 +594,10 @@ onUnmounted(() => clearTimeout(classroomSearchTimer))
       <div v-if="pageError" class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ pageError }}</div>
 
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div class="stat-card"><p class="text-xs text-gray-400">Accessible records</p><p class="text-2xl font-bold text-navy mt-1">{{ classroomCount }}</p><p class="text-sm text-gray-600">Classrooms</p></div>
-        <div class="stat-card"><p class="text-xs text-gray-400">Accessible records</p><p class="text-2xl font-bold text-navy mt-1">{{ subjectCount }}</p><p class="text-sm text-gray-600">Subjects</p></div>
-        <div class="stat-card"><p class="text-xs text-gray-400">Combined room capacity</p><p class="text-2xl font-bold text-navy mt-1">{{ totalCapacity }}</p><p class="text-sm text-gray-600">Seats</p></div>
-        <div class="stat-card"><p class="text-xs text-gray-400">Configuration base</p><p class="text-2xl font-bold text-navy mt-1">{{ cameraCount }}</p><p class="text-sm text-gray-600">Cameras</p></div>
+        <div class="stat-card"><p class="text-xs text-gray-400">Accessible records</p><p class="text-2xl font-bold text-navy mt-1 text-right">{{ classroomCount }}</p><p class="text-sm text-gray-600">Classrooms</p></div>
+        <div class="stat-card"><p class="text-xs text-gray-400">Accessible records</p><p class="text-2xl font-bold text-navy mt-1 text-right">{{ subjectCount }}</p><p class="text-sm text-gray-600">Subjects</p></div>
+        <div class="stat-card"><p class="text-xs text-gray-400">Combined room capacity</p><p class="text-2xl font-bold text-navy mt-1 text-right">{{ totalCapacity }}</p><p class="text-sm text-gray-600">Seats</p></div>
+        <div class="stat-card"><p class="text-xs text-gray-400">Configuration base</p><p class="text-2xl font-bold text-navy mt-1 text-right">{{ cameraCount }}</p><p class="text-sm text-gray-600">Cameras</p></div>
       </div>
 
       <section class="page-card overflow-hidden" aria-labelledby="subjects-title">
@@ -646,18 +654,19 @@ onUnmounted(() => clearTimeout(classroomSearchTimer))
       <section class="page-card overflow-hidden" aria-labelledby="camera-setup-title">
         <div class="border-b border-gray-200 p-5">
           <h2 id="camera-setup-title" class="font-bold text-gray-900">Camera Setup</h2>
-          <p class="text-xs text-gray-500 mt-1">Configure classroom camera positions now; live CCTV connections will be added later.</p>
+          <p class="text-xs text-gray-500 mt-1">Assign each physical camera IP so sessions can verify and open the correct stream.</p>
         </div>
         <div v-if="!loading && !cameras.length" class="p-10 text-center text-sm text-gray-500">No cameras configured.</div>
         <div v-else class="overflow-x-auto">
           <table class="w-full text-left text-sm">
             <thead class="bg-gray-50 text-xs uppercase text-gray-500">
-              <tr><th class="px-5 py-3">Camera</th><th class="px-5 py-3">Classroom</th><th class="px-5 py-3">Position</th><th class="px-5 py-3">Status</th><th v-if="isSystemAdmin" class="px-5 py-3">Organization</th><th v-if="canManage" class="px-5 py-3 text-right">Actions</th></tr>
+              <tr><th class="px-5 py-3">Camera</th><th class="px-5 py-3">Classroom</th><th class="px-5 py-3">IP address</th><th class="px-5 py-3">Position</th><th class="px-5 py-3">Status</th><th v-if="isSystemAdmin" class="px-5 py-3">Organization</th><th v-if="canManage" class="px-5 py-3 text-right">Actions</th></tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
               <tr v-for="camera in cameras" :key="camera.id">
                 <td class="px-5 py-4 font-semibold text-gray-900">{{ camera.camera_name }} <span v-if="camera.is_archived" class="ml-2 rounded bg-gray-100 px-2 py-1 text-xs text-gray-600">Archived</span></td>
                 <td class="px-5 py-4 text-gray-600">{{ camera.classroom_room_code }}</td>
+                <td class="px-5 py-4 font-mono text-gray-600">{{ camera.ip_address || 'Not set' }}</td>
                 <td class="px-5 py-4 text-gray-600">{{ camera.position_label }}</td>
                 <td class="px-5 py-4"><span :class="camera.status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-600'" class="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold">{{ camera.status_label }}</span></td>
                 <td v-if="isSystemAdmin" class="px-5 py-4 text-gray-600">{{ camera.organization_name }}</td>
@@ -717,7 +726,9 @@ onUnmounted(() => clearTimeout(classroomSearchTimer))
               <label v-for="camera in quickForm.cameras" :key="camera.position" class="rounded-xl border p-4" :class="camera.configured ? 'border-gray-200 bg-gray-50 opacity-60' : camera.selected ? 'border-teal-400 bg-teal-50/40' : 'border-gray-200'">
                 <span class="flex items-center gap-2 text-sm font-semibold text-gray-800"><input v-model="camera.selected" type="checkbox" :disabled="camera.configured" class="h-4 w-4 rounded border-gray-300 text-teal-600">{{ camera.label }}<span v-if="camera.configured" class="ml-auto text-xs font-normal text-gray-500">Configured</span></span>
                 <input v-if="camera.selected" v-model.trim="camera.camera_name" :placeholder="generatedCameraName(camera)" maxlength="50" class="mt-3 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm">
+                <input v-if="camera.selected" v-model.trim="camera.ip_address" inputmode="decimal" placeholder="Camera IP, e.g. 192.168.0.60" class="mt-2 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm">
                 <span v-if="quickCameraError(camera, 'camera_name')" class="mt-1 block text-xs text-red-600">{{ quickCameraError(camera, 'camera_name') }}</span>
+                <span v-if="quickCameraError(camera, 'ip_address')" class="mt-1 block text-xs text-red-600">{{ quickCameraError(camera, 'ip_address') }}</span>
                 <span v-if="quickCameraError(camera, 'position')" class="mt-1 block text-xs text-red-600">{{ quickCameraError(camera, 'position') }}</span>
               </label>
             </div>
@@ -776,6 +787,7 @@ onUnmounted(() => clearTimeout(classroomSearchTimer))
           <div v-if="formError" class="sm:col-span-2 rounded-lg bg-red-50 p-3 text-sm text-red-700">{{ formError }}</div>
           <label class="sm:col-span-2 text-sm font-medium text-gray-700">Classroom *<SearchablePicker v-model="cameraForm.classroom" :loader="loadClassroomOptions" required placeholder="Select classroom" select-label="Camera classroom" search-label="Search camera classrooms" search-placeholder="Search room, building, or organization…" /><span v-if="firstError('classroom')" class="mt-1 block text-xs text-red-600">{{ firstError('classroom') }}</span></label>
           <label class="sm:col-span-2 text-sm font-medium text-gray-700">Camera name *<input v-model.trim="cameraForm.camera_name" required maxlength="50" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span v-if="firstError('camera_name')" class="mt-1 block text-xs text-red-600">{{ firstError('camera_name') }}</span></label>
+          <label class="sm:col-span-2 text-sm font-medium text-gray-700">Camera IP address<input v-model.trim="cameraForm.ip_address" inputmode="decimal" placeholder="e.g. 192.168.0.60" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5"><span class="mt-1 block text-xs font-normal text-gray-500">Required for live availability checks and exact RTSP source mapping.</span><span v-if="firstError('ip_address')" class="mt-1 block text-xs text-red-600">{{ firstError('ip_address') }}</span></label>
           <label class="text-sm font-medium text-gray-700">Position *<select v-model="cameraForm.position" required class="mt-1.5 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5"><option v-for="position in options.camera_positions" :key="position.value" :value="position.value">{{ position.label }}</option></select><span v-if="firstError('position')" class="mt-1 block text-xs text-red-600">{{ firstError('position') }}</span></label>
           <label class="text-sm font-medium text-gray-700">Status *<select v-model="cameraForm.status" required class="mt-1.5 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5"><option v-for="status in options.camera_statuses" :key="status.value" :value="status.value">{{ status.label }}</option></select><span v-if="firstError('status')" class="mt-1 block text-xs text-red-600">{{ firstError('status') }}</span></label>
         </div>

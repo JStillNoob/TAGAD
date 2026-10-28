@@ -9,7 +9,7 @@ from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import serializers, status
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -19,7 +19,8 @@ from .engagement_pipeline import (
     ingest_engagement,
     summary_payload,
 )
-from .models import Camera, CameraWorkerStatus, ClassroomSession, SessionCamera, SlideEvent
+from .models import CameraWorkerStatus, ClassroomSession, SessionCamera, SlideEvent
+from .permissions import IsOrganizationUser
 from .session_access import sessions_for_user
 from .session_preparation import expire_prepared_sessions
 
@@ -182,9 +183,10 @@ def _camera_runtime_payload(link, record, *, now=None):
     return {
         'camera_id': link.camera_id,
         'name': link.camera.camera_name,
+        'ip_address': link.camera.ip_address,
         'position': link.camera.position,
         'position_label': link.camera.get_position_display(),
-        'official_analytics': link.camera.position == Camera.Position.FRONT,
+        'official_analytics': True,
         'state': state_value,
         'state_label': CameraWorkerStatus.State(state_value).label,
         'source_type': record.source_type if record else None,
@@ -383,7 +385,7 @@ class CameraWorkerHeartbeatView(APIView):
 
 
 class SessionCameraHealthView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOrganizationUser]
 
     def get(self, request, pk):
         expire_prepared_sessions(user=request.user)
@@ -402,7 +404,7 @@ class SessionCameraHealthView(APIView):
 
 
 class EngagementSimulatorView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOrganizationUser]
 
     def post(self, request, pk):
         if not settings.DEBUG or not settings.ENABLE_PIPELINE_SIMULATOR:

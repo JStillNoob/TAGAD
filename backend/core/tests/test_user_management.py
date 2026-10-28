@@ -67,7 +67,7 @@ class UserManagementTests(TestCase):
             {'system_admin', 'org_admin', 'teacher'},
         )
 
-    def test_system_admin_can_list_users_across_organizations(self):
+    def test_system_admin_lists_only_organization_administrators(self):
         self.client.force_login(self.system_admin)
 
         response = self.client.get(self.list_url)
@@ -75,12 +75,7 @@ class UserManagementTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             {item['id'] for item in response.json()['results']},
-            {
-                self.system_admin.pk,
-                self.org_admin.pk,
-                self.teacher.pk,
-                self.other_teacher.pk,
-            },
+            {self.org_admin.pk},
         )
 
     def test_org_admin_lists_only_teachers_in_their_organization(self):
@@ -128,6 +123,27 @@ class UserManagementTests(TestCase):
         ).exists())
         self.assertNotIn('password', response.json())
 
+    def test_system_admin_cannot_manage_teacher_accounts(self):
+        self.client.force_login(self.system_admin)
+
+        response = self.client.post(
+            self.list_url,
+            self.user_payload(),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('role', response.json())
+
+    def test_legacy_django_admin_does_not_list_teacher_accounts(self):
+        self.client.force_login(self.system_admin)
+
+        response = self.client.get(reverse('admin:core_user_changelist'))
+
+        self.assertContains(response, self.org_admin.username)
+        self.assertNotContains(response, self.teacher.username)
+        self.assertNotContains(response, self.other_teacher.username)
+
     def test_org_admin_can_only_create_teacher_in_own_organization(self):
         self.client.force_login(self.org_admin)
 
@@ -167,7 +183,7 @@ class UserManagementTests(TestCase):
 
         missing_org = self.client.post(
             self.list_url,
-            self.user_payload(organization=None),
+            self.user_payload(organization=None, role=get_user_model().Role.ORG_ADMIN),
             content_type='application/json',
         )
         duplicate_username = self.client.post(
@@ -175,6 +191,7 @@ class UserManagementTests(TestCase):
             self.user_payload(
                 username=self.teacher.username.upper(),
                 email='unique@example.com',
+                role=get_user_model().Role.ORG_ADMIN,
             ),
             content_type='application/json',
         )
@@ -183,6 +200,7 @@ class UserManagementTests(TestCase):
             self.user_payload(
                 username='unique.teacher',
                 email=self.teacher.email.upper(),
+                role=get_user_model().Role.ORG_ADMIN,
             ),
             content_type='application/json',
         )
@@ -194,12 +212,12 @@ class UserManagementTests(TestCase):
         self.assertEqual(duplicate_email.status_code, 400)
         self.assertIn('email', duplicate_email.json())
 
-    def test_system_admin_can_update_user_and_password(self):
+    def test_system_admin_can_update_organization_admin_and_password(self):
         self.client.force_login(self.system_admin)
         new_password = 'Another-strong-managed-password-2026'
 
         response = self.client.patch(
-            reverse('user-detail', args=[self.teacher.pk]),
+            reverse('user-detail', args=[self.org_admin.pk]),
             {
                 'first_name': 'Updated',
                 'role': get_user_model().Role.ORG_ADMIN,
@@ -209,10 +227,10 @@ class UserManagementTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.teacher.refresh_from_db()
-        self.assertEqual(self.teacher.first_name, 'Updated')
-        self.assertEqual(self.teacher.role, get_user_model().Role.ORG_ADMIN)
-        self.assertTrue(self.teacher.check_password(new_password))
+        self.org_admin.refresh_from_db()
+        self.assertEqual(self.org_admin.first_name, 'Updated')
+        self.assertEqual(self.org_admin.role, get_user_model().Role.ORG_ADMIN)
+        self.assertTrue(self.org_admin.check_password(new_password))
         self.assertTrue(SystemLog.objects.filter(
             user=self.system_admin,
             activity__contains='Updated user account',
@@ -248,13 +266,10 @@ class UserManagementTests(TestCase):
             content_type='application/json',
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn('role', response.json())
-        self.assertIn('status', response.json())
-        self.assertIn('organization', response.json())
+        self.assertEqual(response.status_code, 404)
 
     def test_delete_deactivates_account_without_removing_it(self):
-        self.client.force_login(self.system_admin)
+        self.client.force_login(self.org_admin)
 
         response = self.client.delete(reverse('user-detail', args=[self.teacher.pk]))
 
@@ -263,7 +278,7 @@ class UserManagementTests(TestCase):
         self.assertEqual(self.teacher.status, get_user_model().Status.INACTIVE)
         self.assertFalse(self.teacher.is_active)
         self.assertTrue(SystemLog.objects.filter(
-            user=self.system_admin,
+            user=self.org_admin,
             activity__contains='Deactivated user account',
         ).exists())
 
@@ -271,7 +286,7 @@ class UserManagementTests(TestCase):
         self.teacher.status = get_user_model().Status.INACTIVE
         self.teacher.is_active = False
         self.teacher.save(update_fields=['status', 'is_active'])
-        self.client.force_login(self.system_admin)
+        self.client.force_login(self.org_admin)
 
         response = self.client.patch(
             reverse('user-detail', args=[self.teacher.pk]),
@@ -283,7 +298,7 @@ class UserManagementTests(TestCase):
         self.teacher.refresh_from_db()
         self.assertTrue(self.teacher.is_active)
         self.assertTrue(SystemLog.objects.filter(
-            user=self.system_admin,
+            user=self.org_admin,
             activity__contains='Reactivated user account',
         ).exists())
 
@@ -292,7 +307,7 @@ class UserManagementTests(TestCase):
 
         response = self.client.delete(reverse('user-detail', args=[self.system_admin.pk]))
 
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 404)
         self.system_admin.refresh_from_db()
         self.assertTrue(self.system_admin.is_active)
 
@@ -317,10 +332,85 @@ class UserManagementTests(TestCase):
 
         self.assertEqual(
             {item['value'] for item in system_options['roles']},
-            set(get_user_model().Role.values),
+            {get_user_model().Role.ORG_ADMIN},
         )
         self.assertEqual(org_options['roles'], [
             {'value': get_user_model().Role.TEACHER, 'label': 'Teacher'},
         ])
         self.assertNotIn('organizations', system_options)
         self.assertNotIn('organizations', org_options)
+
+    def test_system_admin_can_create_and_update_organization(self):
+        self.client.force_login(self.system_admin)
+
+        created = self.client.post(
+            reverse('organization-list'),
+            {
+                'organization_name': 'New University',
+                'organization_code': ' new-u ',
+                'address': 'Davao City',
+                'contact_email': 'ADMIN@EXAMPLE.COM',
+                'contact_no': '+639171234568',
+            },
+            content_type='application/json',
+        )
+
+        self.assertEqual(created.status_code, 201)
+        organization = Organization.objects.get(pk=created.json()['id'])
+        self.assertEqual(organization.organization_code, 'NEW-U')
+        self.assertEqual(organization.contact_email, 'admin@example.com')
+
+        updated = self.client.patch(
+            reverse('organization-detail', args=[organization.pk]),
+            {'organization_name': 'Renamed University'},
+            content_type='application/json',
+        )
+
+        self.assertEqual(updated.status_code, 200)
+        organization.refresh_from_db()
+        self.assertEqual(organization.organization_name, 'Renamed University')
+        self.assertTrue(SystemLog.objects.filter(
+            user=self.system_admin,
+            activity__contains='Created organization',
+        ).exists())
+        self.assertTrue(SystemLog.objects.filter(
+            user=self.system_admin,
+            activity__contains='Updated organization',
+        ).exists())
+
+    def test_organization_admin_cannot_create_or_update_organizations(self):
+        self.client.force_login(self.org_admin)
+
+        created = self.client.post(
+            reverse('organization-list'),
+            {
+                'organization_name': 'Forbidden University',
+                'organization_code': 'FORBIDDEN-U',
+            },
+            content_type='application/json',
+        )
+        updated = self.client.patch(
+            reverse('organization-detail', args=[self.organization.pk]),
+            {'organization_name': 'Forbidden Rename'},
+            content_type='application/json',
+        )
+
+        self.assertEqual(created.status_code, 403)
+        self.assertEqual(updated.status_code, 403)
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.organization_name, 'Tagad University')
+
+    def test_organization_code_is_unique_without_case_sensitivity(self):
+        self.client.force_login(self.system_admin)
+
+        response = self.client.post(
+            reverse('organization-list'),
+            {
+                'organization_name': 'Duplicate University',
+                'organization_code': 'tagad-u',
+            },
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('organization_code', response.json())

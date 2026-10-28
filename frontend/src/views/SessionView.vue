@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { currentUser } from '../auth'
 import {
   availableCameraIds,
+  cameraReadinessClass,
   cameraReadinessLabel,
 } from '../cameraSelection'
 import {
@@ -24,6 +25,7 @@ import PaginationControls from '../components/PaginationControls.vue'
 import {
   archiveClassroomSession,
   cancelPreparedClassroomSession,
+  checkSessionCameraAvailability,
   deletePresentation as deletePresentationRequest,
   endClassroomSession,
   enterSessionSlide,
@@ -87,9 +89,12 @@ const simulationRunning = ref(false)
 const countdownSeconds = ref(null)
 const cameraHealth = ref([])
 const cameraHealthStatus = ref('idle')
+const cameraAvailability = ref({})
 let timer = null
 let cameraHealthTimer = null
 let cameraHealthRequestActive = false
+let cameraAvailabilityTimer = null
+let cameraAvailabilityRequestActive = false
 let simulationTimer = null
 let engagementSocket = null
 let socketReconnectTimer = null
@@ -126,13 +131,13 @@ const currentSlide = computed(() => slides.value[currentSlideIndex.value] || nul
 const activeCameras = computed(() => mergeCameraHealth(
   monitoredSession.value?.cameras || [], cameraHealth.value,
 ))
-const preparedFrontCamera = computed(() => (
-  preparedSession.value?.cameras?.find(camera => camera.position === 'front') || null
-))
-const preparedFrontOnline = computed(() => (
-  !preparedFrontCamera.value
-  || cameraHealth.value.some(camera => (
-    camera.camera_id === preparedFrontCamera.value.id && camera.state === 'online'
+const preparedHasCameras = computed(() => Boolean(preparedSession.value?.cameras?.length))
+const preparedCamerasReady = computed(() => (
+  !preparedHasCameras.value
+  || preparedSession.value.cameras.every(camera => (
+    cameraHealth.value.some(health => (
+      health.camera_id === camera.id && health.state === 'online'
+    ))
   ))
 ))
 const simulatorAvailable = computed(() => (
@@ -140,16 +145,20 @@ const simulatorAvailable = computed(() => (
   && Boolean(activeSession.value)
   && !(activeSession.value?.cameras || []).length
 ))
+const selectedCamerasAvailable = computed(() => selectedCameraIds.value.every(
+  cameraId => cameraAvailability.value[cameraId] === 'available',
+))
 const canPrepare = computed(() => (
   selectedSubject.value
   && selectedPresentation.value?.processing_status === 'ready'
   && !preparedSession.value
   && !activeSession.value
   && !actionBusy.value
+  && selectedCamerasAvailable.value
 ))
 const canStartPrepared = computed(() => (
   preparedSession.value
-  && preparedFrontOnline.value
+  && preparedCamerasReady.value
   && !actionBusy.value
   && countdownSeconds.value === null
 ))
@@ -311,6 +320,7 @@ function stopCameraHealth() {
 }
 
 function activateSession(session) {
+  stopCameraAvailability()
   preparedSession.value = null
   activeSession.value = session
   currentSlideIndex.value = restoreSlideIndex(session)
@@ -320,6 +330,7 @@ function activateSession(session) {
 }
 
 function activatePreparation(session) {
+  stopCameraAvailability()
   activeSession.value = null
   preparedSession.value = session
   currentSlideIndex.value = 0
@@ -340,6 +351,41 @@ function selectAllCameras() {
 
 function clearCameraSelection() {
   selectedCameraIds.value = []
+}
+
+function stopCameraAvailability() {
+  clearInterval(cameraAvailabilityTimer)
+  cameraAvailabilityTimer = null
+}
+
+async function refreshCameraAvailability() {
+  const cameraIds = availableCameraIds(selectedSubject.value)
+  if (!cameraIds.length || cameraAvailabilityRequestActive) return
+  cameraAvailabilityRequestActive = true
+  for (const cameraId of cameraIds) {
+    if (!cameraAvailability.value[cameraId]) cameraAvailability.value[cameraId] = 'checking'
+  }
+  try {
+    const response = await checkSessionCameraAvailability(cameraIds)
+    const currentIds = new Set(availableCameraIds(selectedSubject.value))
+    for (const camera of response.cameras) {
+      if (currentIds.has(camera.camera_id)) {
+        cameraAvailability.value[camera.camera_id] = camera.state
+      }
+    }
+  } catch {
+    for (const cameraId of cameraIds) cameraAvailability.value[cameraId] = 'offline'
+  } finally {
+    cameraAvailabilityRequestActive = false
+  }
+}
+
+function startCameraAvailability() {
+  stopCameraAvailability()
+  cameraAvailability.value = {}
+  if (!selectedSubject.value) return
+  refreshCameraAvailability()
+  cameraAvailabilityTimer = setInterval(refreshCameraAvailability, 5000)
 }
 
 async function loadPage() {
@@ -615,7 +661,7 @@ function beginPreparedSession() {
 }
 
 async function startPreparedSession() {
-  if (!preparedSession.value || !preparedFrontOnline.value || actionBusy.value) return
+  if (!preparedSession.value || !preparedCamerasReady.value || actionBusy.value) return
   actionBusy.value = true
   error.value = ''
   const sessionId = preparedSession.value.id
@@ -739,7 +785,12 @@ function formatHeartbeat(value) {
 }
 
 watch(selectedSubjectId, () => {
-  if (!preparedSession.value) selectAllCameras()
+  if (preparedSession.value || activeSession.value) {
+    stopCameraAvailability()
+    return
+  }
+  selectAllCameras()
+  startCameraAvailability()
 })
 watch(() => [route.query.subject, route.query.presentation], applyRouteSelection)
 watch(subjectSearch, () => {
@@ -763,6 +814,7 @@ onUnmounted(() => {
   cancelSessionCountdown()
   disconnectEngagement()
   stopCameraHealth()
+  stopCameraAvailability()
 })
 </script>
 
@@ -818,7 +870,7 @@ onUnmounted(() => {
             <div class="flex items-center justify-between gap-3">
               <div>
                 <h3 class="text-sm font-semibold text-navy">Session cameras</h3>
-                <p class="text-xs text-gray-400 mt-1">Selected cameras open before the session starts. Camera video is never shown.</p>
+                <p class="text-xs text-gray-400 mt-1">Connections are checked automatically before preparation. Camera video is never shown.</p>
               </div>
               <span v-if="availableCameras.length" class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">{{ selectedCameraIds.length }}/{{ availableCameras.length }} selected</span>
               <span v-else class="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">No active cameras</span>
@@ -832,9 +884,10 @@ onUnmounted(() => {
                 <label v-for="camera in availableCameras" :key="camera.id" class="flex items-center gap-3 rounded-lg border p-3 text-sm" :class="selectedCameraIds.includes(camera.id) ? 'border-indigo-300 bg-indigo-50/50 text-navy' : 'border-gray-200 text-gray-600'">
                   <input v-model="selectedCameraIds" type="checkbox" :value="camera.id" class="accent-brand">
                   <span class="min-w-0 flex-1"><strong class="block truncate font-semibold">{{ camera.name }}</strong><small class="block text-gray-400">{{ camera.position_label || camera.position }}</small></span>
-                  <span class="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-500">{{ cameraReadinessLabel(camera) }}</span>
+                  <span class="rounded-full px-2 py-0.5 text-[11px] font-semibold" :class="cameraReadinessClass(cameraAvailability[camera.id])">{{ cameraReadinessLabel(cameraAvailability[camera.id]) }}</span>
                 </label>
               </div>
+              <p v-if="selectedCameraIds.length && !selectedCamerasAvailable" class="mt-3 text-xs text-amber-700">Prepare Session unlocks when every selected camera is Available. Add a missing IP address in Classes, or clear a camera you do not want to use.</p>
             </template>
             <div v-else-if="selectedSubject" class="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
               This classroom has no active cameras. You can still start the session and use the development simulator.
@@ -1007,7 +1060,7 @@ onUnmounted(() => {
               <span v-if="monitoredSession.cameras.length" class="rounded-full bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">{{ cameraHealthStatus === 'ready' ? 'Live status' : cameraHealthStatus === 'unavailable' ? 'Status unavailable' : 'Loading status' }}</span>
               <span v-else class="rounded-full bg-violet-50 px-2 py-1 text-xs font-semibold text-violet-700">Simulator only</span>
             </div>
-            <p class="mt-3 text-xs leading-5 text-gray-500">Each source runs independently. Front publishes official analytics; side-camera counts are diagnostics only.</p>
+            <p class="mt-3 text-xs leading-5 text-gray-500">Each selected camera runs independently and contributes official analytics.</p>
             <div v-if="cameraHealthStatus === 'unavailable'" class="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
               Worker health is temporarily unavailable. Slides and session controls are unaffected.
             </div>
@@ -1019,7 +1072,7 @@ onUnmounted(() => {
                 </div>
                 <div class="mt-2 flex flex-wrap gap-1.5">
                   <span v-if="camera.source_type" class="rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-semibold text-violet-700">{{ camera.source_label }}</span>
-                  <span class="rounded-full px-2 py-0.5 text-[11px] font-semibold" :class="camera.official_analytics ? 'bg-indigo-50 text-indigo-700' : 'bg-gray-100 text-gray-600'">{{ camera.official_analytics ? 'Official analytics' : 'Diagnostics only' }}</span>
+                  <span class="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">Official analytics</span>
                 </div>
                 <p class="mt-2 text-xs text-gray-500">{{ cameraStateMessage(camera) }}</p>
                 <p class="mt-1 text-[11px] text-gray-400">{{ formatHeartbeat(camera.last_heartbeat) }}</p>
@@ -1027,8 +1080,8 @@ onUnmounted(() => {
               </div>
             </div>
             <div v-else class="mt-4 rounded-lg border border-violet-200 bg-violet-50 p-3"><p class="text-xs font-semibold text-violet-700">No cameras linked</p><p class="mt-1 text-xs leading-5 text-violet-600">This session can continue with simulated engagement data.</p></div>
-            <div v-if="preparedFrontCamera && !preparedFrontOnline" class="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">Start Session unlocks when the Front camera becomes Online.</div>
-            <div v-else-if="preparedFrontCamera" class="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">Front camera is Online. You can start the session.</div>
+            <div v-if="preparedHasCameras && !preparedCamerasReady" class="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">Start Session unlocks when all selected cameras become Online.</div>
+            <div v-else-if="preparedHasCameras" class="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">All selected cameras are Online. You can start the session.</div>
           </section>
 
           <section v-if="activeSession" class="page-card p-5">

@@ -198,6 +198,11 @@ class Camera(ArchiveableModel):
 
     classroom = models.ForeignKey(Classroom, on_delete=models.CASCADE, related_name='cameras')
     camera_name = models.CharField(max_length=50)
+    ip_address = models.GenericIPAddressField(
+        protocol='IPv4',
+        null=True,
+        blank=True,
+    )
     position = models.CharField(max_length=30, choices=Position.choices)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
 

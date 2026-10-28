@@ -10,6 +10,13 @@ export function fetchSessionSubjectPage(parameters = {}) {
   return apiRequest(`/api/auth/session-subjects/${paginationQuery(parameters)}`)
 }
 
+export function checkSessionCameraAvailability(cameraIds) {
+  return apiRequest('/api/auth/session-cameras/availability/', {
+    method: 'POST',
+    body: JSON.stringify({ camera_ids: cameraIds }),
+  })
+}
+
 export function fetchPresentationPage(parameters = {}) {
   return apiRequest(`/api/auth/presentations/${paginationQuery(parameters)}`)
 }

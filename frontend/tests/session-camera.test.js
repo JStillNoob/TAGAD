@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   availableCameraIds,
+  cameraReadinessClass,
   cameraReadinessLabel,
 } from '../src/cameraSelection.js'
 
@@ -23,7 +24,11 @@ test('a subject without configured cameras remains valid', () => {
   assert.deepEqual(availableCameraIds(null), [])
 })
 
-test('camera selection labels configuration without opening video', () => {
-  assert.equal(cameraReadinessLabel({ status: 'active' }), 'Configured')
-  assert.equal(cameraReadinessLabel({ status: 'inactive' }), 'Inactive')
+test('camera selection labels live connection checks without showing video', () => {
+  assert.equal(cameraReadinessLabel('checking'), 'Checking')
+  assert.equal(cameraReadinessLabel('available'), 'Available')
+  assert.equal(cameraReadinessLabel('offline'), 'Offline')
+  assert.equal(cameraReadinessLabel('uninitialized'), 'Not initialized')
+  assert.match(cameraReadinessClass('available'), /emerald/)
+  assert.match(cameraReadinessClass('offline'), /red/)
 })

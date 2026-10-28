@@ -35,14 +35,18 @@ class CameraConfigurationTests(unittest.TestCase):
             self.assertFalse(configuration.source_for('left').available)
             self.assertIsNone(configuration.source_for('right'))
 
-    def test_rejects_duplicate_positions_and_unknown_options(self):
+    def test_duplicate_positions_require_ip_mapping_and_unknown_options_are_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             duplicate = self.write_config(directory, {'cameras': [
-                {'position': 'front', 'source': 'one.mp4', 'source_type': 'simulated'},
-                {'position': 'front', 'source': 'two.mp4', 'source_type': 'simulated'},
+                {'position': 'front', 'source': 'rtsp://camera-one/stream', 'source_type': 'live'},
+                {'position': 'front', 'source': 'rtsp://camera-two/stream', 'source_type': 'live'},
             ]})
-            with self.assertRaisesRegex(CameraConfigurationError, 'Duplicate front'):
-                load_configuration(duplicate)
+            configuration = load_configuration(duplicate)
+            self.assertIsNone(configuration.source_for('front'))
+            self.assertEqual(
+                configuration.source_for({'position': 'front', 'ip_address': 'camera-two'}).source,
+                'rtsp://camera-two/stream',
+            )
 
             unknown = self.write_config(directory, {
                 'secret_path': 'must-not-be-accepted',

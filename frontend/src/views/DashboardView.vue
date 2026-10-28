@@ -5,6 +5,12 @@ import { fetchDashboardSummary } from '../dashboard'
 import AppLayout from '../layouts/AppLayout.vue'
 
 const dashboard = ref({
+  platform: {
+    organizations: 0,
+    active_organizations: 0,
+    organization_admins: 0,
+    organizations_without_admin: 0,
+  },
   counts: { classrooms: 0, subjects: 0, cameras: 0, sessions_today: 0 },
   recent_sessions: [],
   engagement: {
@@ -24,6 +30,7 @@ const displayName = computed(() => {
     .join(' ')
   return fullName || currentUser.value?.username || 'User'
 })
+const isSystemAdmin = computed(() => currentUser.value?.role === 'system_admin')
 
 const greeting = computed(() => {
   const hour = new Date().getHours()
@@ -37,6 +44,13 @@ const statCards = computed(() => [
   { label: 'Subjects', value: dashboard.value.counts.subjects, hint: 'Available to your account' },
   { label: 'Cameras', value: dashboard.value.counts.cameras, hint: 'Configured classroom cameras' },
   { label: 'Sessions Today', value: dashboard.value.counts.sessions_today, hint: 'Recorded today' },
+])
+
+const platformCards = computed(() => [
+  { label: 'Organizations', value: dashboard.value.platform.organizations, hint: 'Organizations not archived' },
+  { label: 'Active Organizations', value: dashboard.value.platform.active_organizations, hint: 'Currently enabled' },
+  { label: 'Organization Admins', value: dashboard.value.platform.organization_admins, hint: 'Active organization administrators' },
+  { label: 'Need an Administrator', value: dashboard.value.platform.organizations_without_admin, hint: 'Active organizations without an administrator' },
 ])
 
 const engagementBars = computed(() => {
@@ -82,10 +96,10 @@ onMounted(loadDashboard)
   <AppLayout page-title="Dashboard">
     <div class="flex items-center justify-between gap-4 mb-6">
       <div>
-        <h2 class="text-xl font-bold text-navy">{{ greeting }}, {{ displayName }} 👋</h2>
-        <p class="text-sm text-gray-400 mt-0.5">Here is the latest data available to your account.</p>
+        <h2 class="text-xl font-bold text-navy">{{ isSystemAdmin ? 'Platform overview' : `${greeting}, ${displayName} 👋` }}</h2>
+        <p class="text-sm text-gray-400 mt-0.5">{{ isSystemAdmin ? 'Create organizations and assign their administrators.' : 'Here is the latest data available to your account.' }}</p>
       </div>
-      <RouterLink to="/session" class="btn-primary">Start New Session</RouterLink>
+      <RouterLink :to="isSystemAdmin ? '/organizations' : '/session'" class="btn-primary">{{ isSystemAdmin ? 'Manage Organizations' : 'Start New Session' }}</RouterLink>
     </div>
 
     <div v-if="error" class="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -97,11 +111,32 @@ onMounted(loadDashboard)
       Loading dashboard…
     </div>
 
+    <template v-else-if="isSystemAdmin">
+      <div class="grid grid-cols-2 xl:grid-cols-4 gap-5 mb-6">
+        <div v-for="card in platformCards" :key="card.label" class="stat-card">
+          <p class="text-sm font-medium text-gray-500 mb-5">{{ card.label }}</p>
+          <h3 class="text-3xl font-bold text-navy mb-1 text-right">{{ card.value }}</h3>
+          <p class="text-xs text-gray-400">{{ card.hint }}</p>
+        </div>
+      </div>
+
+      <div class="grid gap-5 md:grid-cols-2">
+        <RouterLink to="/organizations" class="page-card p-6 hover:border-brand transition-colors">
+          <h3 class="text-base font-semibold text-navy">Organizations</h3>
+          <p class="mt-2 text-sm text-gray-500">Add, update, archive, or restore organizations.</p>
+        </RouterLink>
+        <RouterLink to="/users" class="page-card p-6 hover:border-brand transition-colors">
+          <h3 class="text-base font-semibold text-navy">Organization Administrators</h3>
+          <p class="mt-2 text-sm text-gray-500">Create the administrator account responsible for each organization’s setup.</p>
+        </RouterLink>
+      </div>
+    </template>
+
     <template v-else>
       <div class="grid grid-cols-2 xl:grid-cols-4 gap-5 mb-6">
         <div v-for="card in statCards" :key="card.label" class="stat-card">
           <p class="text-sm font-medium text-gray-500 mb-5">{{ card.label }}</p>
-          <h3 class="text-3xl font-bold text-navy mb-1">{{ card.value }}</h3>
+          <h3 class="text-3xl font-bold text-navy mb-1 text-right">{{ card.value }}</h3>
           <p class="text-xs text-gray-400">{{ card.hint }}</p>
         </div>
       </div>
@@ -183,9 +218,12 @@ onMounted(loadDashboard)
           <div class="page-card p-5">
             <h3 class="text-sm font-semibold text-navy mb-4">Quick Actions</h3>
             <div class="space-y-1 text-sm">
-              <RouterLink to="/session" class="block rounded-lg px-3 py-2.5 text-gray-600 hover:bg-gray-50">Start Monitoring</RouterLink>
+              <RouterLink v-if="!isSystemAdmin" to="/session" class="block rounded-lg px-3 py-2.5 text-gray-600 hover:bg-gray-50">Start Monitoring</RouterLink>
+              <RouterLink v-if="isSystemAdmin" to="/organizations" class="block rounded-lg px-3 py-2.5 text-gray-600 hover:bg-gray-50">Manage Organizations</RouterLink>
+              <RouterLink v-if="isSystemAdmin" to="/users" class="block rounded-lg px-3 py-2.5 text-gray-600 hover:bg-gray-50">Manage Users</RouterLink>
               <RouterLink to="/reports" class="block rounded-lg px-3 py-2.5 text-gray-600 hover:bg-gray-50">View Reports</RouterLink>
               <RouterLink to="/classes" class="block rounded-lg px-3 py-2.5 text-gray-600 hover:bg-gray-50">View Classes</RouterLink>
+              <RouterLink v-if="isSystemAdmin" to="/logs" class="block rounded-lg px-3 py-2.5 text-gray-600 hover:bg-gray-50">Review System Logs</RouterLink>
             </div>
           </div>
         </div>

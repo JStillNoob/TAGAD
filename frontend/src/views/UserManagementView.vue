@@ -7,13 +7,10 @@ import SearchablePicker from '../components/SearchablePicker.vue'
 import { currentUser } from '../auth'
 import { fetchConfigurationOptions } from '../configurationOptions'
 import {
-  archiveOrganization,
   createManagedUser,
   deactivateManagedUser,
   fetchManagedUsers,
-  fetchOrganizations,
   fetchUserOptions,
-  restoreOrganization,
   updateManagedUser,
 } from '../userManagement'
 
@@ -34,12 +31,6 @@ const roleFilter = ref('')
 const statusFilter = ref('')
 const showForm = ref(false)
 const editingId = ref(null)
-const organizations = ref([])
-const organizationCount = ref(0)
-const organizationPage = ref(1)
-const organizationLifecycle = ref('active')
-const organizationSearch = ref('')
-const organizationLoading = ref(false)
 
 const blankForm = () => ({
   username: '',
@@ -74,7 +65,9 @@ function labelFor(items, value) {
 
 function resetForm() {
   Object.assign(form, blankForm())
-  if (!isSystemAdmin.value) {
+  if (isSystemAdmin.value) {
+    form.role = 'org_admin'
+  } else {
     form.role = 'teacher'
     form.organization = currentUser.value?.organization || ''
   }
@@ -137,53 +130,6 @@ async function loadPage() {
   }
 }
 
-async function loadOrganizations(page = organizationPage.value) {
-  if (!isSystemAdmin.value) return
-  organizationLoading.value = true
-  pageError.value = ''
-  try {
-    const data = await fetchOrganizations({
-      page,
-      search: organizationSearch.value.trim(),
-      lifecycle: organizationLifecycle.value,
-    })
-    organizations.value = data.results
-    organizationCount.value = data.count
-    organizationPage.value = page
-  } catch (error) {
-    pageError.value = error.message
-  } finally {
-    organizationLoading.value = false
-  }
-}
-
-async function archiveOrganizationRecord(organization) {
-  if (!window.confirm(`Archive ${organization.organization_name}? Its users will be unable to sign in until it is restored.`)) return
-  pageError.value = ''
-  try {
-    await archiveOrganization(organization.id)
-    await loadOrganizations(organizationPage.value)
-  } catch (error) {
-    pageError.value = error.message
-  }
-}
-
-async function restoreOrganizationRecord(organization) {
-  pageError.value = ''
-  try {
-    await restoreOrganization(organization.id)
-    await loadOrganizations(organizationPage.value)
-  } catch (error) {
-    pageError.value = error.message
-  }
-}
-
-let organizationFilterTimer = null
-watch([organizationSearch, organizationLifecycle], () => {
-  clearTimeout(organizationFilterTimer)
-  organizationFilterTimer = setTimeout(() => loadOrganizations(1), 250)
-})
-
 function changePage(page) {
   userPage.value = page
   loadPage()
@@ -243,26 +189,24 @@ async function reactivateUser(user) {
 
 onMounted(async () => {
   await loadPage()
-  await loadOrganizations()
 })
 onUnmounted(() => {
   clearTimeout(filterTimer)
-  clearTimeout(organizationFilterTimer)
 })
 </script>
 
 <template>
-  <AppLayout page-title="User Management">
+  <AppLayout :page-title="isSystemAdmin ? 'Organization Admins' : 'User Management'">
     <div class="max-w-7xl mx-auto space-y-6">
       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 class="text-2xl font-bold text-gray-900">User Management</h1>
+          <h1 class="text-2xl font-bold text-gray-900">{{ isSystemAdmin ? 'Organization Administrators' : 'User Management' }}</h1>
           <p class="text-sm text-gray-500 mt-1">
-            {{ isSystemAdmin ? 'Manage accounts across all organizations.' : 'Manage teachers in your organization.' }}
+            {{ isSystemAdmin ? 'Assign an administrator to each organization.' : 'Manage teachers in your organization.' }}
           </p>
         </div>
         <button type="button" class="btn-primary justify-center disabled:cursor-not-allowed disabled:opacity-60" :disabled="loading" @click="openCreate">
-          <span class="text-lg leading-none">+</span> Add User
+          <span class="text-lg leading-none">+</span> {{ isSystemAdmin ? 'Add Organization Admin' : 'Add User' }}
         </button>
       </div>
 
@@ -332,35 +276,6 @@ onUnmounted(() => {
         <PaginationControls :page="userPage" :count="userCount" :page-size="pageSize" :disabled="loading" @change="changePage" />
       </section>
 
-      <section v-if="isSystemAdmin" class="page-card overflow-hidden">
-        <div class="grid gap-3 border-b border-gray-200 p-5 md:grid-cols-[1fr_180px] md:items-end">
-          <label class="text-xs font-semibold text-gray-600">Organizations
-            <input v-model="organizationSearch" type="search" placeholder="Search organization name or code…" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-normal outline-none focus:border-indigo-500" />
-          </label>
-          <label class="text-xs font-semibold text-gray-600">Records
-            <select v-model="organizationLifecycle" class="mt-1.5 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-normal">
-              <option value="active">Active</option>
-              <option value="archived">Archived</option>
-              <option value="all">All</option>
-            </select>
-          </label>
-        </div>
-        <div v-if="organizationLoading" class="p-8 text-center text-sm text-gray-500">Loading organizations…</div>
-        <div v-else-if="!organizations.length" class="p-8 text-center text-sm text-gray-500">No organizations match these filters.</div>
-        <div v-else class="overflow-x-auto">
-          <table class="w-full text-left text-sm">
-            <thead class="bg-gray-50 text-xs uppercase tracking-wide text-gray-500"><tr><th class="px-5 py-3">Organization</th><th class="px-5 py-3">Status</th><th class="px-5 py-3 text-right">Actions</th></tr></thead>
-            <tbody class="divide-y divide-gray-100">
-              <tr v-for="organization in organizations" :key="organization.id">
-                <td class="px-5 py-4"><p class="font-semibold text-gray-900">{{ organization.organization_name }}</p><p class="mt-0.5 text-xs text-gray-500">{{ organization.organization_code }}</p></td>
-                <td class="px-5 py-4"><span class="rounded-full px-2.5 py-1 text-xs font-semibold" :class="organization.is_archived ? 'bg-gray-100 text-gray-600' : 'bg-emerald-50 text-emerald-700'">{{ organization.is_archived ? 'Archived' : 'Active' }}</span></td>
-                <td class="px-5 py-4 text-right"><button v-if="!organization.is_archived" type="button" class="rounded-lg border border-amber-200 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-50" @click="archiveOrganizationRecord(organization)">Archive</button><button v-else type="button" class="rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50" @click="restoreOrganizationRecord(organization)">Restore</button></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <PaginationControls :page="organizationPage" :count="organizationCount" :page-size="pageSize" :disabled="organizationLoading" @change="loadOrganizations" />
-      </section>
     </div>
 
     <div v-if="showForm" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4" @click.self="closeForm">

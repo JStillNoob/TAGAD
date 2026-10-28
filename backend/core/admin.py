@@ -36,3 +36,11 @@ class TagadUserAdmin(UserAdmin):
     )
     list_display = UserAdmin.list_display + ('role', 'organization', 'status')
     list_filter = UserAdmin.list_filter + ('role', 'status', 'organization')
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).filter(role=User.Role.ORG_ADMIN)
+
+    def formfield_for_choice_field(self, db_field, request, **kwargs):
+        if db_field.name == 'role':
+            kwargs['choices'] = [(User.Role.ORG_ADMIN, User.Role.ORG_ADMIN.label)]
+        return super().formfield_for_choice_field(db_field, request, **kwargs)

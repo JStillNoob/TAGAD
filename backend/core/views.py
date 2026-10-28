@@ -28,7 +28,7 @@ from .lifecycle import (
     invalidate_user_sessions,
     restore_record,
 )
-from .permissions import CanAccessClassManagement, CanManageUsers
+from .permissions import CanAccessClassManagement, CanManageUsers, IsOrganizationUser
 from .pagination import StandardResultsSetPagination, paginated_response
 from .auth_throttling import (
     clear_login_failures,
@@ -222,7 +222,7 @@ def _log_activity(request, activity):
 
 
 class SystemLogListView(generics.ListAPIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOrganizationUser]
     serializer_class = SystemLogSerializer
     pagination_class = StandardResultsSetPagination
 
@@ -233,7 +233,7 @@ class SystemLogListView(generics.ListAPIView):
         user = self.request.user
         if user.role == User.Role.ORG_ADMIN:
             logs = logs.filter(user__organization=user.organization)
-        elif user.role == User.Role.TEACHER:
+        else:
             logs = logs.filter(user=user)
 
         search = self.request.query_params.get('search', '').strip()
@@ -268,7 +268,9 @@ class UserManagementMixin:
         users = User.objects.select_related('organization').order_by(
             'first_name', 'last_name', 'username',
         )
-        if self.request.user.role == User.Role.ORG_ADMIN:
+        if self.request.user.role == User.Role.SYSTEM_ADMIN:
+            users = users.filter(role=User.Role.ORG_ADMIN)
+        else:
             users = users.filter(
                 organization=self.request.user.organization,
                 role=User.Role.TEACHER,
@@ -365,6 +367,44 @@ class OrganizationListView(APIView):
             lambda page: ManagedOrganizationSerializer(page, many=True).data,
         )
 
+    def post(self, request):
+        if request.user.role != User.Role.SYSTEM_ADMIN:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        serializer = ManagedOrganizationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        organization = serializer.save()
+        _log_activity(
+            request,
+            f'Created organization {organization.pk} ({organization.organization_code}).',
+        )
+        return Response(
+            ManagedOrganizationSerializer(organization).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class OrganizationDetailView(APIView):
+    permission_classes = [CanManageUsers]
+
+    def patch(self, request, pk):
+        if request.user.role != User.Role.SYSTEM_ADMIN:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        organization = Organization.objects.filter(pk=pk).first()
+        if organization is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        serializer = ManagedOrganizationSerializer(
+            organization,
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        organization = serializer.save()
+        _log_activity(
+            request,
+            f'Updated organization {organization.pk} ({organization.organization_code}).',
+        )
+        return Response(ManagedOrganizationSerializer(organization).data)
+
 
 class OrganizationLifecycleView(APIView):
     permission_classes = [CanManageUsers]
@@ -418,7 +458,7 @@ class UserOptionsView(APIView):
 
     def get(self, request):
         roles = (
-            User.Role.choices
+            [(User.Role.ORG_ADMIN, User.Role.ORG_ADMIN.label)]
             if request.user.role == User.Role.SYSTEM_ADMIN
             else [(User.Role.TEACHER, User.Role.TEACHER.label)]
         )
@@ -452,6 +492,8 @@ class ConfigurationLookupView(APIView):
 
     def get(self, request):
         kind = request.query_params.get('kind', '').strip()
+        if request.user.role == User.Role.SYSTEM_ADMIN and kind != 'organizations':
+            return Response(status=status.HTTP_403_FORBIDDEN)
         search = request.query_params.get('search', '').strip()
         selected = request.query_params.get('selected', '').strip() if not search else ''
         organization = request.query_params.get('organization', '').strip()
@@ -984,19 +1026,26 @@ class DashboardSummaryView(APIView):
     def get(self, request):
         user = request.user
         if user.role == User.Role.SYSTEM_ADMIN:
-            classrooms = Classroom.objects.filter(archived_at__isnull=True)
-            subjects = Subject.objects.filter(
-                archived_at__isnull=True,
-                classroom__archived_at__isnull=True,
-                classroom__organization__archived_at__isnull=True,
+            organizations = Organization.objects.filter(archived_at__isnull=True)
+            active_organizations = organizations.filter(status=Organization.Status.ACTIVE)
+            active_org_admins = User.objects.filter(
+                role=User.Role.ORG_ADMIN,
+                status=User.Status.ACTIVE,
+                is_active=True,
+                organization__in=active_organizations,
             )
-            cameras = Camera.objects.filter(
-                archived_at__isnull=True,
-                classroom__archived_at__isnull=True,
-                classroom__organization__archived_at__isnull=True,
-            )
-            sessions = ClassroomSession.objects.filter(archived_at__isnull=True)
-        elif user.role == User.Role.ORG_ADMIN:
+            return Response({
+                'platform': {
+                    'organizations': organizations.count(),
+                    'active_organizations': active_organizations.count(),
+                    'organization_admins': active_org_admins.count(),
+                    'organizations_without_admin': active_organizations.exclude(
+                        users__in=active_org_admins,
+                    ).count(),
+                },
+            })
+
+        if user.role == User.Role.ORG_ADMIN:
             classrooms = Classroom.objects.filter(
                 organization=user.organization,
                 archived_at__isnull=True,
