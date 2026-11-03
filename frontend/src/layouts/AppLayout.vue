@@ -39,7 +39,7 @@ const canManageUsers = computed(() =>
   ["system_admin", "org_admin"].includes(currentUser.value?.role),
 );
 const isSystemAdmin = computed(() => currentUser.value?.role === "system_admin");
-const usePastelShell = computed(() => ["system_admin", "teacher"].includes(currentUser.value?.role));
+const usePastelShell = computed(() => ["system_admin", "org_admin", "teacher"].includes(currentUser.value?.role));
 
 watch(
   () => props.focusMode,

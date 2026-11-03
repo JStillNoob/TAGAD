@@ -46,7 +46,7 @@ import {
 
 const route = useRoute()
 const router = useRouter()
-const isTeacher = computed(() => currentUser.value?.role === 'teacher')
+const isTeacher = computed(() => ['org_admin', 'teacher'].includes(currentUser.value?.role))
 
 const loading = ref(true)
 const error = ref('')
@@ -795,7 +795,7 @@ watch(selectedSubjectId, () => {
     stopCameraAvailability()
     return
   }
-  clearCameraSelection()
+  selectAllCameras()
   startCameraAvailability()
 })
 watch(() => [route.query.subject, route.query.presentation], applyRouteSelection)
@@ -839,7 +839,7 @@ onUnmounted(() => {
     </div>
 
     <template v-else-if="!activeSession && !preparedSession">
-    <section v-if="isTeacher" class="teacher-session-hero page-card">
+    <section v-if="isTeacher" class="app-page-hero teacher-session-hero page-card">
       <div class="teacher-session-hero-copy">
         <h1>Live Session</h1>
         <p>Prepare, upload, and manage your classroom session and presentations.</p>

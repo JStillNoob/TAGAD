@@ -47,7 +47,7 @@ export { expect }
 export async function login(page, identity) {
   await page.goto('/')
   await page.getByLabel('Email or Username').fill(identity)
-  await page.getByLabel('Password').fill(password)
+  await page.getByLabel('Password', { exact: true }).fill(password)
   await page.locator('form').getByRole('button', { name: 'Start Session' }).click()
   await expect(page).toHaveURL(/\/dashboard$/)
 }

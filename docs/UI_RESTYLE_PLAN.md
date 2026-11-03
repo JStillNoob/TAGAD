@@ -1,5 +1,7 @@
 # TAGAD UI Visual Restyle Plan
 
+> The restyle described here has been implemented. Use `docs/UI_STYLE_GUIDE.md` as the canonical reference for future UI changes.
+
 ## Scope for this pass
 
 Restyle the existing frontend to reflect the pastel SaaS reference. Keep every existing element, route, control, label, chart, data point, interaction, and screen in its current place and order. Change only colors, font families and weights, spacing, radius, shadows, and visual states. Adjust control padding and height where needed to reach a 44px target without changing the workflow.

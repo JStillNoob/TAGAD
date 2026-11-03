@@ -4,7 +4,7 @@
     <div class="login-frame">
       <section class="login-brand-panel" aria-labelledby="login-brand-title">
         <div class="login-brand-content">
-          <img src="/illustrations/login-classroom.svg" alt="" aria-hidden="true" class="login-illustration">
+          <img src="/illustrations/login-classroom.png" alt="" aria-hidden="true" class="login-illustration">
           <h1 id="login-brand-title" class="login-brand-title">TAGAD</h1>
           <p class="login-brand-accent">AI Classroom Monitoring System</p>
           <p class="login-brand-copy">Real-time multimodal descriptive analytics for monitoring classroom engagement.</p>

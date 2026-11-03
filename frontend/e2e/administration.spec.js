@@ -13,7 +13,7 @@ test('organization administrator manages a user and completes Quick Setup', asyn
   await userDialog.getByLabel('Username').fill('e2e.managed.teacher')
   await userDialog.getByLabel('Email address').fill('e2e.managed.teacher@example.test')
   await userDialog.getByLabel('Contact number').fill('invalid-phone')
-  await userDialog.getByLabel('Password').fill('Orbit!Stone#5931')
+  await userDialog.getByLabel('Password', { exact: true }).fill('Orbit!Stone#5931')
   await userDialog.getByRole('button', { name: 'Create User' }).click()
   await expect(
     userDialog.getByLabel('Contact number').locator('..').getByText(/Enter 5–15 digits/),

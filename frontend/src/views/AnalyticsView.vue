@@ -1,9 +1,13 @@
 <script setup>
-import { onMounted, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { Chart, registerables } from 'chart.js'
 import AppLayout from '../layouts/AppLayout.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import { analyticsCsvUrl, fetchAnalyticsSessions, fetchSessionAnalytics } from '../analytics'
+import { currentTheme } from '../theme'
+
+Chart.register(...registerables)
 
 const route = useRoute()
 
@@ -22,6 +26,8 @@ const selectedSessionId = ref('')
 const analytics = ref(null)
 const loading = ref(true)
 const error = ref('')
+const chartCanvas = ref(null)
+let chart = null
 
 function formatDate(value) {
   return value ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(`${value}T00:00:00`)) : '—'
@@ -74,38 +80,67 @@ function engagementColor(value) {
   return 'var(--text-muted)'
 }
 
-function donutStyle(slide) {
-  if (!slide.has_data) return { background: 'var(--border)' }
-  const values = categories.map(category => Math.max(0, Number(slide[category.key]) || 0))
-  const total = values.reduce((sum, value) => sum + value, 0)
-  if (!total) return { background: 'var(--border)' }
-  let position = 0
-  const segments = categories.flatMap((category, index) => {
-    if (!values[index]) return []
-    const start = position
-    position += values[index] / total * 100
-    return `${category.color} ${start}% ${position}%`
-  })
-  return { background: `conic-gradient(from -90deg, ${segments.join(', ')})` }
+function destroyChart() {
+  if (chart) chart.destroy()
+  chart = null
 }
 
-function donutLabel(slide) {
-  if (!slide.has_data) return `Slide ${slide.slide_number}: no classified engagement data`
-  return `Slide ${slide.slide_number}: ${categories.map(category => `${category.label} ${percentage(slide[category.key])}`).join(', ')}`
+async function renderChart() {
+  destroyChart()
+  if (!analytics.value?.has_data || !analytics.value.slides.length) return
+  await nextTick()
+  if (!chartCanvas.value) return
+  const dark = currentTheme.value === 'dark'
+  chart = new Chart(chartCanvas.value, {
+    type: 'bar',
+    data: {
+      labels: analytics.value.slides.map(slide => `Slide ${slide.slide_number}`),
+      datasets: categories.map(category => ({
+        label: category.label,
+        data: analytics.value.slides.map(slide => slide[category.key] ?? 0),
+        backgroundColor: category.color,
+        categoryPercentage: 0.68,
+        barPercentage: 0.82,
+      })),
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: context => `${context.dataset.label}: ${context.parsed.y}%` } },
+      },
+      scales: {
+        x: { stacked: true, grid: { display: false }, ticks: { color: dark ? '#CBD5E1' : '#323958' } },
+        y: {
+          stacked: true,
+          beginAtZero: true,
+          max: 100,
+          grid: { color: dark ? '#293548' : '#E7EBFA' },
+          ticks: { color: dark ? '#CBD5E1' : '#323958', callback: value => `${value}%` },
+        },
+      },
+    },
+  })
 }
 
 async function loadAnalytics() {
   if (!selectedSessionId.value) return
   loading.value = true
   error.value = ''
+  let shouldRender = false
   try {
     analytics.value = await fetchSessionAnalytics(selectedSessionId.value)
+    shouldRender = true
   } catch (requestError) {
     analytics.value = null
+    destroyChart()
     error.value = requestError.message || 'Unable to load session analytics.'
   } finally {
     loading.value = false
   }
+  if (shouldRender) await renderChart()
 }
 
 async function loadSessions(page = sessionPage.value) {
@@ -137,7 +172,9 @@ watch(() => route.query.session, async (value) => {
     await loadAnalytics()
   }
 })
+watch(currentTheme, renderChart)
 onMounted(loadSessions)
+onBeforeUnmount(destroyChart)
 </script>
 
 <template>
@@ -217,24 +254,6 @@ onMounted(loadSessions)
       </div>
 
       <div v-else class="analytics-data-sections mb-6">
-        <section class="page-card analytics-chart-panel p-6">
-          <div class="analytics-chart-heading">
-            <div><h3 class="font-semibold text-navy">Engagement per Slide</h3><p class="text-xs text-gray-400 mt-0.5">Distribution among classified samples</p></div>
-            <div class="analytics-chart-legend" aria-label="Engagement categories">
-              <span v-for="category in categories" :key="category.key" class="analytics-legend-item"><span class="analytics-legend-dot" :style="{ background: category.color }" aria-hidden="true"></span>{{ category.label }}</span>
-            </div>
-          </div>
-          <div class="analytics-donut-grid">
-            <div v-for="slide in analytics.slides" :key="slide.slide_id" class="analytics-donut-card">
-              <div class="analytics-donut-title">Slide {{ slide.slide_number }}</div>
-              <div class="analytics-donut-topic" :title="slide.title">{{ slide.title }}</div>
-              <div class="analytics-donut" :style="donutStyle(slide)" role="img" :aria-label="donutLabel(slide)"><span class="analytics-donut-hole" aria-hidden="true"></span></div>
-              <div class="analytics-donut-score">{{ slide.has_data ? percentage(slide.engaged) : '—' }}</div>
-              <div class="analytics-donut-caption">{{ slide.has_data ? 'Engaged share' : 'No classified data' }}</div>
-            </div>
-          </div>
-        </section>
-
         <section class="page-card analytics-insights p-5">
           <h3 class="font-semibold text-sm mb-4 text-navy">Key Insights</h3>
           <div v-if="analytics.insights" class="analytics-insight-grid">
@@ -248,12 +267,26 @@ onMounted(loadSessions)
             <p class="mt-1 text-xs leading-5">{{ analytics.data_quality.explanation }}</p>
           </div>
         </section>
+
+        <section class="page-card analytics-chart-panel p-6">
+          <div class="analytics-chart-heading">
+            <div><h3 class="font-semibold text-navy">Engagement per Slide</h3><p class="text-xs text-gray-400 mt-0.5">Stacked percentage breakdown among classified samples</p></div>
+            <div class="analytics-chart-legend" aria-label="Engagement categories">
+              <span v-for="category in categories" :key="category.key" class="analytics-legend-item"><span class="analytics-legend-dot" :style="{ background: category.color }" aria-hidden="true"></span>{{ category.label }}</span>
+            </div>
+          </div>
+          <div class="analytics-bar-scroll">
+            <div class="analytics-bar-chart">
+              <canvas ref="chartCanvas" aria-label="Stacked engagement percentages for each slide" role="img"></canvas>
+            </div>
+          </div>
+        </section>
       </div>
 
       <div class="page-card analytics-breakdown">
         <div class="analytics-breakdown-heading px-6 py-5 border-b border-gray-50"><span class="analytics-breakdown-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18M8 9v11" /></svg></span><h3 class="font-semibold text-sm text-navy">Slide-by-Slide Breakdown</h3></div>
         <div class="overflow-x-auto">
-          <table class="w-full text-sm">
+          <table class="app-data-table w-full text-sm">
             <thead><tr class="border-b border-gray-50"><th v-for="heading in ['Slide', 'Topic', 'Timestamp', 'Duration', 'Detected', 'Unclassified', 'Engaged', 'Attentive', 'Confused', 'Bored', 'Disengaged']" :key="heading" class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">{{ heading }}</th></tr></thead>
             <tbody class="divide-y divide-gray-50">
               <tr v-if="!analytics.slides.length"><td colspan="11" class="px-6 py-10 text-center text-gray-400">No slide activity was recorded.</td></tr>

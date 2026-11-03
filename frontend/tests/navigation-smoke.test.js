@@ -37,6 +37,31 @@ test('system administrators have a dedicated platform management UI', () => {
   assert.match(userManagementSource, /Assign an administrator to each organization/)
 })
 
+test('organization administrators and teachers share the new organization UI', () => {
+  assert.match(layoutSource, /\["system_admin", "org_admin", "teacher"\]\.includes/)
+  assert.match(dashboardSource, /\['org_admin', 'teacher'\]\.includes/)
+  assert.match(sessionSource, /\['org_admin', 'teacher'\]\.includes/)
+  assert.match(layoutSource, /\["system_admin", "org_admin"\]\.includes/)
+  assert.match(routerSource, /path: '\/users'[\s\S]*roles: \['system_admin', 'org_admin'\]/)
+})
+
+test('page heroes share the compact Live Session dimensions', () => {
+  assert.match(dashboardSource, /app-page-hero teacher-dashboard-hero/)
+  assert.match(sessionSource, /app-page-hero teacher-session-hero/)
+  assert.match(classesSource, /app-page-hero classes-hero/)
+  assert.match(stylesSource, /\.app-page-hero \{ height: 190px; min-height: 190px; padding: 24px 32px; \}/)
+  assert.match(stylesSource, /\.app-page-hero > img \{ max-height: 225px; \}/)
+})
+
+test('record tables keep rows visually distinct from their card background', () => {
+  assert.match(dashboardSource, /class="app-data-table/)
+  assert.match(analyticsSource, /class="app-data-table/)
+  assert.match(classesSource, /class="app-data-table classes-data-table/)
+  assert.match(stylesSource, /\.app-data-table thead \{ background:/)
+  assert.match(stylesSource, /\.app-data-table tbody tr:nth-child\(even\)/)
+  assert.match(stylesSource, /\.app-data-table tbody td \{ border-bottom:/)
+})
+
 test('live session connects to engagement WebSocket and exposes the development simulator', () => {
   assert.match(sessionSource, /new WebSocket/)
   assert.match(sessionSource, /simulateEngagement/)
@@ -44,8 +69,8 @@ test('live session connects to engagement WebSocket and exposes the development 
   assert.match(sessionSource, /setInterval\(emitSimulation, 2000\)/)
 })
 
-test('live session defaults to no cameras and provides bulk controls', () => {
-  assert.match(sessionSource, /clearCameraSelection\(\)\s+startCameraAvailability\(\)/)
+test('live session automatically selects classroom cameras and provides bulk controls', () => {
+  assert.match(sessionSource, /selectAllCameras\(\)\s+startCameraAvailability\(\)/)
   assert.match(sessionSource, /checkSessionCameraAvailability/)
   assert.match(sessionSource, /selectedCamerasAvailable/)
   assert.match(sessionSource, /@click="selectAllCameras">Select all/)
@@ -84,7 +109,7 @@ test('summary card values are right-aligned', () => {
   assert.match(analyticsSource, /class="analytics-stat-value(?: analytics-stat-value-alert)?"/)
   assert.match(stylesSource, /\.analytics-stat-value \{[^}]*text-align: right;/)
 
-  for (const source of [reportsSource, classesSource]) {
+  for (const source of [reportsSource]) {
     const cardLines = source.split('\n').filter(line => line.includes('class="stat-card"'))
     assert.ok(cardLines.length > 0)
     for (const line of cardLines) {
@@ -93,16 +118,20 @@ test('summary card values are right-aligned', () => {
       for (const [, classes] of valueClasses) assert.match(classes, /\btext-right\b/)
     }
   }
+  assert.match(classesSource, /class="stat-card classes-stat-card"[\s\S]*?<strong class="text-right">/)
+  assert.match(stylesSource, /\.classes-stat-card strong \{[^}]*text-align: right;/)
 })
 
-test('ending a session opens analytics and the slide rings use its data', () => {
+test('ending a session opens analytics and the stacked bar chart uses its data', () => {
   assert.match(sessionSource, /window\.confirm/)
   assert.match(sessionSource, /endSessionWithRecovery/)
   assert.match(sessionSource, /router\.push\(\{ path: '\/analytics', query: \{ session: String\(ended\.id\) \} \}\)/)
 
   assert.match(analyticsSource, /analytics\.value = await fetchSessionAnalytics\(selectedSessionId\.value\)/)
-  assert.match(analyticsSource, /v-for="slide in analytics\.slides"/)
-  assert.match(analyticsSource, /:style="donutStyle\(slide\)"/)
+  assert.match(analyticsSource, /analytics\.value\.slides\.map\(slide => `Slide \$\{slide\.slide_number\}`\)/)
+  assert.match(analyticsSource, /type: 'bar'/)
+  assert.match(analyticsSource, /tooltip: \{ callbacks: \{ label: context => `\$\{context\.dataset\.label\}: \$\{context\.parsed\.y\}%` \} \}/)
+  assert.match(analyticsSource, /<canvas ref="chartCanvas"/)
 })
 
 test('live monitoring reports reconnecting and unavailable states', () => {
@@ -134,6 +163,9 @@ test('dashboard report action opens reports and unknown routes have a 404 page',
 
 test('class management exposes one-step room, camera, and subject setup', () => {
   assert.match(classManagementSource, /class-management\/quick-setup\//)
+  assert.match(classesSource, /src="\/illustrations\/classes-hero\.png"/)
+  assert.match(classesSource, /class="app-page-hero classes-hero page-card"/)
+  assert.match(stylesSource, /\.classes-hero/)
   assert.match(classesSource, />Quick Setup</)
   assert.match(classesSource, /v-for="camera in quickForm\.cameras"/)
   assert.match(classesSource, /Complete Setup/)

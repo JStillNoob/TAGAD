@@ -31,7 +31,7 @@ const displayName = computed(() => {
   return fullName || currentUser.value?.username || 'User'
 })
 const isSystemAdmin = computed(() => currentUser.value?.role === 'system_admin')
-const isTeacher = computed(() => currentUser.value?.role === 'teacher')
+const isTeacher = computed(() => ['org_admin', 'teacher'].includes(currentUser.value?.role))
 
 const greeting = computed(() => {
   const hour = new Date().getHours()
@@ -95,17 +95,17 @@ onMounted(loadDashboard)
 
 <template>
   <AppLayout page-title="Dashboard">
-    <div v-if="isTeacher" class="teacher-dashboard-hero page-card mb-6">
+    <div v-if="isTeacher" class="app-page-hero teacher-dashboard-hero page-card mb-6">
       <div class="teacher-dashboard-hero-copy">
-        <h2>{{ greeting }}, {{ displayName }}! <span aria-hidden="true">👋</span></h2>
+        <h2>{{ greeting }}, {{ displayName }}!</h2>
         <p>Here is the latest data available to your account.</p>
         <RouterLink to="/session" class="btn-primary"><span class="text-xl leading-none" aria-hidden="true">+</span> Start New Session</RouterLink>
       </div>
       <img class="teacher-dashboard-hero-art" src="/illustrations/teacher-hero.png" alt="" aria-hidden="true">
     </div>
-    <div v-else class="flex items-center justify-between gap-4 mb-6" :class="isSystemAdmin ? 'platform-hero' : 'dashboard-hero'">
+    <div v-else class="app-page-hero flex items-center justify-between gap-4 mb-6" :class="isSystemAdmin ? 'platform-hero' : 'dashboard-hero'">
       <div>
-        <h2 class="text-xl font-bold text-navy">{{ isSystemAdmin ? 'Platform overview' : `${greeting}, ${displayName} 👋` }}</h2>
+        <h2 class="text-xl font-bold text-navy">{{ isSystemAdmin ? 'Platform overview' : `${greeting}, ${displayName}` }}</h2>
         <p class="text-sm text-gray-400 mt-0.5">{{ isSystemAdmin ? 'Create organizations and assign their administrators.' : 'Here is the latest data available to your account.' }}</p>
       </div>
       <img v-if="isSystemAdmin" class="platform-hero-art" src="/illustrations/platform-hero.png" alt="" aria-hidden="true">
@@ -216,7 +216,7 @@ onMounted(loadDashboard)
             <img v-if="isTeacher" class="teacher-sessions-empty-art" src="/illustrations/teacher-sessions-empty.png" alt="" aria-hidden="true">
             <p>No classroom sessions have been recorded yet.</p>
           </div>
-          <table v-else class="w-full min-w-[760px] text-sm" :class="isTeacher ? 'teacher-sessions-table' : ''">
+          <table v-else class="app-data-table w-full min-w-[760px] text-sm" :class="isTeacher ? 'teacher-sessions-table' : ''">
             <thead>
               <tr class="border-b border-gray-100">
                 <th class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase">Subject</th>

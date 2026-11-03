@@ -198,7 +198,7 @@ onUnmounted(() => {
 <template>
   <AppLayout :page-title="isSystemAdmin ? 'Organization Admins' : 'User Management'">
     <div class="platform-management-page space-y-6">
-      <section class="platform-management-hero page-card">
+      <section class="app-page-hero platform-management-hero page-card">
         <div class="platform-management-hero-copy">
           <h1>{{ isSystemAdmin ? 'Organization Administrators' : 'User Management' }}</h1>
           <p>{{ isSystemAdmin ? 'Assign an administrator to each organization.' : 'Manage teachers in your organization.' }}</p>

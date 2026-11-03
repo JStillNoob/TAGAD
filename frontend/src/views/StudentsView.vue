@@ -568,47 +568,49 @@ onUnmounted(() => clearTimeout(classroomSearchTimer))
 
 <template>
   <AppLayout page-title="Classes">
-    <div class="max-w-7xl mx-auto space-y-6">
-      <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 class="text-2xl font-bold text-gray-900">Classes</h1>
-          <p class="text-sm text-gray-500 mt-1">Real classroom and subject records from TAGAD.</p>
+    <div class="classes-page max-w-7xl mx-auto space-y-6">
+      <section class="app-page-hero classes-hero page-card">
+        <div class="classes-hero-copy">
+          <h1>Classes</h1>
+          <p>Manage classrooms, subjects, and cameras.</p>
+          <button v-if="canManage" type="button" class="btn-primary justify-center disabled:opacity-50" :disabled="lifecycleFilter !== 'active'" @click="openQuickSetup">Quick Setup</button>
         </div>
-        <div class="flex flex-wrap items-center gap-2">
-          <label v-if="canManage" class="text-xs font-semibold text-gray-600">Records
-            <select v-model="lifecycleFilter" class="ml-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-normal">
-              <option value="active">Active</option>
-              <option value="archived">Archived</option>
-              <option value="all">All</option>
-            </select>
-          </label>
-          <template v-if="canManage">
-          <button type="button" class="btn-primary justify-center disabled:opacity-50" :disabled="lifecycleFilter !== 'active'" @click="openQuickSetup">Quick Setup</button>
-          <button type="button" class="btn-navy justify-center" @click="openClassroomCreate">Add Classroom</button>
-          <button type="button" class="rounded-xl border border-gray-300 bg-white px-5 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50" :disabled="lifecycleFilter !== 'active' || !classrooms.length" @click="openSubjectCreate">Add Subject</button>
-          <button type="button" class="btn-teal justify-center disabled:opacity-50" :disabled="lifecycleFilter !== 'active' || !classrooms.length" @click="openCameraCreate">Add Camera</button>
-          </template>
+        <img src="/illustrations/classes-hero.png" alt="" aria-hidden="true" class="classes-hero-art">
+      </section>
+
+      <div v-if="canManage" class="classes-toolbar page-card">
+        <label class="classes-record-filter">Records
+          <select v-model="lifecycleFilter">
+            <option value="active">Active</option>
+            <option value="archived">Archived</option>
+            <option value="all">All</option>
+          </select>
+        </label>
+        <div class="classes-toolbar-actions">
+          <button type="button" class="btn-secondary justify-center" @click="openClassroomCreate">Add Classroom</button>
+          <button type="button" class="btn-secondary justify-center disabled:opacity-50" :disabled="lifecycleFilter !== 'active' || !classrooms.length" @click="openSubjectCreate">Add Subject</button>
+          <button type="button" class="btn-secondary justify-center disabled:opacity-50" :disabled="lifecycleFilter !== 'active' || !classrooms.length" @click="openCameraCreate">Add Camera</button>
         </div>
       </div>
 
       <div v-if="pageError" class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ pageError }}</div>
 
-      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div class="stat-card"><p class="text-xs text-gray-400">Accessible records</p><p class="text-2xl font-bold text-navy mt-1 text-right">{{ classroomCount }}</p><p class="text-sm text-gray-600">Classrooms</p></div>
-        <div class="stat-card"><p class="text-xs text-gray-400">Accessible records</p><p class="text-2xl font-bold text-navy mt-1 text-right">{{ subjectCount }}</p><p class="text-sm text-gray-600">Subjects</p></div>
-        <div class="stat-card"><p class="text-xs text-gray-400">Combined room capacity</p><p class="text-2xl font-bold text-navy mt-1 text-right">{{ totalCapacity }}</p><p class="text-sm text-gray-600">Seats</p></div>
-        <div class="stat-card"><p class="text-xs text-gray-400">Configuration base</p><p class="text-2xl font-bold text-navy mt-1 text-right">{{ cameraCount }}</p><p class="text-sm text-gray-600">Cameras</p></div>
+      <div class="classes-stats grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="stat-card classes-stat-card"><span class="classes-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 21h18M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16M9 7h2m2 0h2M9 11h2m2 0h2M9 15h6" /></svg></span><div><p>Classrooms</p><strong class="text-right">{{ classroomCount }}</strong><small>Accessible records</small></div></div>
+        <div class="stat-card classes-stat-card"><span class="classes-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v16H6.5A2.5 2.5 0 0 0 4 21.5v-16Zm16 0A2.5 2.5 0 0 0 17.5 3H13v16h4.5a2.5 2.5 0 0 1 2.5 2.5v-16Z" /></svg></span><div><p>Subjects</p><strong class="text-right">{{ subjectCount }}</strong><small>Accessible records</small></div></div>
+        <div class="stat-card classes-stat-card"><span class="classes-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20v-7h16v7M7 13V8h10v5M8 20v-3m8 3v-3M7 4h10" /></svg></span><div><p>Seats</p><strong class="text-right">{{ totalCapacity }}</strong><small>Combined room capacity</small></div></div>
+        <div class="stat-card classes-stat-card"><span class="classes-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="6" width="13" height="12" rx="2" /><path d="m16 10 5-3v10l-5-3" /></svg></span><div><p>Cameras</p><strong class="text-right">{{ cameraCount }}</strong><small>Configured sources</small></div></div>
       </div>
 
-      <section class="page-card overflow-hidden" aria-labelledby="subjects-title">
-        <div class="flex flex-col gap-3 border-b border-gray-200 p-5 sm:flex-row sm:items-center sm:justify-between">
+      <section class="page-card classes-panel overflow-hidden" aria-labelledby="subjects-title">
+        <div class="classes-panel-heading flex flex-col gap-3 border-b border-gray-200 p-5 sm:flex-row sm:items-center sm:justify-between">
           <div><h2 id="subjects-title" class="font-bold text-gray-900">Subjects</h2><p class="text-xs text-gray-500 mt-1">Teachers see only subjects assigned to them.</p></div>
           <input v-model="search" type="search" placeholder="Search classes and subjects…" class="w-full sm:w-72 rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-indigo-500" />
         </div>
         <div v-if="loading" class="p-10 text-center text-sm text-gray-500">Loading classes…</div>
         <div v-else-if="!filteredSubjects.length" class="p-10 text-center text-sm text-gray-500">No subjects found.</div>
         <div v-else class="grid gap-5 p-5 md:grid-cols-2 xl:grid-cols-3">
-          <article v-for="subject in filteredSubjects" :key="subject.id" class="rounded-xl border border-gray-200 p-5">
+          <article v-for="subject in filteredSubjects" :key="subject.id" class="classes-subject-card rounded-xl border border-gray-200 p-5">
             <div class="flex items-start justify-between gap-3">
               <div><span class="rounded-md bg-indigo-50 px-2 py-1 text-xs font-bold text-indigo-700">{{ subject.subject_code }}</span><span v-if="subject.is_archived" class="ml-2 rounded-md bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-600">Archived</span><h3 class="mt-3 font-bold text-gray-900">{{ subject.subject_name }}</h3></div>
               <div v-if="canManage" class="flex gap-1">
@@ -629,11 +631,11 @@ onUnmounted(() => clearTimeout(classroomSearchTimer))
         <PaginationControls :page="subjectPage" :count="subjectCount" :page-size="pageSize" :disabled="loading || subjectPageLoading" @change="changeSubjectPage" />
       </section>
 
-      <section class="page-card overflow-hidden" aria-labelledby="classrooms-title">
-        <div class="border-b border-gray-200 p-5"><h2 id="classrooms-title" class="font-bold text-gray-900">Classrooms</h2><p class="text-xs text-gray-500 mt-1">Archived rooms preserve their subjects, cameras, and history.</p></div>
+      <section class="page-card classes-panel overflow-hidden" aria-labelledby="classrooms-title">
+        <div class="classes-panel-heading border-b border-gray-200 p-5"><h2 id="classrooms-title" class="font-bold text-gray-900">Classrooms</h2><p class="text-xs text-gray-500 mt-1">Archived rooms preserve their subjects, cameras, and history.</p></div>
         <div v-if="!loading && !filteredClassrooms.length" class="p-10 text-center text-sm text-gray-500">No classrooms found.</div>
         <div v-else class="overflow-x-auto">
-          <table class="w-full text-left text-sm">
+          <table class="app-data-table classes-data-table w-full text-left text-sm">
             <thead class="bg-gray-50 text-xs uppercase text-gray-500"><tr><th class="px-5 py-3">Room</th><th class="px-5 py-3">Building</th><th class="px-5 py-3">Capacity</th><th class="px-5 py-3">Subjects</th><th class="px-5 py-3">Cameras</th><th v-if="isSystemAdmin" class="px-5 py-3">Organization</th><th v-if="canManage" class="px-5 py-3 text-right">Actions</th></tr></thead>
             <tbody class="divide-y divide-gray-100">
               <tr v-for="classroom in filteredClassrooms" :key="classroom.id">
@@ -651,14 +653,14 @@ onUnmounted(() => clearTimeout(classroomSearchTimer))
         <PaginationControls :page="classroomPage" :count="classroomCount" :page-size="pageSize" :disabled="loading" @change="changeClassroomPage" />
       </section>
 
-      <section class="page-card overflow-hidden" aria-labelledby="camera-setup-title">
-        <div class="border-b border-gray-200 p-5">
+      <section class="page-card classes-panel overflow-hidden" aria-labelledby="camera-setup-title">
+        <div class="classes-panel-heading border-b border-gray-200 p-5">
           <h2 id="camera-setup-title" class="font-bold text-gray-900">Camera Setup</h2>
           <p class="text-xs text-gray-500 mt-1">Assign each physical camera IP so sessions can verify and open the correct stream.</p>
         </div>
         <div v-if="!loading && !cameras.length" class="p-10 text-center text-sm text-gray-500">No cameras configured.</div>
         <div v-else class="overflow-x-auto">
-          <table class="w-full text-left text-sm">
+          <table class="app-data-table classes-data-table w-full text-left text-sm">
             <thead class="bg-gray-50 text-xs uppercase text-gray-500">
               <tr><th class="px-5 py-3">Camera</th><th class="px-5 py-3">Classroom</th><th class="px-5 py-3">IP address</th><th class="px-5 py-3">Position</th><th class="px-5 py-3">Status</th><th v-if="isSystemAdmin" class="px-5 py-3">Organization</th><th v-if="canManage" class="px-5 py-3 text-right">Actions</th></tr>
             </thead>
