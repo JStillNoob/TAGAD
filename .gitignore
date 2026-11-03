@@ -20,6 +20,7 @@ frontend/.vite/
 
 # Python / Django
 backend/venv/
+backend/venv311/
 pipeline/.venv/
 backend/__pycache__/
 backend/**/__pycache__/
