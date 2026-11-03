@@ -144,27 +144,33 @@ onUnmounted(() => clearTimeout(filterTimer))
 
 <template>
   <AppLayout page-title="Organizations">
-    <div class="mx-auto max-w-7xl space-y-6">
-      <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 class="text-2xl font-bold text-gray-900">Organizations</h1>
-          <p class="mt-1 text-sm text-gray-500">Manage every institution using TAGAD.</p>
+    <div class="platform-management-page space-y-6">
+      <section class="platform-management-hero page-card">
+        <div class="platform-management-hero-copy">
+          <h1>Organizations</h1>
+          <p>Manage every institution using TAGAD.</p>
+          <button type="button" class="btn-primary" @click="openCreate">
+            <span class="text-xl leading-none" aria-hidden="true">+</span> Add Organization
+          </button>
         </div>
-        <button type="button" class="btn-primary justify-center" @click="openCreate">
-          <span class="text-lg leading-none">+</span> Add Organization
-        </button>
-      </div>
+        <img src="/illustrations/organizations.png" alt="" aria-hidden="true" class="platform-management-hero-art">
+      </section>
 
       <p v-if="pageError" class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">{{ pageError }}</p>
       <p v-if="success" class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700" role="status">{{ success }}</p>
 
-      <section class="page-card overflow-hidden">
-        <div class="grid gap-3 border-b border-gray-200 p-5 md:grid-cols-[1fr_180px] md:items-end">
-          <label class="text-xs font-semibold text-gray-600">Search
-            <input v-model="search" type="search" placeholder="Name or organization code…" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-normal outline-none focus:border-indigo-500" />
+      <section class="platform-data-panel page-card" aria-label="Organizations">
+        <div class="platform-filter-panel platform-organization-filters" role="group" aria-label="Organization filters">
+          <label class="platform-filter-field">
+            <span>Search</span>
+            <span class="platform-search-field">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m16 16 4 4" /></svg>
+              <input v-model="search" type="search" placeholder="Name or organization code…" />
+            </span>
           </label>
-          <label class="text-xs font-semibold text-gray-600">Records
-            <select v-model="lifecycle" class="mt-1.5 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-normal">
+          <label class="platform-filter-field">
+            <span>Status</span>
+            <select v-model="lifecycle">
               <option value="active">Active</option>
               <option value="archived">Archived</option>
               <option value="all">All</option>
@@ -174,48 +180,50 @@ onUnmounted(() => clearTimeout(filterTimer))
 
         <div v-if="loading" class="p-10 text-center text-sm text-gray-500">Loading organizations…</div>
         <div v-else-if="!organizations.length" class="p-10 text-center text-sm text-gray-500">No organizations match these filters.</div>
-        <div v-else class="overflow-x-auto">
-          <table class="w-full min-w-[780px] text-left text-sm">
-            <thead class="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+        <div v-else class="platform-table-scroll">
+          <table class="platform-data-table w-full min-w-[780px] text-left text-sm">
+            <thead>
               <tr>
-                <th class="px-5 py-3 font-semibold">Organization</th>
-                <th class="px-5 py-3 font-semibold">Contact</th>
-                <th class="px-5 py-3 font-semibold">Status</th>
-                <th class="px-5 py-3 text-right font-semibold">Actions</th>
+                <th>Organization</th>
+                <th>Contact</th>
+                <th>Status</th>
+                <th class="text-right">Actions</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-gray-100">
-              <tr v-for="organization in organizations" :key="organization.id" class="hover:bg-gray-50">
-                <td class="px-5 py-4">
-                  <p class="font-semibold text-gray-900">{{ organization.organization_name }}</p>
-                  <p class="mt-0.5 text-xs text-gray-500">{{ organization.organization_code }}<template v-if="organization.address"> · {{ organization.address }}</template></p>
+            <tbody>
+              <tr v-for="organization in organizations" :key="organization.id">
+                <td>
+                  <div class="platform-record-identity">
+                    <span class="platform-record-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m2.5 9 9.5-5 9.5 5-9.5 5-9.5-5Z" /><path d="M6 11v5c3.3 2.8 8.7 2.8 12 0v-5M21.5 9v6" /></svg></span>
+                    <span><strong>{{ organization.organization_name }}</strong><small>{{ organization.organization_code }}<template v-if="organization.address"> · {{ organization.address }}</template></small></span>
+                  </div>
                 </td>
-                <td class="px-5 py-4 text-gray-600">
-                  <p>{{ organization.contact_email || 'No email set' }}</p>
-                  <p class="mt-0.5 text-xs text-gray-400">{{ organization.contact_no || 'No contact number' }}</p>
+                <td data-label="Contact">
+                  <div class="platform-contact-line"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m4 7 8 6 8-6" /></svg><span>{{ organization.contact_email || 'No email set' }}</span></div>
+                  <div class="platform-contact-line"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3.5 4 6.5c-1 1 0 5 4 9s8 5 9 4l3-3-4-4-2.5 2.5a16 16 0 0 1-4.5-4.5L11.5 8 7 3.5Z" /></svg><span>{{ organization.contact_no || 'No contact number' }}</span></div>
                 </td>
-                <td class="px-5 py-4">
-                  <span class="rounded-full px-2.5 py-1 text-xs font-semibold" :class="organization.is_archived ? 'bg-gray-100 text-gray-600' : 'bg-emerald-50 text-emerald-700'">
+                <td data-label="Status">
+                  <span class="platform-status-badge" :class="organization.is_archived ? 'is-inactive' : 'is-active'">
                     {{ organization.is_archived ? 'Archived' : 'Active' }}
                   </span>
                 </td>
-                <td class="px-5 py-4">
-                  <div class="flex justify-end gap-2">
-                    <button v-if="!organization.is_archived" type="button" class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50" @click="openEdit(organization)">Edit</button>
-                    <button v-if="!organization.is_archived" type="button" class="rounded-lg border border-amber-200 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-50" @click="archiveRecord(organization)">Archive</button>
-                    <button v-else type="button" class="rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50" @click="restoreRecord(organization)">Restore</button>
+                <td data-label="Actions">
+                  <div class="platform-row-actions">
+                    <button v-if="!organization.is_archived" type="button" class="platform-action-button" @click="openEdit(organization)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 20 4.5-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L4 20ZM13.5 7.5l3 3" /></svg>Edit</button>
+                    <button v-if="!organization.is_archived" type="button" class="platform-action-button is-alert" @click="archiveRecord(organization)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="8" width="16" height="12" rx="2" /><path d="M3 4h18v4H3zm7 10h4" /></svg>Archive</button>
+                    <button v-else type="button" class="platform-action-button" @click="restoreRecord(organization)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11a8 8 0 1 1 2 6M4 17v-6h6" /></svg>Restore</button>
                   </div>
                 </td>
               </tr>
             </tbody>
           </table>
         </div>
-        <PaginationControls :page="page" :count="organizationCount" :page-size="pageSize" :disabled="loading" @change="loadOrganizations" />
+        <PaginationControls class="platform-pagination" :page="page" :count="organizationCount" :page-size="pageSize" :disabled="loading" @change="loadOrganizations" />
       </section>
     </div>
 
     <div v-if="showForm" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4" @click.self="closeForm">
-      <form role="dialog" aria-labelledby="organization-form-title" class="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-xl" @submit.prevent="saveOrganization">
+      <form role="dialog" aria-labelledby="organization-form-title" class="platform-management-dialog max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-xl" @submit.prevent="saveOrganization">
         <div class="flex items-center justify-between border-b border-gray-200 px-6 py-4">
           <div>
             <h2 id="organization-form-title" class="text-lg font-bold text-gray-900">{{ editingId ? 'Edit Organization' : 'Add Organization' }}</h2>

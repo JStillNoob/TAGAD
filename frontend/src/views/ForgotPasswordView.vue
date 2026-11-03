@@ -1,11 +1,11 @@
 <template>
   <div class="min-h-screen grid md:grid-cols-2">
     <ThemeToggle class="fixed right-5 top-5 z-20 bg-white shadow-sm" />
-    <div class="hidden md:flex flex-col items-center justify-center text-center px-12" style="background:linear-gradient(135deg,#0f2440 0%,#1E3A5F 60%,#1a4a6e 100%);">
-      <img src="/tagad_logo.png" alt="TAGAD Logo" class="w-64 mb-6 drop-shadow-xl">
+    <div class="auth-brand-panel hidden md:flex flex-col items-center justify-center text-center px-12">
+      <img src="/tagad_logo.svg" alt="TAGAD Logo" class="w-64 mb-6 drop-shadow-xl">
       <h1 class="text-4xl font-bold text-white tracking-widest mb-4">TAGAD</h1>
-      <p class="text-xl font-medium mb-3" style="color:#7B92F5">Secure account recovery</p>
-      <p class="text-sm leading-relaxed max-w-sm" style="color:rgba(255,255,255,.5)">Request a time-limited link to choose a new password.</p>
+      <p class="auth-brand-accent text-xl font-medium mb-3">Secure account recovery</p>
+      <p class="auth-brand-copy text-sm leading-relaxed max-w-sm">Request a time-limited link to choose a new password.</p>
     </div>
 
     <div class="auth-content flex items-center justify-center px-6 py-12">

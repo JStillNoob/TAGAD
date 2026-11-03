@@ -197,39 +197,41 @@ onUnmounted(() => {
 
 <template>
   <AppLayout :page-title="isSystemAdmin ? 'Organization Admins' : 'User Management'">
-    <div class="max-w-7xl mx-auto space-y-6">
-      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 class="text-2xl font-bold text-gray-900">{{ isSystemAdmin ? 'Organization Administrators' : 'User Management' }}</h1>
-          <p class="text-sm text-gray-500 mt-1">
-            {{ isSystemAdmin ? 'Assign an administrator to each organization.' : 'Manage teachers in your organization.' }}
-          </p>
+    <div class="platform-management-page space-y-6">
+      <section class="platform-management-hero page-card">
+        <div class="platform-management-hero-copy">
+          <h1>{{ isSystemAdmin ? 'Organization Administrators' : 'User Management' }}</h1>
+          <p>{{ isSystemAdmin ? 'Assign an administrator to each organization.' : 'Manage teachers in your organization.' }}</p>
+          <button type="button" class="btn-primary disabled:cursor-not-allowed disabled:opacity-60" :disabled="loading" @click="openCreate">
+            <span class="text-xl leading-none" aria-hidden="true">+</span> {{ isSystemAdmin ? 'Add Organization Admin' : 'Add User' }}
+          </button>
         </div>
-        <button type="button" class="btn-primary justify-center disabled:cursor-not-allowed disabled:opacity-60" :disabled="loading" @click="openCreate">
-          <span class="text-lg leading-none">+</span> {{ isSystemAdmin ? 'Add Organization Admin' : 'Add User' }}
-        </button>
-      </div>
+        <img src="/illustrations/administrators.png" alt="" aria-hidden="true" class="platform-management-hero-art">
+      </section>
 
       <div v-if="pageError" class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
         {{ pageError }}
       </div>
 
-      <section class="page-card overflow-hidden">
-        <div class="p-4 border-b border-gray-200 grid gap-3 md:grid-cols-[1fr_180px_160px]">
-          <label>
-            <span class="sr-only">Search users</span>
-            <input v-model="search" type="search" placeholder="Search name, username, or email…" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-indigo-500" />
+      <section class="platform-data-panel page-card" aria-label="Users">
+        <div class="platform-filter-panel platform-admin-filters" role="group" aria-label="User filters">
+          <label class="platform-filter-field">
+            <span>Search</span>
+            <span class="platform-search-field">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m16 16 4 4" /></svg>
+              <input v-model="search" type="search" placeholder="Search name, username, or email…" />
+            </span>
           </label>
-          <label>
-            <span class="sr-only">Filter by role</span>
-            <select v-model="roleFilter" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white">
+          <label class="platform-filter-field">
+            <span>Role</span>
+            <select v-model="roleFilter">
               <option value="">All roles</option>
               <option v-for="role in options.roles" :key="role.value" :value="role.value">{{ role.label }}</option>
             </select>
           </label>
-          <label>
-            <span class="sr-only">Filter by status</span>
-            <select v-model="statusFilter" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white">
+          <label class="platform-filter-field">
+            <span>Status</span>
+            <select v-model="statusFilter">
               <option value="">All statuses</option>
               <option v-for="status in options.statuses" :key="status.value" :value="status.value">{{ status.label }}</option>
             </select>
@@ -238,48 +240,50 @@ onUnmounted(() => {
 
         <div v-if="loading" class="p-10 text-center text-sm text-gray-500">Loading users…</div>
         <div v-else-if="!filteredUsers.length" class="p-10 text-center text-sm text-gray-500">No users match these filters.</div>
-        <div v-else class="overflow-x-auto">
-          <table class="w-full text-left text-sm">
-            <thead class="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+        <div v-else class="platform-table-scroll">
+          <table class="platform-data-table w-full min-w-[920px] text-left text-sm">
+            <thead>
               <tr>
-                <th class="px-5 py-3 font-semibold">User</th>
-                <th class="px-5 py-3 font-semibold">Role</th>
-                <th class="px-5 py-3 font-semibold">Organization</th>
-                <th class="px-5 py-3 font-semibold">Status</th>
-                <th class="px-5 py-3 font-semibold text-right">Actions</th>
+                <th>User</th>
+                <th>Role</th>
+                <th>Organization</th>
+                <th>Status</th>
+                <th class="text-right">Actions</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-gray-100">
-              <tr v-for="user in filteredUsers" :key="user.id" class="hover:bg-gray-50">
-                <td class="px-5 py-4">
-                  <div class="font-semibold text-gray-900">{{ [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username }}</div>
-                  <div class="text-xs text-gray-500 mt-0.5">{{ user.username }} · {{ user.email }}</div>
+            <tbody>
+              <tr v-for="user in filteredUsers" :key="user.id">
+                <td>
+                  <div class="platform-record-identity">
+                    <span class="platform-record-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5" /><path d="M4.5 20v-1a7.5 7.5 0 0 1 15 0v1h-15Z" /></svg></span>
+                    <span><strong>{{ [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username }}</strong><small>{{ user.username }} · {{ user.email }}</small></span>
+                  </div>
                 </td>
-                <td class="px-5 py-4 text-gray-700">{{ labelFor(options.roles, user.role) }}</td>
-                <td class="px-5 py-4 text-gray-700">{{ user.organization_name || 'Platform-wide' }}</td>
-                <td class="px-5 py-4">
-                  <span :class="user.status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-600'" class="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold">
+                <td data-label="Role"><span class="platform-role-badge">{{ labelFor(options.roles, user.role) }}</span></td>
+                <td data-label="Organization">{{ user.organization_name || 'Platform-wide' }}</td>
+                <td data-label="Status">
+                  <span class="platform-status-badge" :class="user.status === 'active' ? 'is-active' : 'is-inactive'">
                     {{ labelFor(options.statuses, user.status) }}
                   </span>
                 </td>
-                <td class="px-5 py-4">
-                  <div class="flex justify-end gap-2">
-                    <button type="button" class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50" @click="openEdit(user)">Edit</button>
-                    <button v-if="user.id !== currentUser?.id && user.status === 'active'" type="button" class="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50" @click="deactivateUser(user)">Deactivate</button>
-                    <button v-else-if="user.id !== currentUser?.id" type="button" class="rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50" @click="reactivateUser(user)">Reactivate</button>
+                <td data-label="Actions">
+                  <div class="platform-row-actions">
+                    <button type="button" class="platform-action-button" @click="openEdit(user)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 20 4.5-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L4 20ZM13.5 7.5l3 3" /></svg>Edit</button>
+                    <button v-if="user.id !== currentUser?.id && user.status === 'active'" type="button" class="platform-action-button is-alert" @click="deactivateUser(user)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v9m-5-6a9 9 0 1 0 10 0" /></svg>Deactivate</button>
+                    <button v-else-if="user.id !== currentUser?.id" type="button" class="platform-action-button" @click="reactivateUser(user)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v9m-5-6a9 9 0 1 0 10 0" /></svg>Reactivate</button>
                   </div>
                 </td>
               </tr>
             </tbody>
           </table>
         </div>
-        <PaginationControls :page="userPage" :count="userCount" :page-size="pageSize" :disabled="loading" @change="changePage" />
+        <PaginationControls class="platform-pagination" :page="userPage" :count="userCount" :page-size="pageSize" :disabled="loading" @change="changePage" />
       </section>
 
     </div>
 
     <div v-if="showForm" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4" @click.self="closeForm">
-      <form role="dialog" aria-labelledby="user-form-title" class="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white shadow-xl" @submit.prevent="saveUser">
+      <form role="dialog" aria-labelledby="user-form-title" class="platform-management-dialog w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white shadow-xl" @submit.prevent="saveUser">
         <div class="flex items-center justify-between border-b border-gray-200 px-6 py-4">
           <div>
             <h2 id="user-form-title" class="text-lg font-bold text-gray-900">{{ isEditing ? 'Edit User' : 'Add User' }}</h2>

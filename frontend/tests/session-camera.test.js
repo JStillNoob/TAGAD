@@ -7,7 +7,7 @@ import {
   cameraReadinessLabel,
 } from '../src/cameraSelection.js'
 
-test('active classroom cameras are selected by default', () => {
+test('select all includes active classroom cameras', () => {
   const subject = {
     cameras: [
       { id: 4, status: 'active' },

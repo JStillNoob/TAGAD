@@ -1,22 +1,18 @@
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { Chart, registerables } from 'chart.js'
 import AppLayout from '../layouts/AppLayout.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import { analyticsCsvUrl, fetchAnalyticsSessions, fetchSessionAnalytics } from '../analytics'
-import { currentTheme } from '../theme'
-
-Chart.register(...registerables)
 
 const route = useRoute()
 
 const categories = [
-  { key: 'engaged', label: 'Engaged', color: '#2D3CC8' },
-  { key: 'attentive', label: 'Attentive', color: '#10B981' },
-  { key: 'confused', label: 'Confused', color: '#F59E0B' },
-  { key: 'bored', label: 'Bored', color: '#F97316' },
-  { key: 'disengaged', label: 'Disengaged', color: '#EF476F' },
+  { key: 'engaged', label: 'Engaged', color: '#2D8FE8' },
+  { key: 'attentive', label: 'Attentive', color: '#20C7A4' },
+  { key: 'confused', label: 'Confused', color: '#F3B337' },
+  { key: 'bored', label: 'Bored', color: '#E85591' },
+  { key: 'disengaged', label: 'Disengaged', color: '#785BE5' },
 ]
 const sessions = ref([])
 const sessionCount = ref(0)
@@ -26,8 +22,6 @@ const selectedSessionId = ref('')
 const analytics = ref(null)
 const loading = ref(true)
 const error = ref('')
-const chartCanvas = ref(null)
-let chart = null
 
 function formatDate(value) {
   return value ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(`${value}T00:00:00`)) : '—'
@@ -74,68 +68,44 @@ function sessionLabel(session) {
 }
 
 function engagementColor(value) {
-  if (value === null || value === undefined) return '#94a3b8'
-  if (value >= 80) return '#2D3CC8'
-  if (value >= 65) return '#465FF1'
-  return '#6B7280'
+  if (value === null || value === undefined) return 'var(--text-muted)'
+  if (value >= 80) return 'var(--primary-dark)'
+  if (value >= 65) return 'var(--primary-dark)'
+  return 'var(--text-muted)'
 }
 
-function destroyChart() {
-  if (chart) chart.destroy()
-  chart = null
-}
-
-async function renderChart() {
-  destroyChart()
-  if (!analytics.value?.has_data || !analytics.value.slides.length) return
-  await nextTick()
-  if (!chartCanvas.value) return
-  const dark = currentTheme.value === 'dark'
-  const labelColor = dark ? '#CBD5E1' : '#94A3B8'
-  const gridColor = dark ? '#293548' : '#F1F5F9'
-  chart = new Chart(chartCanvas.value, {
-    type: 'bar',
-    data: {
-      labels: analytics.value.slides.map(slide => `Slide ${slide.slide_number}`),
-      datasets: categories.map(category => ({
-        label: category.label,
-        data: analytics.value.slides.map(slide => slide[category.key] ?? 0),
-        backgroundColor: category.color,
-        categoryPercentage: 0.6,
-        barPercentage: 1,
-      })),
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false },
-        tooltip: { callbacks: { label: context => `${context.dataset.label}: ${context.parsed.y}%` } },
-      },
-      scales: {
-        x: { stacked: true, grid: { display: false }, ticks: { color: labelColor } },
-        y: { stacked: true, max: 100, grid: { color: gridColor }, ticks: { color: labelColor, callback: value => `${value}%` } },
-      },
-    },
+function donutStyle(slide) {
+  if (!slide.has_data) return { background: 'var(--border)' }
+  const values = categories.map(category => Math.max(0, Number(slide[category.key]) || 0))
+  const total = values.reduce((sum, value) => sum + value, 0)
+  if (!total) return { background: 'var(--border)' }
+  let position = 0
+  const segments = categories.flatMap((category, index) => {
+    if (!values[index]) return []
+    const start = position
+    position += values[index] / total * 100
+    return `${category.color} ${start}% ${position}%`
   })
+  return { background: `conic-gradient(from -90deg, ${segments.join(', ')})` }
+}
+
+function donutLabel(slide) {
+  if (!slide.has_data) return `Slide ${slide.slide_number}: no classified engagement data`
+  return `Slide ${slide.slide_number}: ${categories.map(category => `${category.label} ${percentage(slide[category.key])}`).join(', ')}`
 }
 
 async function loadAnalytics() {
   if (!selectedSessionId.value) return
   loading.value = true
   error.value = ''
-  let shouldRender = false
   try {
     analytics.value = await fetchSessionAnalytics(selectedSessionId.value)
-    shouldRender = true
   } catch (requestError) {
     analytics.value = null
-    destroyChart()
     error.value = requestError.message || 'Unable to load session analytics.'
   } finally {
     loading.value = false
   }
-  if (shouldRender) await renderChart()
 }
 
 async function loadSessions(page = sessionPage.value) {
@@ -167,29 +137,27 @@ watch(() => route.query.session, async (value) => {
     await loadAnalytics()
   }
 })
-watch(currentTheme, renderChart)
-
 onMounted(loadSessions)
-onBeforeUnmount(destroyChart)
 </script>
 
 <template>
-  <AppLayout page-title="Post-Lesson Analytics">
-    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
+  <AppLayout page-title="Analytics">
+    <div class="analytics-page">
+    <div class="analytics-toolbar flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
       <div class="min-w-0">
         <div class="flex flex-col sm:flex-row sm:items-center gap-3">
           <label for="session-select" class="text-sm font-semibold text-gray-600">Session:</label>
           <select
             id="session-select"
             v-model="selectedSessionId"
-            class="min-w-0 sm:min-w-[420px] border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none bg-white text-navy focus:border-brand"
+            class="analytics-session-select min-w-0 sm:min-w-[420px] border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none bg-white text-navy focus:border-brand"
             :disabled="loading || !sessions.length"
             @change="loadAnalytics"
           >
             <option v-for="session in sessions" :key="session.id" :value="String(session.id)">{{ sessionLabel(session) }}</option>
           </select>
         </div>
-        <div v-if="analytics" class="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-400 sm:ml-20">
+        <div v-if="analytics" class="analytics-session-meta mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-400 sm:ml-20">
           <span>
             {{ analytics.session.classroom }} · {{ analytics.session.teacher_name }} ·
             {{ formatTime(analytics.session.started_at) }}–{{ formatTime(analytics.session.ended_at) }}
@@ -202,7 +170,7 @@ onBeforeUnmount(destroyChart)
       <a
         v-if="selectedSessionId"
         :href="analyticsCsvUrl(selectedSessionId)"
-        class="btn-primary self-start lg:self-auto"
+        class="btn-primary analytics-download self-start lg:self-auto"
         download
       >
         <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -211,12 +179,12 @@ onBeforeUnmount(destroyChart)
         Download CSV
       </a>
     </div>
-    <PaginationControls class="mb-6 page-card" :page="sessionPage" :count="sessionCount" :page-size="pageSize" :disabled="loading" @change="loadSessions" />
+    <PaginationControls class="analytics-pagination mb-6 page-card" :page="sessionPage" :count="sessionCount" :page-size="pageSize" :disabled="loading" @change="loadSessions" />
 
     <div v-if="loading" class="page-card p-12 text-center text-sm text-gray-400">Loading session analytics…</div>
     <div v-else-if="error" class="page-card p-12 text-center">
       <p class="text-sm text-red-600" role="alert">{{ error }}</p>
-      <button class="mt-4 px-4 py-2 rounded-lg bg-brand text-white text-sm" @click="loadSessions">Try again</button>
+      <button class="btn-secondary mt-4" @click="loadSessions">Try again</button>
     </div>
     <div v-else-if="!sessions.length" class="page-card p-12 text-center">
       <h3 class="font-semibold text-navy">No classroom sessions yet</h3>
@@ -224,57 +192,66 @@ onBeforeUnmount(destroyChart)
     </div>
 
     <template v-else-if="analytics">
-      <div v-if="!analytics.data_source.official && analytics.data_source.type !== 'none'" class="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+      <div v-if="!analytics.data_source.official && analytics.data_source.type !== 'none'" class="analytics-source-notice mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
         {{ analytics.data_source.notice }}
       </div>
-      <div class="mb-6 rounded-xl border px-4 py-3" :class="dataQualityClass(analytics.data_quality.level)">
-        <p class="text-sm font-semibold">Data quality: {{ analytics.data_quality.label }}</p>
-        <p class="mt-1 text-xs">{{ analytics.data_quality.explanation }}</p>
+      <div class="analytics-quality mb-6 rounded-xl border px-4 py-3" :class="dataQualityClass(analytics.data_quality.level)" role="status">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.6 2.2 18a2 2 0 0 0 1.7 3h16.2a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0Z" /><path d="M12 9v5m0 3h.01" /></svg>
+        <div><p class="text-sm font-semibold">Data quality: {{ analytics.data_quality.label }}</p><p class="mt-1 text-xs">{{ analytics.data_quality.explanation }}</p></div>
       </div>
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-5 mb-6">
-        <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Students Detected</div><div class="text-3xl font-bold text-navy text-right">{{ analytics.summary.students_detected }}</div><div class="text-xs text-gray-400 mt-1">Highest simultaneous count</div></div>
-        <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Session Duration</div><div class="text-3xl font-bold text-navy text-right">{{ formatDuration(analytics.session.duration_seconds) }}</div><div class="text-xs text-gray-400 mt-1">{{ analytics.session.slides_covered }} slides covered</div></div>
-        <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Avg. Engagement</div><div class="text-3xl font-bold text-right" style="color:#2D3CC8">{{ percentage(analytics.summary.average_engagement) }}</div><div class="text-xs text-gray-400 mt-1"><template v-if="analytics.summary.engagement_change !== null">{{ analytics.summary.engagement_change >= 0 ? '▲' : '▼' }} {{ Math.abs(analytics.summary.engagement_change) }}% vs previous session</template><template v-else>No previous comparison</template></div></div>
-        <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Most Confused Slide</div><div class="text-2xl font-bold text-right" style="color:#D97706">{{ analytics.insights ? `Slide ${analytics.insights.most_confusion.slide_number}` : '—' }}</div><div class="text-xs text-gray-400 mt-1">{{ analytics.insights ? `${analytics.insights.most_confusion.percentage}% confused` : 'No supported insight' }}</div></div>
-        <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Total Detections</div><div class="text-3xl font-bold text-navy text-right">{{ analytics.summary.total_detections }}</div><div class="text-xs text-gray-400 mt-1">Across all samples</div></div>
-        <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Unclassified</div><div class="text-3xl font-bold text-navy text-right">{{ analytics.summary.unclassified_detections }}</div><div class="text-xs text-gray-400 mt-1">Preserved as unknown, not disengaged</div></div>
-        <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Classification Coverage</div><div class="text-3xl font-bold text-navy text-right">{{ percentage(analytics.summary.classification_coverage) }}</div><div class="text-xs text-gray-400 mt-1">{{ analytics.summary.monitoring_windows }} monitoring windows</div></div>
-        <div class="stat-card"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Avg. Confidence</div><div class="text-3xl font-bold text-navy text-right">{{ percentage(analytics.summary.average_confidence) }}</div><div class="text-xs text-gray-400 mt-1">Detection-weighted score</div></div>
+      <div class="analytics-stats grid grid-cols-2 md:grid-cols-4 gap-5 mb-6">
+        <div class="stat-card analytics-stat-card"><span class="analytics-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3" /><circle cx="17" cy="9" r="2" /><path d="M3 19a6 6 0 0 1 12 0m-1.5-4.3A5 5 0 0 1 21 19" /></svg></span><div class="analytics-stat-copy"><div class="analytics-stat-title">Students Detected</div><div class="analytics-stat-value">{{ analytics.summary.students_detected }}</div><div class="analytics-stat-note">Highest simultaneous count</div></div></div>
+        <div class="stat-card analytics-stat-card"><span class="analytics-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg></span><div class="analytics-stat-copy"><div class="analytics-stat-title">Session Duration</div><div class="analytics-stat-value">{{ formatDuration(analytics.session.duration_seconds) }}</div><div class="analytics-stat-note">{{ analytics.session.slides_covered }} slides covered</div></div></div>
+        <div class="stat-card analytics-stat-card"><span class="analytics-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h4l2-6 4 12 2-6h8" /></svg></span><div class="analytics-stat-copy"><div class="analytics-stat-title">Avg. Engagement</div><div class="analytics-stat-value">{{ percentage(analytics.summary.average_engagement) }}</div><div class="analytics-stat-note"><template v-if="analytics.summary.engagement_change !== null">{{ analytics.summary.engagement_change >= 0 ? '▲' : '▼' }} {{ Math.abs(analytics.summary.engagement_change) }}% vs previous session</template><template v-else>No previous comparison</template></div></div></div>
+        <div class="stat-card analytics-stat-card"><span class="analytics-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-6 9 6-9 6-9-6Z" /><path d="M6 12v6c3 2 9 2 12 0v-6M21 10v7" /></svg></span><div class="analytics-stat-copy"><div class="analytics-stat-title">Most Confused Slide</div><div class="analytics-stat-value analytics-stat-value-alert">{{ analytics.insights ? `Slide ${analytics.insights.most_confusion.slide_number}` : '—' }}</div><div class="analytics-stat-note">{{ analytics.insights ? `${analytics.insights.most_confusion.percentage}% confused` : 'No supported insight' }}</div></div></div>
+        <div class="stat-card analytics-stat-card"><span class="analytics-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="1" /></svg></span><div class="analytics-stat-copy"><div class="analytics-stat-title">Total Detections</div><div class="analytics-stat-value">{{ analytics.summary.total_detections }}</div><div class="analytics-stat-note">Across all samples</div></div></div>
+        <div class="stat-card analytics-stat-card"><span class="analytics-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 9 5-9 5-9-5 9-5Zm-9 9 9 5 9-5m-18 5 9 5 9-5" /></svg></span><div class="analytics-stat-copy"><div class="analytics-stat-title">Unclassified</div><div class="analytics-stat-value">{{ analytics.summary.unclassified_detections }}</div><div class="analytics-stat-note">Preserved as unknown, not disengaged</div></div></div>
+        <div class="stat-card analytics-stat-card"><span class="analytics-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="13" width="4" height="8" rx="1" /><rect x="10" y="8" width="4" height="13" rx="1" /><rect x="17" y="3" width="4" height="18" rx="1" /></svg></span><div class="analytics-stat-copy"><div class="analytics-stat-title">Classification Coverage</div><div class="analytics-stat-value">{{ percentage(analytics.summary.classification_coverage) }}</div><div class="analytics-stat-note">{{ analytics.summary.monitoring_windows }} monitoring windows</div></div></div>
+        <div class="stat-card analytics-stat-card"><span class="analytics-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 8 4v6c0 5-3.2 8.2-8 10-4.8-1.8-8-5-8-10V6l8-4Z" /><path d="m8 12 3 3 5-6" /></svg></span><div class="analytics-stat-copy"><div class="analytics-stat-title">Avg. Confidence</div><div class="analytics-stat-value">{{ percentage(analytics.summary.average_confidence) }}</div><div class="analytics-stat-note">Detection-weighted score</div></div></div>
       </div>
 
-      <div v-if="!analytics.has_data" class="page-card p-10 mb-6 text-center">
+      <div v-if="!analytics.has_data" class="page-card analytics-empty p-10 mb-6 text-center">
+        <span class="analytics-empty-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h8l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z" /><path d="M14 2v5h5M8 12h7m-7 4h5" /></svg></span>
         <h3 class="font-semibold text-navy">No engagement data for this session</h3>
         <p class="text-sm text-gray-400 mt-2">Session and slide timing are available, but no classified engagement results were submitted. Unclassified samples are shown above.</p>
       </div>
 
-      <div v-else class="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
-        <div class="xl:col-span-2 page-card p-6">
-          <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-5">
-            <div><h3 class="font-semibold text-navy">Engagement per Slide</h3><p class="text-xs text-gray-400 mt-0.5">Stacked breakdown among classified samples</p></div>
-            <div class="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
-              <span v-for="category in categories" :key="category.key" class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm" :style="{ background: category.color }"></span>{{ category.label }}</span>
+      <div v-else class="analytics-data-sections mb-6">
+        <section class="page-card analytics-chart-panel p-6">
+          <div class="analytics-chart-heading">
+            <div><h3 class="font-semibold text-navy">Engagement per Slide</h3><p class="text-xs text-gray-400 mt-0.5">Distribution among classified samples</p></div>
+            <div class="analytics-chart-legend" aria-label="Engagement categories">
+              <span v-for="category in categories" :key="category.key" class="analytics-legend-item"><span class="analytics-legend-dot" :style="{ background: category.color }" aria-hidden="true"></span>{{ category.label }}</span>
             </div>
           </div>
-          <div class="relative h-[300px]"><canvas ref="chartCanvas"></canvas></div>
-        </div>
+          <div class="analytics-donut-grid">
+            <div v-for="slide in analytics.slides" :key="slide.slide_id" class="analytics-donut-card">
+              <div class="analytics-donut-title">Slide {{ slide.slide_number }}</div>
+              <div class="analytics-donut-topic" :title="slide.title">{{ slide.title }}</div>
+              <div class="analytics-donut" :style="donutStyle(slide)" role="img" :aria-label="donutLabel(slide)"><span class="analytics-donut-hole" aria-hidden="true"></span></div>
+              <div class="analytics-donut-score">{{ slide.has_data ? percentage(slide.engaged) : '—' }}</div>
+              <div class="analytics-donut-caption">{{ slide.has_data ? 'Engaged share' : 'No classified data' }}</div>
+            </div>
+          </div>
+        </section>
 
-        <div class="page-card p-5">
+        <section class="page-card analytics-insights p-5">
           <h3 class="font-semibold text-sm mb-4 text-navy">Key Insights</h3>
-          <div v-if="analytics.insights" class="space-y-3">
-            <div class="insight-card-engaged p-3 rounded-xl border-l-4" style="border-color:#2D3CC8"><p class="text-xs font-semibold" style="color:#7083FF">Highest Engagement</p><p class="text-sm font-bold mt-0.5 text-navy">Slide {{ analytics.insights.highest_engagement.slide_number }} — {{ analytics.insights.highest_engagement.percentage }}%</p><p class="text-xs text-gray-400 mt-0.5">{{ analytics.insights.highest_engagement.title }}</p></div>
-            <div class="insight-card-confused p-3 rounded-xl border-l-4" style="border-color:#F59E0B"><p class="text-xs font-semibold text-amber-600">Most Confusion</p><p class="text-sm font-bold mt-0.5 text-navy">Slide {{ analytics.insights.most_confusion.slide_number }} — {{ analytics.insights.most_confusion.percentage }}%</p><p class="text-xs text-gray-400 mt-0.5">{{ analytics.insights.most_confusion.title }}</p></div>
-            <div class="insight-card-disengaged p-3 rounded-xl border-l-4" style="border-color:#EF476F"><p class="text-xs font-semibold text-rose-600">Most Disengaged</p><p class="text-sm font-bold mt-0.5 text-navy">Slide {{ analytics.insights.most_disengaged.slide_number }} — {{ analytics.insights.most_disengaged.percentage }}%</p><p class="text-xs text-gray-400 mt-0.5">{{ analytics.insights.most_disengaged.title }}</p></div>
+          <div v-if="analytics.insights" class="analytics-insight-grid">
+            <div class="insight-card-engaged p-3 rounded-xl border-l-4" style="border-color:var(--primary-dark)"><p class="text-xs font-semibold" style="color:var(--primary-dark)">Highest Engagement</p><p class="text-sm font-bold mt-0.5 text-navy">Slide {{ analytics.insights.highest_engagement.slide_number }} — {{ analytics.insights.highest_engagement.percentage }}%</p><p class="text-xs text-gray-400 mt-0.5">{{ analytics.insights.highest_engagement.title }}</p></div>
+            <div class="insight-card-confused p-3 rounded-xl border-l-4" style="border-color:var(--alert)"><p class="text-xs font-semibold text-amber-600">Most Confusion</p><p class="text-sm font-bold mt-0.5 text-navy">Slide {{ analytics.insights.most_confusion.slide_number }} — {{ analytics.insights.most_confusion.percentage }}%</p><p class="text-xs text-gray-400 mt-0.5">{{ analytics.insights.most_confusion.title }}</p></div>
+            <div class="insight-card-disengaged p-3 rounded-xl border-l-4" style="border-color:var(--alert)"><p class="text-xs font-semibold text-rose-600">Most Disengaged</p><p class="text-sm font-bold mt-0.5 text-navy">Slide {{ analytics.insights.most_disengaged.slide_number }} — {{ analytics.insights.most_disengaged.percentage }}%</p><p class="text-xs text-gray-400 mt-0.5">{{ analytics.insights.most_disengaged.title }}</p></div>
             <div class="p-3 rounded-xl border-l-4 border-gray-200 bg-gray-50"><p class="text-xs font-semibold text-gray-400">Recommendation</p><p class="text-xs text-gray-600 mt-1">{{ analytics.insights.recommendation }}</p></div>
           </div>
           <div v-else class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
             <p class="font-semibold">Insights withheld</p>
             <p class="mt-1 text-xs leading-5">{{ analytics.data_quality.explanation }}</p>
           </div>
-        </div>
+        </section>
       </div>
 
-      <div class="page-card">
-        <div class="px-6 py-5 border-b border-gray-50"><h3 class="font-semibold text-sm text-navy">Slide-by-Slide Breakdown</h3></div>
+      <div class="page-card analytics-breakdown">
+        <div class="analytics-breakdown-heading px-6 py-5 border-b border-gray-50"><span class="analytics-breakdown-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18M8 9v11" /></svg></span><h3 class="font-semibold text-sm text-navy">Slide-by-Slide Breakdown</h3></div>
         <div class="overflow-x-auto">
           <table class="w-full text-sm">
             <thead><tr class="border-b border-gray-50"><th v-for="heading in ['Slide', 'Topic', 'Timestamp', 'Duration', 'Detected', 'Unclassified', 'Engaged', 'Attentive', 'Confused', 'Bored', 'Disengaged']" :key="heading" class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">{{ heading }}</th></tr></thead>
@@ -298,5 +275,6 @@ onBeforeUnmount(destroyChart)
         </div>
       </div>
     </template>
+    </div>
   </AppLayout>
 </template>

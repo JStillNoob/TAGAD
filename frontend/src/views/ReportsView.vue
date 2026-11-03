@@ -3,7 +3,6 @@ import { computed, onMounted, ref } from 'vue'
 import AppLayout from '../layouts/AppLayout.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import { deleteReport, fetchReportOptions, fetchReports, generateReport } from '../reports'
-import { currentTheme } from '../theme'
 
 const reports = ref([])
 const reportCount = ref(0)
@@ -37,14 +36,9 @@ function sessionLabel(session) {
 }
 
 function formatStyle(format) {
-  if (currentTheme.value === 'dark') {
-    return format === 'PDF'
-      ? { bg: '#202A55', color: '#A5B4FC' }
-      : { bg: '#052E2B', color: '#6EE7B7' }
-  }
   return format === 'PDF'
-    ? { bg: '#E5E8F9', color: '#2D3CC8' }
-    : { bg: '#D1FAE5', color: '#065F46' }
+    ? { bg: 'var(--primary-tint)', color: 'var(--primary-dark)' }
+    : { bg: 'color-mix(in srgb, var(--state-attentive) 13%, var(--card))', color: 'var(--primary-dark)' }
 }
 
 function fieldError(requestError) {
@@ -162,8 +156,8 @@ onMounted(loadReports)
 
     <div class="grid grid-cols-2 xl:grid-cols-4 gap-5 mb-6">
       <div class="stat-card"><p class="text-2xl font-bold text-navy text-right">{{ reportCount }}</p><p class="text-xs text-gray-400 mt-1">Total Reports</p></div>
-      <div class="stat-card"><p class="text-2xl font-bold text-right" style="color:#2D3CC8">{{ pdfCount }}</p><p class="text-xs text-gray-400 mt-1">Polished PDFs</p></div>
-      <div class="stat-card"><p class="text-2xl font-bold text-right" style="color:#059669">{{ csvCount }}</p><p class="text-xs text-gray-400 mt-1">Raw CSV Exports</p></div>
+      <div class="stat-card"><p class="text-2xl font-bold text-right" style="color:var(--primary-dark)">{{ pdfCount }}</p><p class="text-xs text-gray-400 mt-1">Polished PDFs</p></div>
+      <div class="stat-card"><p class="text-2xl font-bold text-right" style="color:var(--primary-dark)">{{ csvCount }}</p><p class="text-xs text-gray-400 mt-1">Raw CSV Exports</p></div>
       <div class="stat-card"><p class="text-base font-bold text-navy text-right">{{ formatDate(latestSession) }}</p><p class="text-xs text-gray-400 mt-1">Latest Reported Session</p></div>
     </div>
 
@@ -175,7 +169,7 @@ onMounted(loadReports)
       <div v-if="loading" class="p-12 text-center text-sm text-gray-400">Loading reports…</div>
       <div v-else-if="error && !reports.length" class="p-12 text-center">
         <p class="text-sm text-red-600">{{ error }}</p>
-        <button class="mt-4 px-4 py-2 rounded-lg bg-brand text-white text-sm" @click="loadReports()">Try again</button>
+        <button class="btn-secondary mt-4" @click="loadReports()">Try again</button>
       </div>
       <div v-else-if="!reports.length" class="p-12 text-center">
         <h3 class="font-semibold text-navy">No reports generated yet</h3>

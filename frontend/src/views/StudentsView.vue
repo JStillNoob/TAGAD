@@ -623,7 +623,7 @@ onUnmounted(() => clearTimeout(classroomSearchTimer))
               <div v-if="isSystemAdmin" class="flex justify-between gap-3"><dt class="text-gray-500">Organization</dt><dd class="font-medium text-gray-800 text-right">{{ subject.organization_name }}</dd></div>
               <div class="flex justify-between gap-3"><dt class="text-gray-500">Sessions</dt><dd class="font-medium text-gray-800">{{ subject.session_count }}</dd></div>
             </dl>
-            <RouterLink v-if="!subject.is_archived" :to="`/session?subject=${subject.id}`" class="btn-primary mt-5 w-full justify-center">Start Session</RouterLink>
+            <RouterLink v-if="!subject.is_archived" :to="`/session?subject=${subject.id}`" class="btn-secondary mt-5 w-full justify-center">Start Session</RouterLink>
           </article>
         </div>
         <PaginationControls :page="subjectPage" :count="subjectCount" :page-size="pageSize" :disabled="loading || subjectPageLoading" @change="changeSubjectPage" />
@@ -791,7 +791,7 @@ onUnmounted(() => clearTimeout(classroomSearchTimer))
           <label class="text-sm font-medium text-gray-700">Position *<select v-model="cameraForm.position" required class="mt-1.5 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5"><option v-for="position in options.camera_positions" :key="position.value" :value="position.value">{{ position.label }}</option></select><span v-if="firstError('position')" class="mt-1 block text-xs text-red-600">{{ firstError('position') }}</span></label>
           <label class="text-sm font-medium text-gray-700">Status *<select v-model="cameraForm.status" required class="mt-1.5 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5"><option v-for="status in options.camera_statuses" :key="status.value" :value="status.value">{{ status.label }}</option></select><span v-if="firstError('status')" class="mt-1 block text-xs text-red-600">{{ firstError('status') }}</span></label>
         </div>
-        <div class="flex justify-end gap-3 border-t px-6 py-4"><button type="button" class="rounded-xl border px-5 py-2.5 text-sm font-semibold" @click="closeModal">Cancel</button><button class="btn-teal" :disabled="saving">{{ saving ? 'Saving…' : 'Save Camera' }}</button></div>
+        <div class="flex justify-end gap-3 border-t px-6 py-4"><button type="button" class="rounded-xl border px-5 py-2.5 text-sm font-semibold" @click="closeModal">Cancel</button><button class="btn-primary" :disabled="saving">{{ saving ? 'Saving…' : 'Save Camera' }}</button></div>
       </form>
     </div>
   </AppLayout>
