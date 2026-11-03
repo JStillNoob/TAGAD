@@ -2,13 +2,12 @@
   <div class="min-h-screen grid md:grid-cols-2">
     <ThemeToggle class="fixed right-5 top-5 z-20 bg-white shadow-sm" />
     <div
-      class="hidden md:flex flex-col items-center justify-center text-center px-12"
-      style="background: linear-gradient(135deg, #0f2440 0%, #1E3A5F 60%, #1a4a6e 100%);"
+      class="auth-brand-panel hidden md:flex flex-col items-center justify-center text-center px-12"
     >
-      <img src="/tagad_logo.png" alt="TAGAD Logo" class="w-64 mb-6 drop-shadow-xl" />
+      <img src="/tagad_logo.svg" alt="TAGAD Logo" class="w-64 mb-6 drop-shadow-xl" />
       <h1 class="text-4xl font-bold text-white tracking-widest mb-4">TAGAD</h1>
-      <p class="text-xl font-medium mb-3" style="color:#7B92F5;">Create your teacher account</p>
-      <p class="text-sm leading-relaxed max-w-sm" style="color:rgba(255,255,255,0.5);">
+      <p class="auth-brand-accent text-xl font-medium mb-3">Create your teacher account</p>
+      <p class="auth-brand-copy text-sm leading-relaxed max-w-sm">
         Join your organization using the code provided by your administrator.
       </p>
     </div>
@@ -50,7 +49,7 @@
 
           <div class="text-center mt-5 text-sm text-gray-500">
             Already have an account?
-            <RouterLink to="/" class="font-medium" style="color:#465FF1;">Sign in</RouterLink>
+            <RouterLink to="/" class="font-medium text-brand">Sign in</RouterLink>
           </div>
         </form>
       </div>

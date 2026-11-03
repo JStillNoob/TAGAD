@@ -46,6 +46,7 @@ import {
 
 const route = useRoute()
 const router = useRouter()
+const isTeacher = computed(() => currentUser.value?.role === 'teacher')
 
 const loading = ref(true)
 const error = ref('')
@@ -111,11 +112,11 @@ const sessionCountdown = createSessionCountdown({
 })
 
 const engagementCategories = [
-  { key: 'engaged', label: 'Engaged', color: '#2D3CC8' },
-  { key: 'attentive', label: 'Attentive', color: '#10B981' },
-  { key: 'confused', label: 'Confused', color: '#F59E0B' },
-  { key: 'bored', label: 'Bored', color: '#F97316' },
-  { key: 'disengaged', label: 'Disengaged', color: '#EF476F' },
+  { key: 'engaged', label: 'Engaged', color: 'linear-gradient(180deg, var(--primary), var(--primary-dark))', textColor: 'var(--primary-dark)' },
+  { key: 'attentive', label: 'Attentive', color: 'var(--state-attentive)', textColor: 'var(--primary-dark)' },
+  { key: 'confused', label: 'Confused', color: 'var(--state-confused)', textColor: 'var(--text-muted)' },
+  { key: 'bored', label: 'Bored', color: 'var(--state-bored)', textColor: 'var(--text-muted)' },
+  { key: 'disengaged', label: 'Disengaged', color: 'var(--state-disengaged)', textColor: 'var(--text)' },
 ]
 
 const selectedSubject = computed(() => options.value.subjects.find(
@@ -351,6 +352,11 @@ function selectAllCameras() {
 
 function clearCameraSelection() {
   selectedCameraIds.value = []
+}
+
+function toggleCameraFreeMode(event) {
+  if (event.target.checked) clearCameraSelection()
+  else selectAllCameras()
 }
 
 function stopCameraAvailability() {
@@ -789,7 +795,7 @@ watch(selectedSubjectId, () => {
     stopCameraAvailability()
     return
   }
-  selectAllCameras()
+  clearCameraSelection()
   startCameraAvailability()
 })
 watch(() => [route.query.subject, route.query.presentation], applyRouteSelection)
@@ -820,7 +826,7 @@ onUnmounted(() => {
 
 <template>
   <AppLayout
-    :page-title="activeSession ? 'Live Classroom Session' : preparedSession ? 'Review Classroom Session' : 'Start New Session'"
+    page-title="Live Session"
     :focus-mode="Boolean(activeSession || preparedSession)"
   >
     <div v-if="error" class="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -832,15 +838,33 @@ onUnmounted(() => {
       Loading session setup…
     </div>
 
-    <div v-else-if="!activeSession && !preparedSession" class="grid grid-cols-1 xl:grid-cols-3 gap-5">
+    <template v-else-if="!activeSession && !preparedSession">
+    <section v-if="isTeacher" class="teacher-session-hero page-card">
+      <div class="teacher-session-hero-copy">
+        <h1>Live Session</h1>
+        <p>Prepare, upload, and manage your classroom session and presentations.</p>
+        <button type="button" class="btn-primary" :disabled="!canPrepare" @click="prepareSession">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 4 13 8-13 8V4Z" /></svg>
+          {{ actionBusy ? 'Preparing…' : 'Prepare Session' }}
+        </button>
+      </div>
+      <img src="/illustrations/teacher-hero.png" alt="" aria-hidden="true" class="teacher-session-hero-art">
+    </section>
+    <div class="grid grid-cols-1 xl:grid-cols-3 gap-5" :class="isTeacher ? 'teacher-session-layout' : ''">
       <div class="xl:col-span-2 space-y-5">
-        <section class="page-card p-6">
-          <h2 class="font-semibold text-navy mb-5">Session Details</h2>
+        <section class="page-card p-6" :class="isTeacher ? 'teacher-session-details' : ''">
+          <div class="teacher-session-card-heading mb-5">
+            <span v-if="isTeacher" class="teacher-panel-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="18" rx="2" /><path d="M9 4.5V3h6v1.5M9 10h6m-6 4h6m-6 4h4" /></svg></span>
+            <h2 class="font-semibold text-navy">Session Details</h2>
+          </div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div role="region" aria-labelledby="session-subject-title">
               <label class="block text-sm font-medium text-gray-600">
                 <span id="session-subject-title">Subject and classroom</span>
-                <input v-model="subjectSearch" type="search" placeholder="Search subjects…" class="mt-1.5 w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-navy">
+                <span class="teacher-session-subject-search">
+                  <svg v-if="isTeacher" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m16 16 4 4" /></svg>
+                  <input v-model="subjectSearch" type="search" placeholder="Search subjects…" class="mt-1.5 w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-navy">
+                </span>
                 <select v-model="selectedSubjectId" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-navy">
                   <option value="">Select a subject</option>
                   <option v-for="subject in options.subjects" :key="subject.id" :value="subject.id">
@@ -848,7 +872,7 @@ onUnmounted(() => {
                   </option>
                 </select>
               </label>
-              <PaginationControls class="mt-3 rounded-xl border border-gray-100" :page="subjectPage" :count="subjectCount" :page-size="subjectPageSize" :disabled="subjectPageLoading || actionBusy" @change="changeSubjectPage" />
+              <PaginationControls v-if="subjectCount > subjectPageSize" class="mt-3 rounded-xl border border-gray-100" :page="subjectPage" :count="subjectCount" :page-size="subjectPageSize" :disabled="subjectPageLoading || actionBusy" @change="changeSubjectPage" />
             </div>
             <label class="block text-sm font-medium text-gray-600">
               Presentation
@@ -866,16 +890,26 @@ onUnmounted(() => {
             </label>
           </div>
 
-          <div class="mt-5 rounded-xl border border-gray-200 p-4">
+          <div class="mt-5 rounded-xl border border-gray-200 p-4" :class="isTeacher ? 'teacher-session-cameras' : ''">
             <div class="flex items-center justify-between gap-3">
-              <div>
+              <div class="teacher-session-camera-heading">
+                <span v-if="isTeacher" class="teacher-session-small-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="6" width="13" height="12" rx="2" /><path d="m16 10 5-3v10l-5-3" /></svg></span>
+                <div>
                 <h3 class="text-sm font-semibold text-navy">Session cameras</h3>
                 <p class="text-xs text-gray-400 mt-1">Connections are checked automatically before preparation. Camera video is never shown.</p>
+                </div>
               </div>
-              <span v-if="availableCameras.length" class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">{{ selectedCameraIds.length }}/{{ availableCameras.length }} selected</span>
+              <span v-if="availableCameras.length" class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">{{ selectedCameraIds.length ? `${selectedCameraIds.length}/${availableCameras.length} selected` : 'No cameras selected' }}</span>
               <span v-else class="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">No active cameras</span>
             </div>
             <template v-if="availableCameras.length">
+              <label class="session-camera-free-option mt-4">
+                <input type="checkbox" :checked="selectedCameraIds.length === 0" @change="toggleCameraFreeMode">
+                <span>
+                  <strong>Prepare and start without cameras for now</strong>
+                  <small>Use the presentation and session controls without camera analytics.</small>
+                </span>
+              </label>
               <div class="mt-4 flex items-center justify-end gap-2">
                 <button type="button" class="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50" @click="selectAllCameras">Select all</button>
                 <button type="button" class="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50" @click="clearCameraSelection">Clear</button>
@@ -887,21 +921,24 @@ onUnmounted(() => {
                   <span class="rounded-full px-2 py-0.5 text-[11px] font-semibold" :class="cameraReadinessClass(cameraAvailability[camera.id])">{{ cameraReadinessLabel(cameraAvailability[camera.id]) }}</span>
                 </label>
               </div>
-              <p v-if="selectedCameraIds.length && !selectedCamerasAvailable" class="mt-3 text-xs text-amber-700">Prepare Session unlocks when every selected camera is Available. Add a missing IP address in Classes, or clear a camera you do not want to use.</p>
+              <p v-if="selectedCameraIds.length && !selectedCamerasAvailable" class="mt-3 text-xs text-amber-700">Prepare Session unlocks when every selected camera is Available. Add a missing IP address in Classes, or choose to start without cameras for now.</p>
             </template>
             <div v-else-if="selectedSubject" class="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-              This classroom has no active cameras. You can still start the session and use the development simulator.
+              This classroom has no active cameras. You can still start the session<span v-if="options.simulator_enabled"> and use the development simulator</span>.
             </div>
             <p v-else class="mt-4 text-sm text-gray-400">Select a subject to load its classroom cameras.</p>
           </div>
 
-          <button type="button" class="btn-primary mt-5" :disabled="!canPrepare" @click="prepareSession">
+          <button v-if="!isTeacher" type="button" class="btn-primary mt-5" :disabled="!canPrepare" @click="prepareSession">
             {{ actionBusy ? 'Preparing…' : 'Prepare Session' }}
           </button>
         </section>
 
-        <section class="page-card p-6">
-          <h2 class="font-semibold text-navy mb-1">Presentation Preview</h2>
+        <section class="page-card p-6" :class="isTeacher ? 'teacher-session-preview' : ''">
+          <div class="teacher-session-card-heading">
+            <span v-if="isTeacher" class="teacher-panel-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8m-4-4v4" /></svg></span>
+            <h2 class="font-semibold text-navy mb-1">Presentation Preview</h2>
+          </div>
           <p class="text-xs text-gray-400 mb-4">PDF files display directly. PPTX files display through their converted PDF.</p>
           <iframe
             v-if="selectedPresentation?.preview_url"
@@ -910,15 +947,19 @@ onUnmounted(() => {
             class="w-full rounded-xl border border-gray-200 bg-gray-50"
             style="height: 480px"
           ></iframe>
-          <div v-else class="rounded-xl border border-dashed border-gray-200 py-20 text-center text-sm text-gray-400">
-            Select a ready presentation to preview it.
+          <div v-else class="rounded-xl border border-dashed border-gray-200 py-20 text-center text-sm text-gray-400" :class="isTeacher ? 'teacher-session-preview-empty' : ''">
+            <span v-if="isTeacher" class="teacher-session-document-art" aria-hidden="true"><svg viewBox="0 0 120 120" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M29 14h43l20 20v68H29a7 7 0 0 1-7-7V21a7 7 0 0 1 7-7Z" stroke-width="3" /><path d="M72 14v20h20M36 48h28M36 57h20" stroke-width="3" /><circle cx="64" cy="78" r="20" stroke-width="3" /><path d="m58 67 15 11-15 11V67Z" fill="currentColor" stroke="none" /></svg></span>
+            <p>Select a ready presentation to preview it.</p>
           </div>
         </section>
       </div>
 
       <aside class="space-y-5">
-        <section class="page-card p-5">
-          <h2 class="font-semibold text-navy">Upload Presentation</h2>
+        <section class="page-card p-5" :class="isTeacher ? 'teacher-session-upload' : ''">
+          <div class="teacher-session-card-heading">
+            <span v-if="isTeacher" class="teacher-panel-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18H5a3 3 0 0 1-.4-6A7.5 7.5 0 0 1 19 10.5a3.8 3.8 0 0 1 0 7.5h-1M12 21V10m-4 4 4-4 4 4" /></svg></span>
+            <h2 class="font-semibold text-navy">Upload Presentation</h2>
+          </div>
           <p class="text-xs text-gray-400 mt-1 mb-4">PDF or PPTX, up to 50 MB. The original file is preserved.</p>
           <label class="block text-sm font-medium text-gray-600">
             Title
@@ -928,7 +969,7 @@ onUnmounted(() => {
             File
             <input ref="fileInput" type="file" accept=".pdf,.pptx,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation" class="mt-1.5 block w-full text-sm text-gray-500" @change="chooseFile">
           </label>
-          <button type="button" class="btn-primary w-full justify-center mt-4" :disabled="actionBusy || !uploadFile || !uploadTitle.trim()" @click="submitUpload">
+          <button type="button" class="btn-secondary w-full justify-center mt-4" :disabled="actionBusy || !uploadFile || !uploadTitle.trim()" @click="submitUpload">
             {{ actionBusy ? 'Working…' : 'Upload Presentation' }}
           </button>
           <div v-if="uploadProgress" class="mt-3 rounded-lg bg-indigo-50 p-3" role="status">
@@ -941,16 +982,25 @@ onUnmounted(() => {
             </div>
             <p class="mt-2 text-xs text-indigo-700">PPTX conversion can take up to two minutes.</p>
           </div>
-          <div role="region" aria-labelledby="presentation-library-title" class="mt-5 border-t border-gray-100 pt-4">
+        </section>
+
+        <section class="page-card p-5" :class="isTeacher ? 'teacher-session-library' : ''">
+          <div role="region" aria-labelledby="presentation-library-title">
             <div class="flex items-center justify-between gap-3">
-              <h3 id="presentation-library-title" class="text-xs font-semibold uppercase tracking-wide text-gray-400">Presentation Library</h3>
+              <div class="teacher-session-card-heading">
+                <span v-if="isTeacher" class="teacher-panel-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 9 5-9 5-9-5 9-5Zm-9 9 9 5 9-5m-18 5 9 5 9-5" /></svg></span>
+                <h3 id="presentation-library-title" class="text-xs font-semibold uppercase tracking-wide text-gray-400">Presentation Library</h3>
+              </div>
               <select v-model="presentationLifecycle" aria-label="Presentation records" class="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs text-gray-600">
                 <option value="active">Active</option>
                 <option value="archived">Archived</option>
                 <option value="all">All</option>
               </select>
             </div>
-            <p v-if="!presentationLibrary.length" class="py-6 text-center text-xs text-gray-400">No presentations match this filter.</p>
+            <div v-if="!presentationLibrary.length" class="py-6 text-center text-xs text-gray-400" :class="isTeacher ? 'teacher-session-list-empty' : ''">
+              <span v-if="isTeacher" class="teacher-session-document-art" aria-hidden="true"><svg viewBox="0 0 120 120" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M29 14h43l20 20v68H29a7 7 0 0 1-7-7V21a7 7 0 0 1 7-7Z" stroke-width="3" /><path d="M72 14v20h20M36 48h28M36 57h20" stroke-width="3" /><circle cx="64" cy="78" r="20" stroke-width="3" /><path d="m58 67 15 11-15 11V67Z" fill="currentColor" stroke="none" /></svg></span>
+              <p>No presentations match this filter.</p>
+            </div>
             <div class="mt-3 max-h-64 space-y-2 overflow-y-auto">
               <div v-for="presentation in presentationLibrary" :key="presentation.id" class="rounded-lg border border-gray-100 p-3">
                 <div class="flex items-start justify-between gap-2">
@@ -979,20 +1029,26 @@ onUnmounted(() => {
                 </div>
               </div>
             </div>
-            <PaginationControls :page="presentationPage" :count="presentationCount" :page-size="pageSize" :disabled="Boolean(presentationBusyId)" @change="changePresentationPage" />
+            <PaginationControls v-if="presentationCount > pageSize" :page="presentationPage" :count="presentationCount" :page-size="pageSize" :disabled="Boolean(presentationBusyId)" @change="changePresentationPage" />
           </div>
         </section>
 
-        <section class="page-card p-5" aria-labelledby="recent-sessions-title">
+        <section class="page-card p-5" :class="isTeacher ? 'teacher-session-recent' : ''" aria-labelledby="recent-sessions-title">
           <div class="mb-3 flex items-center justify-between gap-3">
-            <h2 id="recent-sessions-title" class="font-semibold text-navy">Recent Sessions</h2>
+            <div class="teacher-session-card-heading">
+              <span v-if="isTeacher" class="teacher-panel-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg></span>
+              <h2 id="recent-sessions-title" class="font-semibold text-navy">Recent Sessions</h2>
+            </div>
             <select v-model="sessionLifecycle" aria-label="Session records" class="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs text-gray-600">
               <option value="active">Active</option>
               <option value="archived">Archived</option>
               <option value="all">All</option>
             </select>
           </div>
-          <p v-if="!sessions.length" class="py-6 text-center text-sm text-gray-400">No sessions recorded yet.</p>
+          <div v-if="!sessions.length" class="py-6 text-center text-sm text-gray-400" :class="isTeacher ? 'teacher-session-list-empty' : ''">
+            <img v-if="isTeacher" src="/illustrations/teacher-sessions-empty.png" alt="" aria-hidden="true">
+            <p>No sessions recorded yet.</p>
+          </div>
           <div v-else class="space-y-3">
             <div v-for="session in sessions" :key="session.id" class="rounded-lg border border-gray-100 p-3">
               <div class="flex justify-between gap-3">
@@ -1006,10 +1062,11 @@ onUnmounted(() => {
               </div>
             </div>
           </div>
-          <PaginationControls class="-mx-5 -mb-5 mt-5" :page="sessionPage" :count="sessionCount" :page-size="sessionPageSize" :disabled="loading || sessionPageLoading || actionBusy" @change="changeSessionPage" />
+          <PaginationControls v-if="sessionCount > sessionPageSize" class="-mx-5 -mb-5 mt-5" :page="sessionPage" :count="sessionCount" :page-size="sessionPageSize" :disabled="loading || sessionPageLoading || actionBusy" @change="changeSessionPage" />
         </section>
       </aside>
     </div>
+    </template>
 
     <div v-else class="space-y-5">
       <div class="page-card px-5 py-4 flex flex-wrap items-center justify-between gap-4">
@@ -1058,7 +1115,7 @@ onUnmounted(() => {
             <div class="flex items-center justify-between gap-2">
               <h3 class="text-sm font-semibold text-navy">Camera & Worker Health</h3>
               <span v-if="monitoredSession.cameras.length" class="rounded-full bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">{{ cameraHealthStatus === 'ready' ? 'Live status' : cameraHealthStatus === 'unavailable' ? 'Status unavailable' : 'Loading status' }}</span>
-              <span v-else class="rounded-full bg-violet-50 px-2 py-1 text-xs font-semibold text-violet-700">Simulator only</span>
+              <span v-else class="rounded-full bg-violet-50 px-2 py-1 text-xs font-semibold text-violet-700">{{ options.simulator_enabled ? 'Simulator only' : 'No cameras' }}</span>
             </div>
             <p class="mt-3 text-xs leading-5 text-gray-500">Each selected camera runs independently and contributes official analytics.</p>
             <div v-if="cameraHealthStatus === 'unavailable'" class="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
@@ -1079,7 +1136,7 @@ onUnmounted(() => {
                 <p v-if="camera.state === 'online'" class="mt-2 text-xs text-gray-500">{{ camera.confirmed_students }} confirmed · {{ camera.unclassified_students }} unclassified · {{ camera.analysis_rate }} fps</p>
               </div>
             </div>
-            <div v-else class="mt-4 rounded-lg border border-violet-200 bg-violet-50 p-3"><p class="text-xs font-semibold text-violet-700">No cameras linked</p><p class="mt-1 text-xs leading-5 text-violet-600">This session can continue with simulated engagement data.</p></div>
+            <div v-else class="mt-4 rounded-lg border border-violet-200 bg-violet-50 p-3"><p class="text-xs font-semibold text-violet-700">No cameras linked</p><p class="mt-1 text-xs leading-5 text-violet-600">{{ options.simulator_enabled ? 'This session can continue with simulated engagement data.' : 'You can start and present slides, but camera analytics will not be recorded.' }}</p></div>
             <div v-if="preparedHasCameras && !preparedCamerasReady" class="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">Start Session unlocks when all selected cameras become Online.</div>
             <div v-else-if="preparedHasCameras" class="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">All selected cameras are Online. You can start the session.</div>
           </section>
@@ -1099,7 +1156,7 @@ onUnmounted(() => {
             </div>
             <div v-if="latestEngagement" class="mt-4 space-y-3">
               <div v-for="category in engagementCategories" :key="category.key">
-                <div class="mb-1 flex justify-between text-xs"><span class="text-gray-600">{{ category.label }}</span><span class="font-semibold" :style="{ color: category.color }">{{ latestEngagement.distribution[category.key] }}%</span></div>
+                <div class="mb-1 flex justify-between text-xs"><span class="text-gray-600">{{ category.label }}</span><span class="font-semibold" :style="{ color: category.textColor }">{{ latestEngagement.distribution[category.key] }}%</span></div>
                 <div class="h-1.5 overflow-hidden rounded-full bg-gray-100"><div class="h-full rounded-full" :style="{ width: `${latestEngagement.distribution[category.key]}%`, background: category.color }"></div></div>
               </div>
               <p class="text-xs text-gray-400">{{ latestEngagement.total_detected }} detected · {{ latestEngagement.unclassified_count }} unclassified · Slide {{ latestEngagement.slide_number }}</p>
@@ -1107,7 +1164,7 @@ onUnmounted(() => {
             <p v-else class="mt-3 text-xs leading-5 text-gray-500">Waiting for the first aggregated monitoring window.</p>
             <div v-if="options.simulator_enabled" class="mt-4 border-t border-gray-100 pt-4">
               <template v-if="simulatorAvailable">
-                <button v-if="!simulationRunning" type="button" class="btn-primary w-full justify-center" @click="startSimulation">Start Simulation</button>
+                <button v-if="!simulationRunning" type="button" class="btn-secondary w-full justify-center" @click="startSimulation">Start Simulation</button>
                 <button v-else type="button" class="w-full rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50" @click="stopSimulation">Stop Simulation</button>
                 <p class="mt-2 text-xs text-gray-400">Development only · one result every two seconds</p>
               </template>

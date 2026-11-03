@@ -7,6 +7,7 @@ const layoutSource = await readFile(new URL('../src/layouts/AppLayout.vue', impo
 const dashboardSource = await readFile(new URL('../src/views/DashboardView.vue', import.meta.url), 'utf8')
 const sessionSource = await readFile(new URL('../src/views/SessionView.vue', import.meta.url), 'utf8')
 const analyticsSource = await readFile(new URL('../src/views/AnalyticsView.vue', import.meta.url), 'utf8')
+const stylesSource = await readFile(new URL('../src/assets/main.css', import.meta.url), 'utf8')
 const reportsSource = await readFile(new URL('../src/views/ReportsView.vue', import.meta.url), 'utf8')
 const classesSource = await readFile(new URL('../src/views/StudentsView.vue', import.meta.url), 'utf8')
 const classManagementSource = await readFile(new URL('../src/classManagement.js', import.meta.url), 'utf8')
@@ -43,13 +44,14 @@ test('live session connects to engagement WebSocket and exposes the development 
   assert.match(sessionSource, /setInterval\(emitSimulation, 2000\)/)
 })
 
-test('live session automatically selects classroom cameras and provides bulk controls', () => {
-  assert.match(sessionSource, /selectAllCameras\(\)\s+startCameraAvailability\(\)/)
+test('live session defaults to no cameras and provides bulk controls', () => {
+  assert.match(sessionSource, /clearCameraSelection\(\)\s+startCameraAvailability\(\)/)
   assert.match(sessionSource, /checkSessionCameraAvailability/)
   assert.match(sessionSource, /selectedCamerasAvailable/)
   assert.match(sessionSource, /@click="selectAllCameras">Select all/)
   assert.match(sessionSource, /@click="clearCameraSelection">Clear/)
-  assert.match(sessionSource, /You can still start the session and use the development simulator/)
+  assert.match(sessionSource, /This classroom has no active cameras\. You can still start the session/)
+  assert.match(sessionSource, /Prepare and start without cameras for now/)
 })
 
 test('prepared session reuses the presentation screen before countdown starts', () => {
@@ -79,8 +81,10 @@ test('analytics labels pipeline, simulation, and historical mixed data', () => {
 
 test('summary card values are right-aligned', () => {
   assert.match(dashboardSource, /<h3 class="[^"]*font-bold[^"]*text-right[^"]*"/)
+  assert.match(analyticsSource, /class="analytics-stat-value(?: analytics-stat-value-alert)?"/)
+  assert.match(stylesSource, /\.analytics-stat-value \{[^}]*text-align: right;/)
 
-  for (const source of [analyticsSource, reportsSource, classesSource]) {
+  for (const source of [reportsSource, classesSource]) {
     const cardLines = source.split('\n').filter(line => line.includes('class="stat-card"'))
     assert.ok(cardLines.length > 0)
     for (const line of cardLines) {
@@ -91,14 +95,14 @@ test('summary card values are right-aligned', () => {
   }
 })
 
-test('ending a session opens its analytics and the chart renders after loading', () => {
+test('ending a session opens analytics and the slide rings use its data', () => {
   assert.match(sessionSource, /window\.confirm/)
   assert.match(sessionSource, /endSessionWithRecovery/)
   assert.match(sessionSource, /router\.push\(\{ path: '\/analytics', query: \{ session: String\(ended\.id\) \} \}\)/)
 
-  const loadingFinished = analyticsSource.indexOf('loading.value = false', analyticsSource.indexOf('async function loadAnalytics'))
-  const chartRendered = analyticsSource.indexOf('if (shouldRender) await renderChart()', loadingFinished)
-  assert.ok(loadingFinished >= 0 && chartRendered > loadingFinished)
+  assert.match(analyticsSource, /analytics\.value = await fetchSessionAnalytics\(selectedSessionId\.value\)/)
+  assert.match(analyticsSource, /v-for="slide in analytics\.slides"/)
+  assert.match(analyticsSource, /:style="donutStyle\(slide\)"/)
 })
 
 test('live monitoring reports reconnecting and unavailable states', () => {

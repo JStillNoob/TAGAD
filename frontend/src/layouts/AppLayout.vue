@@ -2,7 +2,6 @@
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { currentUser, logout } from "../auth";
-import GlobalSearch from "../components/GlobalSearch.vue";
 import ThemeToggle from "../components/ThemeToggle.vue";
 
 const props = defineProps({
@@ -12,7 +11,7 @@ const props = defineProps({
 
 const route = useRoute();
 const router = useRouter();
-const sidebarOpen = ref(true);
+const sidebarOpen = ref(window.innerWidth >= 768);
 const logoutPending = ref(false);
 const logoutError = ref("");
 
@@ -40,12 +39,13 @@ const canManageUsers = computed(() =>
   ["system_admin", "org_admin"].includes(currentUser.value?.role),
 );
 const isSystemAdmin = computed(() => currentUser.value?.role === "system_admin");
+const usePastelShell = computed(() => ["system_admin", "teacher"].includes(currentUser.value?.role));
 
 watch(
   () => props.focusMode,
   (val) => {
     // Collapse sidebar when session goes live; restore when it ends
-    sidebarOpen.value = !val;
+    sidebarOpen.value = !val && window.innerWidth >= 768;
   },
 );
 
@@ -66,18 +66,18 @@ async function handleLogout() {
 </script>
 
 <template>
-  <div class="min-h-screen flex bg-bg-main overflow-x-hidden">
-    <!-- ── Sidebar (hidden in focus mode via transform) ── -->
+  <div class="app-shell min-h-screen flex bg-bg-main overflow-x-hidden" :class="usePastelShell ? 'platform-shell' : ''">
+    <!-- ── Sidebar: expanded or icon rail, hidden only in focus mode ── -->
     <aside
-      class="fixed top-0 left-0 h-full w-64 flex flex-col z-30 bg-white border-r border-gray-200 transition-transform duration-500 ease-in-out"
-      :class="sidebarOpen && !focusMode ? 'translate-x-0' : '-translate-x-full'"
+      class="app-sidebar fixed top-0 left-0 h-full w-64 flex flex-col z-30 bg-white border-r border-gray-200 transition-transform duration-500 ease-in-out"
+      :class="[focusMode ? '-translate-x-full' : 'translate-x-0', sidebarOpen ? 'app-sidebar-expanded' : 'app-sidebar-collapsed']"
     >
       <!-- Logo -->
       <div
-        class="flex items-center justify-center gap-3 px-5 h-16 border-b border-gray-100 flex-shrink-0"
+        class="app-sidebar-brand flex items-center justify-center gap-3 px-5 h-16 border-b border-gray-100 flex-shrink-0"
       >
         <img
-          src="/tagad_logo.png"
+          src="/tagad_logo.svg"
           alt="TAGAD Logo"
           class="w-20 h-25 object-contain flex-shrink-0"
         />
@@ -85,7 +85,7 @@ async function handleLogout() {
       </div>
 
       <!-- Nav -->
-      <nav class="flex-1 px-4 py-5 overflow-y-auto space-y-0.5">
+      <nav class="app-sidebar-nav flex-1 px-4 py-5 overflow-y-auto space-y-0.5">
         <p
           class="text-xs font-semibold text-gray-400 uppercase tracking-widest px-2 mb-3"
         >
@@ -94,6 +94,7 @@ async function handleLogout() {
 
         <RouterLink
           to="/dashboard"
+          title="Dashboard"
           :class="['nav-link', isActive('/dashboard') ? 'active' : '']"
         >
           <svg
@@ -116,6 +117,7 @@ async function handleLogout() {
         <RouterLink
           v-if="!isSystemAdmin"
           to="/session"
+          title="Live Session"
           :class="['nav-link', isActive('/session') ? 'active' : '']"
         >
           <svg
@@ -138,6 +140,7 @@ async function handleLogout() {
         <RouterLink
           v-if="isSystemAdmin"
           to="/organizations"
+          title="Organizations"
           :class="['nav-link', isActive('/organizations') ? 'active' : '']"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
@@ -149,6 +152,7 @@ async function handleLogout() {
         <RouterLink
           v-if="!isSystemAdmin"
           to="/analytics"
+          title="Analytics"
           :class="['nav-link', isActive('/analytics') ? 'active' : '']"
         >
           <svg
@@ -171,6 +175,7 @@ async function handleLogout() {
         <RouterLink
           v-if="!isSystemAdmin"
           to="/classes"
+          title="Classes"
           :class="['nav-link', isActive('/classes') ? 'active' : '']"
         >
           <svg
@@ -193,6 +198,7 @@ async function handleLogout() {
         <RouterLink
           v-if="canManageUsers"
           to="/users"
+          :title="isSystemAdmin ? 'Organization Admins' : 'User Management'"
           :class="['nav-link', isActive('/users') ? 'active' : '']"
         >
           <svg
@@ -222,6 +228,7 @@ async function handleLogout() {
           <RouterLink
             v-if="!isSystemAdmin"
             to="/reports"
+            title="Reports"
             :class="['nav-link', isActive('/reports') ? 'active' : '']"
           >
             <svg
@@ -244,6 +251,7 @@ async function handleLogout() {
           <RouterLink
             v-if="!isSystemAdmin"
             to="/logs"
+            title="System Logs"
             :class="['nav-link', isActive('/logs') ? 'active' : '']"
           >
             <svg
@@ -265,6 +273,7 @@ async function handleLogout() {
 
           <RouterLink
             to="/settings"
+            title="Settings"
             :class="['nav-link', isActive('/settings') ? 'active' : '']"
           >
             <svg
@@ -294,12 +303,12 @@ async function handleLogout() {
 
     <!-- ── Main area ── -->
     <div
-      class="flex-1 flex flex-col min-h-screen transition-all duration-500 ease-in-out"
-      :class="sidebarOpen && !focusMode ? 'ml-64' : 'ml-0'"
+      class="flex-1 flex flex-col min-w-0 min-h-screen transition-all duration-500 ease-in-out"
+      :class="focusMode ? 'ml-0' : sidebarOpen ? 'ml-64' : 'app-with-rail'"
     >
       <!-- Topbar — slides up and out in focus mode -->
       <header
-        class="bg-white border-b border-gray-200 flex items-center px-6 gap-4 sticky top-0 z-20 flex-shrink-0 overflow-visible transition-all duration-500 ease-in-out"
+        class="app-topbar bg-white border-b border-gray-200 flex items-center px-6 gap-4 sticky top-0 z-20 flex-shrink-0 overflow-visible transition-all duration-500 ease-in-out"
         :class="
           focusMode
             ? 'h-0 opacity-0 border-0 pointer-events-none'
@@ -308,9 +317,11 @@ async function handleLogout() {
       >
         <!-- Hamburger -->
         <button
-          class="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-500 flex-shrink-0"
+          class="app-sidebar-toggle p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-500 flex-shrink-0"
           @click="sidebarOpen = !sidebarOpen"
           :title="sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'"
+          :aria-label="sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'"
+          :aria-expanded="sidebarOpen"
         >
           <svg
             v-if="!sidebarOpen"
@@ -344,8 +355,10 @@ async function handleLogout() {
           </svg>
         </button>
 
-        <!-- Search -->
-        <GlobalSearch />
+        <span class="app-page-indicator">
+          <span class="sr-only">Current page:</span>
+          {{ pageTitle || 'Current page' }}
+        </span>
 
         <div class="flex-1"></div>
 
@@ -357,7 +370,7 @@ async function handleLogout() {
 
           <details class="relative">
             <summary class="flex cursor-pointer list-none items-center gap-2.5 rounded-lg p-1.5 hover:bg-gray-100 [&::-webkit-details-marker]:hidden" aria-label="Open account menu">
-              <div class="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0" style="background: #465ff1">
+              <div class="app-account-avatar w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
                 {{ initials }}
               </div>
               <div class="hidden md:block text-left">
@@ -384,6 +397,7 @@ async function handleLogout() {
             ? 'flex-1 bg-bg-main p-6 lg:p-8 flex flex-col'
             : 'flex-1 p-6 lg:p-8 bg-bg-main'
         "
+        class="app-main"
       >
         <slot />
       </main>

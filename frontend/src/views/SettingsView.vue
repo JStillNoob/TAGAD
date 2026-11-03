@@ -152,7 +152,7 @@ onMounted(loadSettings)
     <div v-if="loading" class="page-card p-10 text-center text-sm text-gray-400">Loading settings…</div>
     <div v-else-if="loadError" class="page-card p-10 text-center">
       <p class="text-sm text-red-600">{{ loadError }}</p>
-      <button class="mt-4 px-4 py-2 rounded-lg bg-brand text-white text-sm" @click="loadSettings">Try again</button>
+      <button class="btn-secondary mt-4" @click="loadSettings">Try again</button>
     </div>
 
     <div v-else class="space-y-6">
@@ -219,7 +219,7 @@ onMounted(loadSettings)
               <p v-if="!canEditOrganization" class="text-xs text-gray-400">Only an organization administrator can edit these details.</p>
               <div v-if="editingOrganization" class="flex justify-end gap-2 pt-2">
                 <button type="button" class="px-4 py-2 rounded-lg border border-gray-200 text-sm" :disabled="organizationPending" @click="cancelOrganization">Cancel</button>
-                <button type="submit" class="px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium disabled:opacity-50" :disabled="organizationPending">{{ organizationPending ? 'Saving…' : 'Save organization' }}</button>
+                <button type="submit" class="btn-secondary disabled:opacity-50" :disabled="organizationPending">{{ organizationPending ? 'Saving…' : 'Save organization' }}</button>
               </div>
             </form>
             <p v-if="organizationMessage" class="mt-4 text-sm text-emerald-600" role="status">{{ organizationMessage }}</p>
@@ -257,7 +257,7 @@ onMounted(loadSettings)
               </li>
             </ul>
             <p class="mt-3 text-xs text-gray-400">Django will also reject common passwords or passwords too similar to your personal details.</p>
-            <button type="submit" class="mt-5 w-full px-4 py-2.5 rounded-lg bg-brand text-white text-sm font-medium disabled:opacity-50" :disabled="passwordPending || !passwordReady">{{ passwordPending ? 'Changing…' : 'Change password' }}</button>
+            <button type="submit" class="btn-secondary mt-5 w-full justify-center disabled:opacity-50" :disabled="passwordPending || !passwordReady">{{ passwordPending ? 'Changing…' : 'Change password' }}</button>
             <p v-if="passwordMessage" class="mt-3 text-sm text-emerald-600" role="status">{{ passwordMessage }}</p>
           </div>
         </form>
