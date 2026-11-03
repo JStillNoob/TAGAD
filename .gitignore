@@ -57,8 +57,10 @@ Desktop.ini
 .vscode/
 .idea/
 
+
 # Local agent instructions
 AGENTS.md
+.codex-remote-attachments/
 
 # Local machine-learning artifacts (configure paths through backend/.env)
 backend/model_artifacts/
