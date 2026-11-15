@@ -137,6 +137,7 @@ def ingest_engagement(validated_data):
             'captured_at': validated_data['captured_at'],
             'schema_version': validated_data['schema_version'],
             'pipeline_version': validated_data['pipeline_version'],
+            'diagnostics': validated_data.get('diagnostics', {}),
         },
     )
     if not created:

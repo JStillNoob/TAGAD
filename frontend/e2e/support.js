@@ -58,15 +58,23 @@ export async function logout(page) {
   await expect(page).toHaveURL(/\/$/)
 }
 
-export async function createMinimalPdf(filePath) {
-  const stream = 'BT\n/F1 24 Tf\n72 720 Td\n(TAGAD browser test) Tj\nET\n'
+export async function createMinimalPdf(filePath, pageCount = 1) {
   const objects = [
     '<< /Type /Catalog /Pages 2 0 R >>',
-    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+    '',
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
-    `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}endstream`,
   ]
+  const pages = []
+  for (let number = 1; number <= pageCount; number += 1) {
+    const pageId = objects.length + 1
+    const stream = `BT\n/F1 24 Tf\n72 720 Td\n(TAGAD browser test ${number}) Tj\nET\n`
+    pages.push(`${pageId} 0 R`)
+    objects.push(
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${pageId + 1} 0 R >>`,
+      `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}endstream`,
+    )
+  }
+  objects[1] = `<< /Type /Pages /Kids [${pages.join(' ')}] /Count ${pageCount} >>`
 
   let content = '%PDF-1.4\n'
   const offsets = [0]

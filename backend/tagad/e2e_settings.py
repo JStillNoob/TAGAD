@@ -25,4 +25,5 @@ CSRF_TRUSTED_ORIGINS = ['http://127.0.0.1:4173']
 EMAIL_BACKEND = 'django.core.mail.backends.locmem.EmailBackend'
 FRONTEND_URL = 'http://127.0.0.1:4173'
 ENABLE_PIPELINE_SIMULATOR = True
+PIPELINE_API_KEY = 'e2e-pipeline-key'
 

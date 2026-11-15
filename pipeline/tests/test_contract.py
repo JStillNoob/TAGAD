@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 from urllib.error import URLError
 
 from tagad_pipeline.artifacts import ArtifactVerificationError, sha256, verify_artifacts
-from tagad_pipeline.backend_client import BackendClient, build_payload
+from tagad_pipeline.backend_client import BackendClient, BackendRequestError, build_payload
 from tagad_pipeline.benchmark import percentile
 from tagad_pipeline.constants import ATTENTION_FEATURES, STATE_FEATURES, combine_state
 
@@ -66,8 +66,53 @@ class PayloadTests(unittest.TestCase):
                 predictions=[{'label': 'Unknown', 'confidence': 0.5}],
             )
 
+    def test_diagnostics_do_not_change_official_counts(self):
+        predictions = [
+            {'label': 'Engaged', 'confidence': 0.9},
+            {'label': None, 'confidence': None},
+        ]
+        diagnostics = {
+            'schema_version': 1,
+            'raw_state_counts': {'engaged': 2},
+        }
+
+        baseline = build_payload(
+            session_id=7, slide_event_id=11, pipeline_version='test',
+            predictions=predictions,
+        )
+        instrumented = build_payload(
+            session_id=7, slide_event_id=11, pipeline_version='test',
+            predictions=predictions, diagnostics=diagnostics,
+        )
+
+        for field in ('counts', 'total_detected', 'unclassified_count', 'average_confidence'):
+            self.assertEqual(instrumented[field], baseline[field])
+        self.assertEqual(instrumented['diagnostics'], diagnostics)
+
 
 class BackendClientTests(unittest.TestCase):
+    @patch('tagad_pipeline.backend_client.time.sleep')
+    @patch('tagad_pipeline.backend_client.urlopen', side_effect=TimeoutError('timed out'))
+    def test_socket_timeout_remains_a_recoverable_backend_error(self, urlopen, _sleep):
+        client = BackendClient('http://127.0.0.1:8000', 'private-key', retries=1)
+        with self.assertRaises(BackendRequestError):
+            client.session_context(4)
+        self.assertEqual(urlopen.call_count, 2)
+
+    @patch('tagad_pipeline.backend_client.time.sleep')
+    @patch('tagad_pipeline.backend_client.urlopen', side_effect=TimeoutError('timed out'))
+    def test_status_requests_fail_promptly_and_leave_submission_retry_policy_intact(self, urlopen, sleep):
+        client = BackendClient('http://127.0.0.1:8000', 'private-key')
+        for request in (client.work, lambda: client.heartbeat({'camera_id': 1})):
+            urlopen.reset_mock()
+            with self.assertRaises(BackendRequestError):
+                request()
+            self.assertEqual(urlopen.call_count, 1)
+            self.assertEqual(urlopen.call_args.kwargs['timeout'], 3)
+        sleep.assert_not_called()
+        self.assertEqual(client.timeout, 10)
+        self.assertEqual(client.retries, 2)
+
     @patch('tagad_pipeline.backend_client.urlopen')
     def test_context_request_uses_private_header_and_expected_endpoint(self, urlopen):
         response = MagicMock()

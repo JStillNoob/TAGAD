@@ -13,6 +13,13 @@ installation and everyday development commands.
 ## Computer-vision pipeline
 
 - [`engagement-pipeline-stages.md`](engagement-pipeline-stages.md) — pipeline stages and acceptance gates
+- [`ENGAGEMENT_ACCURACY_IMPROVEMENT_CHECKLIST.md`](ENGAGEMENT_ACCURACY_IMPROVEMENT_CHECKLIST.md) — Engaged, Attentive, posture, and validation tracker
+- [`ENGAGEMENT_LABEL_GUIDE.md`](ENGAGEMENT_LABEL_GUIDE.md) — operational label and annotation definitions
+- [`CAMERA_CALIBRATION_PLAN.md`](CAMERA_CALIBRATION_PLAN.md) — A4 camera directions, seating zones, overlap control, and measurement plan
+- [`POSTURE_FEASIBILITY_PLAN.md`](POSTURE_FEASIBILITY_PLAN.md) — A5 YOLO11 Pose candidate, temporal features, and evaluation targets
+- [`CLASSROOM_GROUND_TRUTH_PROTOCOL.md`](CLASSROOM_GROUND_TRUTH_PROTOCOL.md) — consented pilot collection, review, and deletion procedure
+- [`A3_PILOT_RECORD_TEMPLATE.md`](A3_PILOT_RECORD_TEMPLATE.md) — blank private-session evidence template; never fill the tracked copy
+- [`A3_REVIEWER_WORKSHEET_TEMPLATE.md`](A3_REVIEWER_WORKSHEET_TEMPLATE.md) — blank independent five-second annotation worksheet
 - [`PIPELINE_INTEGRATION_CHECKLIST.md`](PIPELINE_INTEGRATION_CHECKLIST.md) — integration progress
 - [`OFFLINE_CAMERA_ORCHESTRATION_CHECKLIST.md`](OFFLINE_CAMERA_ORCHESTRATION_CHECKLIST.md) — simulated multi-camera orchestration
 - [`PIPELINE_BENCHMARK_REPORT.md`](PIPELINE_BENCHMARK_REPORT.md) — CPU and CUDA measurements
@@ -23,6 +30,7 @@ installation and everyday development commands.
 
 ## Feature checklists
 
+- [`SESSION_CONTINUATION_CHECKLIST.md`](SESSION_CONTINUATION_CHECKLIST.md) — saved lessons, teacher continuation, recovery, and linked class meetings
 - [`authentication-checklist.md`](authentication-checklist.md)
 - [`authentication-registration.md`](authentication-registration.md)
 - [`authentication-sessions.md`](authentication-sessions.md)

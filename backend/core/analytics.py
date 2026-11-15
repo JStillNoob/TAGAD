@@ -5,6 +5,7 @@ from django.utils import timezone
 
 from .engagement_pipeline import SIMULATOR_PIPELINE_VERSION
 from .models import ClassroomSession, EngagementSummary
+from .session_access import meeting_context
 
 
 CATEGORIES = ('engaged', 'attentive', 'confused', 'bored', 'disengaged')
@@ -136,7 +137,9 @@ def build_session_analytics(session, previous_session=None):
 
     for index, event in enumerate(events):
         boundary = events[index + 1].entered_at if index + 1 < len(events) else effective_end
-        duration = max(0, round((boundary - event.entered_at).total_seconds()))
+        visit_start = max(session.started_at, event.entered_at)
+        visit_end = min(boundary, effective_end)
+        duration = max(0, round((visit_end - visit_start).total_seconds()))
         row = rows.setdefault(event.slide_id, {
             'slide_id': event.slide_id,
             'slide_number': event.slide.slide_number,
@@ -228,6 +231,7 @@ def build_session_analytics(session, previous_session=None):
 
     return {
         'session': {
+            **meeting_context(session),
             'id': session.pk,
             'subject_code': session.subject.subject_code,
             'subject_name': session.subject.subject_name,

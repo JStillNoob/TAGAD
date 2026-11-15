@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import AppLayout from '../layouts/AppLayout.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import { deleteReport, fetchReportOptions, fetchReports, generateReport } from '../reports'
+import { lessonState, meetingOutcome } from '../sessionLabels'
 
 const reports = ref([])
 const reportCount = ref(0)
@@ -32,7 +33,7 @@ function formatDateTime(value) {
 }
 
 function sessionLabel(session) {
-  return `${session.subject_code} — ${session.subject_name} · ${session.classroom} · ${formatDate(session.session_date)}`
+  return `${session.subject_code} — ${session.subject_name} · ${session.classroom} · ${formatDate(session.session_date)} · Class #${session.id} · ${meetingOutcome(session)}`
 }
 
 function formatStyle(format) {
@@ -122,17 +123,18 @@ onMounted(loadReports)
       <div class="flex flex-col xl:flex-row xl:items-end justify-between gap-5">
         <div class="max-w-2xl">
           <p class="text-xs font-semibold uppercase tracking-widest text-brand">Post-lesson reporting</p>
-          <h2 class="text-xl font-bold text-navy mt-1">Turn a completed session into a clear classroom report</h2>
+          <h2 class="text-xl font-bold text-navy mt-1">Create a report for each class meeting</h2>
           <p class="text-sm text-gray-500 mt-2">The PDF is the presentation-ready report for teachers and administrators. CSV is a secondary export for Excel, statistics, and research.</p>
+          <p class="text-sm text-gray-500 mt-2">Each report covers one closed meeting, including classes saved for later. Continued lessons keep a separate report for each meeting.</p>
         </div>
         <label class="block w-full xl:w-[430px] text-xs font-semibold text-gray-600">
-          Completed session
+          Closed class meeting
           <select
             v-model="selectedSessionId"
             class="mt-1.5 w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-navy outline-none focus:border-brand disabled:bg-gray-50"
             :disabled="loading || !sessions.length || Boolean(generating)"
           >
-            <option v-if="!sessions.length" value="">No completed sessions available</option>
+            <option v-if="!sessions.length" value="">No closed class meetings available</option>
             <option v-for="session in sessions" :key="session.id" :value="String(session.id)">{{ sessionLabel(session) }}</option>
           </select>
         </label>
@@ -181,7 +183,7 @@ onMounted(loadReports)
           <tbody class="divide-y divide-gray-50">
             <tr v-for="report in reports" :key="report.id" class="hover:bg-gray-50/50 transition-colors">
               <td class="px-6 py-3.5"><p class="font-medium text-navy whitespace-nowrap">{{ report.report_name }}</p><span class="inline-block mt-1 px-1.5 py-0.5 rounded text-xs font-semibold" :style="{ background: formatStyle(report.format).bg, color: formatStyle(report.format).color }">{{ report.format }}</span></td>
-              <td class="px-6 py-3.5 whitespace-nowrap"><p class="font-medium text-navy">{{ report.subject_code }} <span class="font-normal text-gray-400">— {{ report.subject_name }}</span></p><p class="text-xs text-gray-400 mt-0.5">{{ report.classroom }} · {{ formatDate(report.session_date) }}</p></td>
+              <td class="px-6 py-3.5 whitespace-nowrap"><p class="font-medium text-navy">{{ report.subject_code }} <span class="font-normal text-gray-400">— {{ report.subject_name }}</span></p><p class="text-xs text-gray-400 mt-0.5">{{ report.classroom }} · {{ formatDate(report.session_date) }} · Class #{{ report.session }}</p><p class="mt-1 text-xs text-gray-500">{{ meetingOutcome(report) }}<template v-if="report.lesson_id"> · Lesson {{ lessonState(report) }}</template></p><RouterLink v-if="report.lesson_id" class="text-xs font-semibold text-brand underline" :to="{ path: '/session', query: { lesson: report.lesson_id } }">Lesson history</RouterLink></td>
               <td class="px-6 py-3.5 text-gray-500 whitespace-nowrap">{{ report.generated_by }}</td>
               <td class="px-6 py-3.5 text-gray-500 whitespace-nowrap">{{ formatDateTime(report.generated_at) }}</td>
               <td class="px-6 py-3.5 text-gray-400 font-mono text-xs max-w-[240px] truncate" :title="report.file_name">{{ report.file_name }}</td>

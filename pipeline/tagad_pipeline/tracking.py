@@ -32,6 +32,8 @@ class Track:
     state_history: deque = field(default_factory=deque)
     current_label: str | None = None
     current_confidence: float | None = None
+    attention_ready: bool = False
+    attention_ready_counted: bool = False
 
     def mark_valid_face(self):
         self.valid_face_observations += 1
@@ -58,8 +60,12 @@ class GeometricTracker:
         self.minimum_iou = minimum_iou
         self.tracks = {}
         self.next_track_id = 1
+        self.last_created_count = 0
+        self.last_expired_count = 0
 
     def update(self, boxes, *, timestamp, frame_width, frame_height):
+        self.last_created_count = 0
+        self.last_expired_count = 0
         track_ids = list(self.tracks)
         frame_diagonal = hypot(frame_width, frame_height) or 1
         candidates = []
@@ -92,6 +98,7 @@ class GeometricTracker:
             item.id for item in self.tracks.values() if item.missing > self.max_missing
         ]:
             del self.tracks[track_id]
+            self.last_expired_count += 1
 
         for detection_index, box in enumerate(boxes):
             track_id = matches.get(detection_index)
@@ -99,6 +106,7 @@ class GeometricTracker:
                 track_id = self.next_track_id
                 self.next_track_id += 1
                 self.tracks[track_id] = Track(track_id, box, timestamp, timestamp)
+                self.last_created_count += 1
                 matches[detection_index] = track_id
             track = self.tracks[track_id]
             track.bbox = box

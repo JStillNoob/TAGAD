@@ -6,6 +6,7 @@ import AppLayout from '../layouts/AppLayout.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import { analyticsCsvUrl, fetchAnalyticsSessions, fetchSessionAnalytics } from '../analytics'
 import { currentTheme } from '../theme'
+import { lessonState, meetingOutcome } from '../sessionLabels'
 
 Chart.register(...registerables)
 
@@ -69,8 +70,7 @@ function dataQualityClass(level) {
 }
 
 function sessionLabel(session) {
-  const status = session.status === 'ongoing' ? ' · Ongoing' : ''
-  return `${session.subject_code} — ${session.subject_name} · ${formatDate(session.session_date)}${status}`
+  return `${session.subject_code} — ${session.subject_name} · ${formatDate(session.session_date)} · Class #${session.id} · ${meetingOutcome(session)}`
 }
 
 function engagementColor(value) {
@@ -143,7 +143,7 @@ async function loadAnalytics() {
   if (shouldRender) await renderChart()
 }
 
-async function loadSessions(page = sessionPage.value) {
+async function loadSessions(page = sessionPage.value, requestedId = route.query.session) {
   loading.value = true
   error.value = ''
   try {
@@ -151,10 +151,12 @@ async function loadSessions(page = sessionPage.value) {
     sessions.value = response.results
     sessionCount.value = response.count
     sessionPage.value = page
-    if (sessions.value.length) {
-      const requested = sessions.value.find(session => session.id === Number(route.query.session))
-      selectedSessionId.value = String(requested?.id || sessions.value[0].id)
+    if (requestedId || sessions.value.length) {
+      selectedSessionId.value = String(requestedId || sessions.value[0].id)
       await loadAnalytics()
+      if (analytics.value && !sessions.value.some(session => session.id === analytics.value.session.id)) {
+        sessions.value.unshift(analytics.value.session)
+      }
     } else {
       analytics.value = null
       loading.value = false
@@ -165,13 +167,7 @@ async function loadSessions(page = sessionPage.value) {
   }
 }
 
-watch(() => route.query.session, async (value) => {
-  const requested = sessions.value.find(session => session.id === Number(value))
-  if (requested && String(requested.id) !== selectedSessionId.value) {
-    selectedSessionId.value = String(requested.id)
-    await loadAnalytics()
-  }
-})
+watch(() => route.query.session, () => loadSessions(1))
 watch(currentTheme, renderChart)
 onMounted(loadSessions)
 onBeforeUnmount(destroyChart)
@@ -202,6 +198,11 @@ onBeforeUnmount(destroyChart)
           <span class="rounded-full px-2 py-1 font-semibold" :class="dataSourceClass(analytics.data_source.type)">
             {{ analytics.data_source.label }}
           </span>
+          <span>{{ meetingOutcome(analytics.session) }} · Class #{{ analytics.session.id }}</span>
+          <template v-if="analytics.session.lesson_id">
+            <span>Lesson {{ lessonState(analytics.session) }}</span>
+            <RouterLink class="font-semibold text-brand underline" :to="{ path: '/session', query: { lesson: analytics.session.lesson_id } }">Lesson history</RouterLink>
+          </template>
         </div>
       </div>
       <a
@@ -216,7 +217,7 @@ onBeforeUnmount(destroyChart)
         Download CSV
       </a>
     </div>
-    <PaginationControls class="analytics-pagination mb-6 page-card" :page="sessionPage" :count="sessionCount" :page-size="pageSize" :disabled="loading" @change="loadSessions" />
+    <PaginationControls class="analytics-pagination mb-6 page-card" :page="sessionPage" :count="sessionCount" :page-size="pageSize" :disabled="loading" @change="page => loadSessions(page, '')" />
 
     <div v-if="loading" class="page-card p-12 text-center text-sm text-gray-400">Loading session analytics…</div>
     <div v-else-if="error" class="page-card p-12 text-center">
@@ -237,7 +238,7 @@ onBeforeUnmount(destroyChart)
         <div><p class="text-sm font-semibold">Data quality: {{ analytics.data_quality.label }}</p><p class="mt-1 text-xs">{{ analytics.data_quality.explanation }}</p></div>
       </div>
       <div class="analytics-stats grid grid-cols-2 md:grid-cols-4 gap-5 mb-6">
-        <div class="stat-card analytics-stat-card"><span class="analytics-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3" /><circle cx="17" cy="9" r="2" /><path d="M3 19a6 6 0 0 1 12 0m-1.5-4.3A5 5 0 0 1 21 19" /></svg></span><div class="analytics-stat-copy"><div class="analytics-stat-title">Students Detected</div><div class="analytics-stat-value">{{ analytics.summary.students_detected }}</div><div class="analytics-stat-note">Highest simultaneous count</div></div></div>
+        <div class="stat-card analytics-stat-card"><span class="analytics-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3" /><circle cx="17" cy="9" r="2" /><path d="M3 19a6 6 0 0 1 12 0m-1.5-4.3A5 5 0 0 1 21 19" /></svg></span><div class="analytics-stat-copy"><div class="analytics-stat-title">Peak Detections</div><div class="analytics-stat-value">{{ analytics.summary.students_detected }}</div><div class="analytics-stat-note">Highest in one camera sample</div></div></div>
         <div class="stat-card analytics-stat-card"><span class="analytics-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg></span><div class="analytics-stat-copy"><div class="analytics-stat-title">Session Duration</div><div class="analytics-stat-value">{{ formatDuration(analytics.session.duration_seconds) }}</div><div class="analytics-stat-note">{{ analytics.session.slides_covered }} slides covered</div></div></div>
         <div class="stat-card analytics-stat-card"><span class="analytics-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h4l2-6 4 12 2-6h8" /></svg></span><div class="analytics-stat-copy"><div class="analytics-stat-title">Avg. Engagement</div><div class="analytics-stat-value">{{ percentage(analytics.summary.average_engagement) }}</div><div class="analytics-stat-note"><template v-if="analytics.summary.engagement_change !== null">{{ analytics.summary.engagement_change >= 0 ? '▲' : '▼' }} {{ Math.abs(analytics.summary.engagement_change) }}% vs previous session</template><template v-else>No previous comparison</template></div></div></div>
         <div class="stat-card analytics-stat-card"><span class="analytics-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-6 9 6-9 6-9-6Z" /><path d="M6 12v6c3 2 9 2 12 0v-6M21 10v7" /></svg></span><div class="analytics-stat-copy"><div class="analytics-stat-title">Most Confused Slide</div><div class="analytics-stat-value analytics-stat-value-alert">{{ analytics.insights ? `Slide ${analytics.insights.most_confusion.slide_number}` : '—' }}</div><div class="analytics-stat-note">{{ analytics.insights ? `${analytics.insights.most_confusion.percentage}% confused` : 'No supported insight' }}</div></div></div>

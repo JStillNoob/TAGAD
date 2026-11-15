@@ -151,6 +151,8 @@ class ReportTests(TestCase):
         self.assertIn('Source: Pipeline results', text)
         self.assertIn('Quality: Insufficient', text)
         self.assertIn('UNCLASSIFIED', text)
+        self.assertIn('PEAK DETECTIONS', text)
+        self.assertIn('one camera sample', text)
         self.assertIn('CLASSIFIED COVERAGE', text)
         self.assertIn('INSIGHTS WITHHELD', text)
         self.assertTrue(SystemLog.objects.filter(
@@ -175,6 +177,8 @@ class ReportTests(TestCase):
         self.assertIn('Data Source,Source Notice,Pipeline Versions,Data Quality', content)
         self.assertIn('Pipeline results,Official pipeline analytics.,legacy,Insufficient', content)
         self.assertIn('1,Introduction to Data', content)
+        self.assertIn('Detection Scope', content)
+        self.assertIn('Peak count in one camera sample', content)
 
     def test_simulated_pdf_and_csv_are_marked_not_official(self):
         EngagementSummary.objects.filter(event__session=self.session).update(

@@ -1,6 +1,7 @@
 from datetime import timedelta
 from decimal import Decimal
 from uuid import uuid4
+from unittest.mock import patch
 
 from asgiref.sync import sync_to_async
 from channels.routing import URLRouter
@@ -84,6 +85,63 @@ class EngagementIngestionTests(TestCase):
         self.assertEqual(summary.unclassified_count, 2)
         self.assertEqual(summary.pipeline_version, 'test-pipeline-1')
         self.assertEqual(response.json()['distribution']['engaged'], 60.0)
+
+    def test_stage_diagnostics_are_stored_without_changing_official_counts(self):
+        diagnostics = {
+            'schema_version': 1,
+            'raw_state_counts': {
+                'engaged': 8, 'confused': 2, 'bored': 1,
+                'looking_away': 1, 'drowsy': 0,
+            },
+            'attention_counts': {
+                'higher_attention': 3, 'lower_attention': 2, 'not_ready': 7,
+            },
+            'attention_ready_tracks': 2,
+            'state_confidence': {
+                'kind': 'probability', 'samples': 12, 'average': 0.81,
+            },
+            'attention_confidence': {
+                'kind': 'decision_margin', 'samples': 5, 'average': 0.64,
+            },
+            'track_expirations': 1,
+            'frame': 'must-not-be-stored',
+            'track_id': 99,
+        }
+
+        response = self.submit(self.payload(diagnostics=diagnostics))
+
+        self.assertEqual(response.status_code, 201)
+        summary = EngagementSummary.objects.get()
+        self.assertNotIn('frame', summary.diagnostics)
+        self.assertNotIn('track_id', summary.diagnostics)
+        self.assertEqual(summary.diagnostics['raw_state_counts']['engaged'], 8)
+        self.assertEqual(summary.engaged_count, 18)
+        self.assertEqual(response.json()['distribution']['engaged'], 60.0)
+
+    def test_invalid_diagnostics_are_rejected(self):
+        diagnostics = {
+            'schema_version': 1,
+            'raw_state_counts': {
+                'engaged': 1, 'confused': 0, 'bored': 0,
+                'looking_away': 0, 'drowsy': 0,
+            },
+            'attention_counts': {
+                'higher_attention': 0, 'lower_attention': 0, 'not_ready': 0,
+            },
+            'attention_ready_tracks': 0,
+            'state_confidence': {
+                'kind': 'probability', 'samples': 1, 'average': 0.8,
+            },
+            'attention_confidence': {
+                'kind': 'decision_margin', 'samples': 0, 'average': None,
+            },
+            'track_expirations': 0,
+        }
+
+        response = self.submit(self.payload(diagnostics=diagnostics))
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(EngagementSummary.objects.exists())
 
     def test_key_and_configuration_are_required(self):
         self.assertEqual(self.submit(key='wrong').status_code, 403)
@@ -322,12 +380,24 @@ class CameraOrchestrationApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         work = response.json()['sessions'][0]
         self.assertEqual(work['session_id'], self.session.pk)
+        self.assertTrue(work['active'])
+        self.assertIsNotNone(work['started_at'])
         self.assertEqual(work['slide_event_id'], self.event.pk)
         self.assertEqual([item['position'] for item in work['cameras']], ['front', 'left', 'right'])
         self.assertEqual(work['cameras'][0]['ip_address'], '192.0.2.10')
         self.assertNotIn('source_path', str(response.json()).lower())
         self.assertNotIn('source_url', str(response.json()).lower())
         self.assertTrue(all(camera['official_analytics'] for camera in work['cameras']))
+
+    def test_prepared_work_is_explicitly_inactive_for_recording(self):
+        self.session.started_at = None
+        self.session.prepared_at = timezone.now()
+        self.session.save(update_fields=['started_at', 'prepared_at'])
+
+        work = self.client.get(self.work_url, **self.headers).json()['sessions'][0]
+
+        self.assertFalse(work['active'])
+        self.assertIsNone(work['started_at'])
 
     def test_work_discovery_tracks_slide_and_excludes_ended_sessions(self):
         new_event = SlideEvent.objects.create(
@@ -339,6 +409,26 @@ class CameraOrchestrationApiTests(TestCase):
         self.session.ended_at = timezone.now()
         self.session.save(update_fields=['ended_at'])
         self.assertEqual(self.client.get(self.work_url, **self.headers).json()['sessions'], [])
+
+    def test_regular_startup_heartbeats_keep_long_preparation_fresh(self):
+        now = timezone.now()
+        self.session.started_at = None
+        self.session.prepared_at = now
+        self.session.save(update_fields=['started_at', 'prepared_at'])
+        self.session.slide_events.all().delete()
+        self.client.force_login(self.teacher)
+        for seconds in (0, 4, 8, 12, 16):
+            with patch('core.engagement_views.timezone.now', return_value=now + timedelta(seconds=seconds)):
+                self.assertIn(self.heartbeat().status_code, (200, 201))
+            with patch('core.engagement_views.timezone.now', return_value=now + timedelta(seconds=seconds + 2)):
+                response = self.client.get(reverse('session-camera-health', args=[self.session.pk]))
+            front = next(camera for camera in response.json()['cameras'] if camera['camera_id'] == self.front.pk)
+            self.assertEqual(front['state'], 'starting')
+            self.assertNotEqual(front['reason'], 'heartbeat_stale')
+        with patch('core.engagement_views.timezone.now', return_value=now + timedelta(seconds=19)):
+            self.assertEqual(self.heartbeat(state='offline', reason='retry_exhausted').status_code, 200)
+            self.assertEqual(self.heartbeat(state='starting').status_code, 200)
+            self.assertEqual(self.heartbeat(state='online', reason='processing').status_code, 200)
 
     def test_heartbeat_enforces_assignment_metrics_and_state_transitions(self):
         online_first = self.heartbeat(state=CameraWorkerStatus.State.ONLINE)

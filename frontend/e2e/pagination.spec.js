@@ -12,7 +12,7 @@ test('growing lists navigate to page two without crossing organization scope', a
   await page.getByRole('button', { name: 'Previous' }).click()
   await expect(page.getByText(/2[2-4] results · Page 1 of 2/)).toBeVisible()
   await page.getByRole('button', { name: 'Next' }).click()
-  await page.getByRole('searchbox', { name: 'Search users' }).fill('e2e.scale.teacher.021')
+  await page.getByPlaceholder('Search name, username, or email…').fill('e2e.scale.teacher.021')
   await expect(page.getByText('1 result · Page 1 of 1')).toBeVisible()
 
   await page.getByRole('link', { name: 'Classes', exact: true }).click()
@@ -32,7 +32,7 @@ test('growing lists navigate to page two without crossing organization scope', a
   await classrooms.getByRole('button', { name: 'Previous' }).click()
   await expect(classrooms.getByText(/2[2-4] results · Page 1 of 2/)).toBeVisible()
   await classrooms.getByRole('button', { name: 'Next' }).click()
-  await page.getByRole('searchbox', { name: 'Search classes and subjects…' }).fill('E2E-SCALE-021')
+  await page.getByPlaceholder('Search classes and subjects…').fill('E2E-SCALE-021')
   await expect(classrooms.getByText('1 result · Page 1 of 1')).toBeVisible()
 
   const cameras = page.getByRole('region', { name: 'Camera Setup' })
@@ -71,7 +71,7 @@ test('teacher presentation, analytics, and report lists navigate to page two', a
   await recentSessions.getByRole('button', { name: 'Previous' }).click()
   await expect(recentSessions.getByText(/2[1-2] results · Page 1 of 5/)).toBeVisible()
 
-  await page.getByRole('link', { name: 'Analytics' }).click()
+  await page.getByRole('link', { name: 'Analytics', exact: true }).click()
   await expect(page.getByText(/2[1-2] results · Page 1 of 2/)).toBeVisible()
   await page.getByRole('button', { name: 'Next' }).click()
   await expect(page.getByText(/2[1-2] results · Page 2 of 2/)).toBeVisible()
@@ -107,8 +107,8 @@ test('configuration pickers search beyond the visible table page', async ({ page
 
 test('system administrator organization picker uses server search', async ({ page }) => {
   await login(page, accounts.systemAdmin)
-  await page.getByRole('link', { name: 'User Management' }).click()
-  await page.getByRole('button', { name: 'Add User' }).click()
+  await page.getByRole('link', { name: 'Organization Admins', exact: true }).click()
+  await page.getByRole('button', { name: 'Add Organization Admin', exact: true }).click()
 
   await page.getByLabel('Search organizations').fill('E2E-SCHOOL')
   await expect(page.getByLabel('Organization', { exact: true }).getByRole('option', {

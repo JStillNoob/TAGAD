@@ -14,6 +14,7 @@ $PipelineDirectory = Join-Path $RepoRoot 'pipeline'
 $RuntimeDirectory = Join-Path $RepoRoot '.runtime'
 $PidFile = Join-Path $RuntimeDirectory 'tagad-processes.json'
 $ControllerStopFile = Join-Path $RuntimeDirectory 'controller.stop'
+$RecorderStopFile = Join-Path $RuntimeDirectory 'recorder.stop'
 $BackendPython = Join-Path $BackendDirectory 'venv\Scripts\python.exe'
 $PipelinePython = Join-Path $PipelineDirectory '.venv\Scripts\python.exe'
 $ViteScript = Join-Path $FrontendDirectory 'node_modules\vite\bin\vite.js'
@@ -22,6 +23,7 @@ $CameraConfig = Join-Path $PipelineDirectory 'camera_sources.local.json'
 $ModelDirectory = Join-Path $BackendDirectory 'model_artifacts'
 $ArtifactManifest = Join-Path $PipelineDirectory 'artifact-manifest.json'
 $script:PipelineApiKey = $null
+$script:RecordSessionsEnabled = $false
 
 function Get-DotEnvValue {
     param([string]$Path, [string]$Name)
@@ -122,6 +124,7 @@ function Assert-Preflight {
     if (-not $script:PipelineApiKey -or $script:PipelineApiKey -match '^replace-') {
         throw 'Set a private PIPELINE_API_KEY in backend\.env before starting the controller.'
     }
+    $script:RecordSessionsEnabled = (Get-DotEnvValue -Path $BackendEnvFile -Name 'TAGAD_RECORD_SESSIONS') -eq '1'
 
     try {
         $cameraSettings = Get-Content -LiteralPath $CameraConfig -Raw | ConvertFrom-Json
@@ -145,6 +148,12 @@ function Assert-Preflight {
     $previousPythonPath = $env:PYTHONPATH
     $env:PYTHONPATH = $PipelineDirectory
     try {
+        if ($script:RecordSessionsEnabled) {
+            Invoke-ExternalCheck -Executable $PipelinePython `
+                -CommandArguments @('-m', 'tagad_pipeline.camera_recording', '--check') `
+                -WorkingDirectory $RepoRoot `
+                -Description 'Session recorder readiness check'
+        }
         Invoke-ExternalCheck -Executable $BackendPython `
             -CommandArguments @('manage.py', 'check') `
             -WorkingDirectory $BackendDirectory `
@@ -225,7 +234,7 @@ function Get-UntrackedTagadProcesses {
             $commandLine -match 'vite(?:\.js)?'
         ) -or (
             $normalized.StartsWith($PipelinePython, [StringComparison]::OrdinalIgnoreCase) -and
-            $commandLine -match 'tagad_pipeline\.controller'
+            $commandLine -match 'tagad_pipeline\.(controller|recording_controller)'
         )
     })
 }
@@ -246,13 +255,13 @@ function Show-Status {
 function Stop-TrackedProcesses {
     $records = @(Get-TrackedProcesses)
 
-    $controllerRecord = $records | Where-Object { $_.name -eq 'controller' } | Select-Object -First 1
-    if ($controllerRecord -and (Get-MatchingProcess $controllerRecord)) {
-        New-Item -ItemType Directory -Path $RuntimeDirectory -Force | Out-Null
-        Set-Content -LiteralPath $ControllerStopFile -Value 'stop' -Encoding ascii
-        $deadline = (Get-Date).AddSeconds(20)
-        while ((Get-Date) -lt $deadline -and (Get-MatchingProcess $controllerRecord)) {
-            Start-Sleep -Milliseconds 250
+    New-Item -ItemType Directory -Path $RuntimeDirectory -Force | Out-Null
+    Set-Content -LiteralPath $RecorderStopFile -Value 'stop' -Encoding ascii
+    Set-Content -LiteralPath $ControllerStopFile -Value 'stop' -Encoding ascii
+    foreach ($record in $records | Where-Object { $_.name -in @('recorder', 'controller') }) {
+        $process = Get-MatchingProcess $record
+        if ($process) {
+            $process.WaitForExit(20000) | Out-Null
         }
     }
 
@@ -267,6 +276,7 @@ function Stop-TrackedProcesses {
     }
     Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $ControllerStopFile -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $RecorderStopFile -Force -ErrorAction SilentlyContinue
     Write-Host 'TAGAD services stopped.' -ForegroundColor Green
 }
 
@@ -284,6 +294,7 @@ function Start-Tagad {
 
     New-Item -ItemType Directory -Path $RuntimeDirectory -Force | Out-Null
     Remove-Item -LiteralPath $ControllerStopFile -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $RecorderStopFile -Force -ErrorAction SilentlyContinue
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
     $nodePath = (Get-Command node.exe).Source
     $previousPythonPath = $env:PYTHONPATH
@@ -316,6 +327,15 @@ function Start-Tagad {
             -RedirectStandardError (Join-Path $RuntimeDirectory "controller-$stamp.err.log")
         $started += [PSCustomObject]@{ name = 'controller'; process = $controller }
 
+        if ($script:RecordSessionsEnabled) {
+            $recorder = Start-Process -FilePath $PipelinePython `
+                -ArgumentList @('-m', 'tagad_pipeline.recording_controller', '--stop-file', "`"$RecorderStopFile`"") `
+                -WorkingDirectory $RepoRoot -WindowStyle Hidden -PassThru `
+                -RedirectStandardOutput (Join-Path $RuntimeDirectory "recorder-$stamp.out.log") `
+                -RedirectStandardError (Join-Path $RuntimeDirectory "recorder-$stamp.err.log")
+            $started += [PSCustomObject]@{ name = 'recorder'; process = $recorder }
+        }
+
         $records = @($started | ForEach-Object {
             [PSCustomObject]@{
                 name = $_.name
@@ -335,10 +355,20 @@ function Start-Tagad {
         if (-not (Get-Process -Id $controller.Id -ErrorAction SilentlyContinue)) {
             throw 'The camera controller exited during startup. Check .runtime\controller-*.err.log.'
         }
+        if ($script:RecordSessionsEnabled) {
+            if (-not (Get-Process -Id $recorder.Id -ErrorAction SilentlyContinue)) {
+                throw 'The session recorder exited during startup. Check .runtime\recorder-*.err.log.'
+            }
+            Write-Host 'Session recording is enabled. The recorder waits in standby until a session starts.'
+        }
 
         Write-Host 'TAGAD is running at http://localhost:5173' -ForegroundColor Green
         Write-Host 'Use .\scripts\tagad.ps1 status or .\scripts\tagad.ps1 stop.'
     } catch {
+        Set-Content -LiteralPath $RecorderStopFile -Value 'stop' -Encoding ascii
+        foreach ($item in $started | Where-Object { $_.name -eq 'recorder' }) {
+            $item.process.WaitForExit(20000) | Out-Null
+        }
         foreach ($item in $started) {
             $process = Get-Process -Id $item.process.Id -ErrorAction SilentlyContinue
             if ($process) { Stop-ProcessTree -ProcessId $process.Id }

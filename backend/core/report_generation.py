@@ -7,6 +7,7 @@ import pymupdf
 from django.utils import timezone
 
 from .analytics import CATEGORIES, build_session_analytics, previous_compatible_session
+from .session_access import sessions_for_user
 
 
 PAGE_WIDTH = 842
@@ -24,10 +25,6 @@ CATEGORY_COLORS = {
     'bored': (249 / 255, 115 / 255, 22 / 255),
     'disengaged': (239 / 255, 71 / 255, 111 / 255),
 }
-
-
-def _previous_session(session):
-    return previous_compatible_session(session)
 
 
 def _duration(seconds):
@@ -51,12 +48,14 @@ def analytics_csv_content(analytics):
     source = analytics['data_source']
     quality = analytics['data_quality']
     summary = analytics['summary']
+    session = analytics['session']
     writer.writerow([
         'Data Source', 'Source Notice', 'Pipeline Versions', 'Data Quality',
         'Monitoring Windows', 'Classification Coverage %', 'Slide', 'Topic',
         'Timestamp', 'Duration Seconds', 'Detected', 'Unclassified',
         'Engaged %', 'Attentive %', 'Confused %', 'Bored %',
-        'Disengaged %', 'Average Confidence %',
+        'Disengaged %', 'Average Confidence %', 'Detection Scope',
+        'Class Meeting ID', 'Lesson ID', 'Meeting Outcome', 'Lesson State', 'Continued From',
     ])
     for slide in analytics['slides']:
         writer.writerow([
@@ -78,6 +77,9 @@ def analytics_csv_content(analytics):
             slide['bored'] if slide['bored'] is not None else '',
             slide['disengaged'] if slide['disengaged'] is not None else '',
             slide['average_confidence'] if slide['average_confidence'] is not None else '',
+            'Peak count in one camera sample',
+            session['id'], session['lesson_id'] or '', session['end_action'],
+            session['lesson_state'] or '', session['continued_from'] or '',
         ])
     return output.getvalue()
 
@@ -87,6 +89,13 @@ def _header(document, subtitle, analytics=None):
     page.draw_rect(pymupdf.Rect(0, 0, PAGE_WIDTH, 82), color=NAVY, fill=NAVY)
     page.insert_text((MARGIN, 34), 'TAGAD', fontsize=22, fontname='hebo', color=WHITE)
     page.insert_text((MARGIN, 58), subtitle, fontsize=10, color=(0.78, 0.83, 0.91))
+    if analytics:
+        session = analytics['session']
+        outcome = {'save': 'Class saved', 'finish': 'Class finished'}.get(session['end_action'], 'Class meeting')
+        context = f"Class #{session['id']} | {outcome}"
+        if session['lesson_id']:
+            context += f" | Lesson #{session['lesson_id']} | {session['lesson_state']}"
+        page.insert_text((MARGIN, 73), context, fontsize=8, color=(0.78, 0.83, 0.91))
     page.insert_text((PAGE_WIDTH - 185, 45), 'CLASSROOM ANALYTICS', fontsize=9, color=WHITE)
     source_type = analytics['data_source']['type'] if analytics else None
     if source_type in {'simulator', 'mixed'}:
@@ -140,7 +149,7 @@ def _draw_overview(document, analytics, generated_by):
     _section_title(page, 166, 'Session Summary')
     card_width = (PAGE_WIDTH - MARGIN * 2 - 20) / 3
     values = [
-        ('Students Detected', summary['students_detected'], 'peak count'),
+        ('Peak Detections', summary['students_detected'], 'one camera sample'),
         ('Session Duration', _duration(session['duration_seconds']), f"{session['slides_covered']} slides"),
         ('Average Engagement', _percent(summary['average_engagement']), 'engaged'),
         ('Unclassified', summary['unclassified_detections'], 'samples'),
@@ -251,7 +260,8 @@ def generate_pdf(analytics, generated_by):
 
 
 def generate_report_content(session, report_type, generated_by):
-    analytics = build_session_analytics(session, previous_session=_previous_session(session))
+    previous = previous_compatible_session(session, queryset=sessions_for_user(generated_by))
+    analytics = build_session_analytics(session, previous_session=previous)
     if report_type == 'pdf':
         return generate_pdf(analytics, generated_by)
     return analytics_csv_content(analytics).encode('utf-8')

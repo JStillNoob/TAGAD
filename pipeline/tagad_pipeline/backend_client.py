@@ -14,6 +14,7 @@ class BackendRequestError(RuntimeError):
 
 def build_payload(
     *, session_id, slide_event_id, predictions, pipeline_version, camera_id=None,
+    diagnostics=None,
 ):
     predictions = list(predictions)
     if not predictions:
@@ -52,6 +53,8 @@ def build_payload(
     }
     if camera_id is not None:
         payload['camera_id'] = camera_id
+    if diagnostics is not None:
+        payload['diagnostics'] = diagnostics
     return payload
 
 
@@ -68,15 +71,22 @@ class BackendClient:
         )
 
     def work(self):
-        return self._request('GET', '/api/auth/pipeline/work/')
+        return self._request(
+            'GET', '/api/auth/pipeline/work/', timeout=min(self.timeout, 3), retries=0,
+        )
 
     def heartbeat(self, payload):
-        return self._request('POST', '/api/auth/pipeline/cameras/heartbeat/', payload)
+        return self._request(
+            'POST', '/api/auth/pipeline/cameras/heartbeat/', payload,
+            timeout=min(self.timeout, 3), retries=0,
+        )
 
     def submit(self, payload):
         return self._request('POST', '/api/auth/pipeline/engagement/', payload)
 
-    def _request(self, method, path, payload=None):
+    def _request(self, method, path, payload=None, *, timeout=None, retries=None):
+        timeout = self.timeout if timeout is None else timeout
+        retries = self.retries if retries is None else retries
         body = json.dumps(payload).encode('utf-8') if payload is not None else None
         request = Request(
             f'{self.base_url}{path}',
@@ -89,20 +99,20 @@ class BackendClient:
             },
         )
         last_error = None
-        for attempt in range(self.retries + 1):
+        for attempt in range(retries + 1):
             try:
-                with urlopen(request, timeout=self.timeout) as response:
+                with urlopen(request, timeout=timeout) as response:
                     return json.loads(response.read().decode('utf-8'))
             except HTTPError as error:
                 detail = error.read().decode('utf-8', errors='replace')
-                if error.code < 500 or attempt == self.retries:
+                if error.code < 500 or attempt == retries:
                     raise BackendRequestError(
                         f'Backend returned HTTP {error.code}: {detail}',
                     ) from error
                 last_error = error
-            except URLError as error:
+            except (URLError, TimeoutError, ConnectionError) as error:
                 last_error = error
-                if attempt == self.retries:
+                if attempt == retries:
                     break
             time.sleep(0.5 * (attempt + 1))
         raise BackendRequestError(f'Could not reach the backend: {last_error}') from last_error

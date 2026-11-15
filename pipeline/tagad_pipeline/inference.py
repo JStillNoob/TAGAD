@@ -1,3 +1,4 @@
+from collections import Counter
 from dataclasses import dataclass
 from math import atan2, degrees, sqrt
 from pathlib import Path
@@ -61,6 +62,10 @@ class ModelBundle:
             self.attention_model, ATTENTION_FEATURES, ATTENTION_CLASSES,
             'temporal attention classifier',
         )
+        if not hasattr(self.attention_model, 'decision_function'):
+            raise PipelineConfigurationError(
+                'temporal attention classifier does not expose a decision margin.',
+            )
 
         options = mp.tasks.vision.FaceLandmarkerOptions(
             base_options=mp.tasks.BaseOptions(model_asset_path=str(paths[1])),
@@ -116,6 +121,53 @@ class CameraPipeline:
         self.attention_minimum_samples = attention_minimum_samples
         self.smoothing_seconds = smoothing_seconds
         self.tracker = GeometricTracker()
+        self.reset_diagnostics()
+
+    def reset_diagnostics(self):
+        self._raw_state_counts = Counter()
+        self._attention_counts = Counter()
+        self._state_confidence_sum = 0.0
+        self._state_confidence_samples = 0
+        self._attention_confidence_sum = 0.0
+        self._attention_confidence_samples = 0
+        self._attention_ready_tracks = 0
+        self._track_expirations = 0
+
+    def diagnostics_snapshot(self):
+        def average(total, samples):
+            return round(total / samples, 6) if samples else None
+
+        return {
+            'schema_version': 1,
+            'raw_state_counts': {
+                'engaged': self._raw_state_counts['Engaged'],
+                'confused': self._raw_state_counts['Confused'],
+                'bored': self._raw_state_counts['Bored'],
+                'looking_away': self._raw_state_counts['LookingAway'],
+                'drowsy': self._raw_state_counts['Drowsy'],
+            },
+            'attention_counts': {
+                'higher_attention': self._attention_counts['HigherAttention'],
+                'lower_attention': self._attention_counts['LowerAttention'],
+                'not_ready': self._attention_counts['NotReady'],
+            },
+            'attention_ready_tracks': self._attention_ready_tracks,
+            'state_confidence': {
+                'kind': 'probability',
+                'samples': self._state_confidence_samples,
+                'average': average(
+                    self._state_confidence_sum, self._state_confidence_samples,
+                ),
+            },
+            'attention_confidence': {
+                'kind': 'decision_margin',
+                'samples': self._attention_confidence_samples,
+                'average': average(
+                    self._attention_confidence_sum, self._attention_confidence_samples,
+                ),
+            },
+            'track_expirations': self._track_expirations,
+        }
 
     def process_frame(self, frame, timestamp):
         height, width = frame.shape[:2]
@@ -123,6 +175,7 @@ class CameraPipeline:
         tracks = self.tracker.update(
             boxes, timestamp=timestamp, frame_width=width, frame_height=height,
         )
+        self._track_expirations += self.tracker.last_expired_count
         predictions = []
         valid_faces = 0
         confirmed_students = 0
@@ -134,10 +187,22 @@ class CameraPipeline:
                 valid_faces += 1
                 track.mark_valid_face()
                 raw_state, confidence = self._predict_state(features)
+                self._raw_state_counts[raw_state] += 1
+                self._state_confidence_sum += confidence
+                self._state_confidence_samples += 1
                 track.geometry_history.append({'time': timestamp, **{
                     name: features[name] for name in GEOMETRY_FEATURES
                 }})
-                attention = self._predict_attention(track, timestamp)
+                attention, attention_confidence = self._predict_attention(
+                    track, timestamp,
+                )
+                if attention is None:
+                    self._attention_counts['NotReady'] += 1
+                else:
+                    track.attention_ready = True
+                    self._attention_counts[attention] += 1
+                    self._attention_confidence_sum += attention_confidence
+                    self._attention_confidence_samples += 1
                 final_state = combine_state(raw_state, attention)
                 if final_state is not None:
                     track.current_label = track.smooth(
@@ -153,6 +218,9 @@ class CameraPipeline:
             if track.is_confirmed(
                 timestamp, self.confirmation_seconds, self.confirmation_valid_faces,
             ):
+                if track.attention_ready and not track.attention_ready_counted:
+                    track.attention_ready_counted = True
+                    self._attention_ready_tracks += 1
                 confirmed_students += 1
                 predictions.append(current_prediction or {
                     'label': None,
@@ -287,9 +355,9 @@ class CameraPipeline:
         while history and timestamp - history[0]['time'] > self.attention_window_seconds:
             history.popleft()
         if len(history) < self.attention_minimum_samples:
-            return None
+            return None, None
         if history[-1]['time'] - history[0]['time'] < self.attention_minimum_seconds:
-            return None
+            return None, None
 
         values = {}
         for feature in GEOMETRY_FEATURES:
@@ -299,4 +367,6 @@ class CameraPipeline:
         frame = pd.DataFrame(
             [[values[name] for name in ATTENTION_FEATURES]], columns=ATTENTION_FEATURES,
         )
-        return str(self.models.attention_model.predict(frame)[0])
+        label = str(self.models.attention_model.predict(frame)[0])
+        margin = abs(float(np.ravel(self.models.attention_model.decision_function(frame))[0]))
+        return label, margin

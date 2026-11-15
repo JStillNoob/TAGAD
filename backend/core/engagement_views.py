@@ -33,6 +33,75 @@ class EngagementCountsSerializer(serializers.Serializer):
     disengaged = serializers.IntegerField(min_value=0)
 
 
+class DiagnosticRawStateCountsSerializer(serializers.Serializer):
+    engaged = serializers.IntegerField(min_value=0)
+    confused = serializers.IntegerField(min_value=0)
+    bored = serializers.IntegerField(min_value=0)
+    looking_away = serializers.IntegerField(min_value=0)
+    drowsy = serializers.IntegerField(min_value=0)
+
+
+class DiagnosticAttentionCountsSerializer(serializers.Serializer):
+    higher_attention = serializers.IntegerField(min_value=0)
+    lower_attention = serializers.IntegerField(min_value=0)
+    not_ready = serializers.IntegerField(min_value=0)
+
+
+class DiagnosticConfidenceSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(choices=('probability', 'decision_margin'))
+    samples = serializers.IntegerField(min_value=0)
+    average = serializers.FloatField(min_value=0, allow_null=True)
+
+    def validate(self, attrs):
+        if (attrs['samples'] == 0) != (attrs['average'] is None):
+            raise serializers.ValidationError(
+                'Average must be null exactly when there are no samples.',
+            )
+        return attrs
+
+
+class StageDiagnosticsSerializer(serializers.Serializer):
+    schema_version = serializers.IntegerField(min_value=1, max_value=1)
+    raw_state_counts = DiagnosticRawStateCountsSerializer()
+    attention_counts = DiagnosticAttentionCountsSerializer()
+    attention_ready_tracks = serializers.IntegerField(min_value=0)
+    state_confidence = DiagnosticConfidenceSerializer()
+    attention_confidence = DiagnosticConfidenceSerializer()
+    track_expirations = serializers.IntegerField(min_value=0)
+
+    def validate(self, attrs):
+        raw_total = sum(attrs['raw_state_counts'].values())
+        attention = attrs['attention_counts']
+        attention_total = sum(attention.values())
+        ready_total = attention['higher_attention'] + attention['lower_attention']
+        if attrs['state_confidence']['kind'] != 'probability':
+            raise serializers.ValidationError({'state_confidence': 'Expected probability.'})
+        if (
+            attrs['state_confidence']['average'] is not None
+            and attrs['state_confidence']['average'] > 1
+        ):
+            raise serializers.ValidationError({
+                'state_confidence': 'Probability average cannot exceed 1.',
+            })
+        if attrs['attention_confidence']['kind'] != 'decision_margin':
+            raise serializers.ValidationError({
+                'attention_confidence': 'Expected decision_margin.',
+            })
+        if attrs['state_confidence']['samples'] != raw_total:
+            raise serializers.ValidationError({
+                'state_confidence': 'Samples must equal raw-state observations.',
+            })
+        if attention_total != raw_total:
+            raise serializers.ValidationError({
+                'attention_counts': 'Must equal raw-state observations.',
+            })
+        if attrs['attention_confidence']['samples'] != ready_total:
+            raise serializers.ValidationError({
+                'attention_confidence': 'Samples must equal ready attention outputs.',
+            })
+        return attrs
+
+
 class EngagementIngestionSerializer(serializers.Serializer):
     schema_version = serializers.IntegerField(min_value=1, max_value=2)
     ingestion_id = serializers.UUIDField()
@@ -47,6 +116,7 @@ class EngagementIngestionSerializer(serializers.Serializer):
     average_confidence = serializers.DecimalField(
         max_digits=5, decimal_places=2, min_value=0, max_value=100,
     )
+    diagnostics = StageDiagnosticsSerializer(required=False)
 
     def validate(self, attrs):
         if attrs['schema_version'] == 2 and not attrs.get('camera_id'):
@@ -301,6 +371,8 @@ class PipelineWorkDiscoveryView(APIView):
                 {
                     'session_id': session.pk,
                     'classroom_id': session.subject.classroom_id,
+                    'active': session.started_at is not None,
+                    'started_at': session.started_at,
                     'slide_event_id': (
                         session._pipeline_slide_events[0].pk
                         if session._pipeline_slide_events else None

@@ -111,8 +111,9 @@ def run(args):
     )
     if not fps or fps <= 0:
         fps = args.analysis_hz
-    frame_step = max(1, round(fps / args.analysis_hz))
+    frame_step = max(1, round(fps / args.analysis_hz)) if is_recorded_video else 1
     frame_number = 0
+    next_analysis_at = 0.0
     analyzed = 0
     latest_analysis = None
     next_summary_at = 0.0
@@ -123,10 +124,14 @@ def run(args):
             if not ok:
                 break
             frame_number += 1
-            if frame_number % frame_step:
-                continue
-
             timestamp = frame_number / fps if is_recorded_video else time.monotonic()
+            if is_recorded_video:
+                if frame_number % frame_step:
+                    continue
+            else:
+                if timestamp + 1e-9 < next_analysis_at:
+                    continue
+                next_analysis_at = timestamp + 1 / args.analysis_hz
             latest_analysis = pipeline.process_frame(frame, timestamp)
             analyzed += 1
 
@@ -158,8 +163,10 @@ def run(args):
                             slide_event_id=slide_event_id,
                             predictions=latest_analysis.predictions,
                             pipeline_version=PIPELINE_VERSION,
+                            diagnostics=pipeline.diagnostics_snapshot(),
                         )
                         client.submit(payload)
+                        pipeline.reset_diagnostics()
                         print(json.dumps(metrics), flush=True)
                 next_summary_at = clock + args.summary_seconds
 

@@ -13,7 +13,7 @@ test('organization administrator manages a user and completes Quick Setup', asyn
   await userDialog.getByLabel('Username').fill('e2e.managed.teacher')
   await userDialog.getByLabel('Email address').fill('e2e.managed.teacher@example.test')
   await userDialog.getByLabel('Contact number').fill('invalid-phone')
-  await userDialog.getByLabel('Password', { exact: true }).fill('Orbit!Stone#5931')
+  await userDialog.getByLabel(/^Password/).fill('Orbit!Stone#5931')
   await userDialog.getByRole('button', { name: 'Create User' }).click()
   await expect(
     userDialog.getByLabel('Contact number').locator('..').getByText(/Enter 5–15 digits/),
@@ -68,7 +68,7 @@ for (const [role, identity, allowed] of [
     await page.goto('/users')
     if (allowed) {
       await expect(page).toHaveURL(/\/users$/)
-      await expect(page.getByRole('heading', { name: 'User Management' })).toBeVisible()
+      await expect(page.getByRole('heading', { name: role === 'system administrator' ? 'Organization Administrators' : 'User Management' })).toBeVisible()
     } else {
       await expect(page).toHaveURL(/\/dashboard$/)
       await expect(page.getByRole('link', { name: 'User Management' })).toHaveCount(0)

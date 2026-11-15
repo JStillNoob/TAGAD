@@ -5,11 +5,19 @@ camera-angle clips. The training handoff explicitly states that there is no
 validated combined end-to-end five-state accuracy yet; software output alone
 cannot establish it.
 
+For the next approved classroom collection, follow
+[`CLASSROOM_GROUND_TRUTH_PROTOCOL.md`](CLASSROOM_GROUND_TRUTH_PROTOCOL.md).
+This legacy worksheet alone does not satisfy the A3 consent, synchronization,
+retention, or dataset-separation gates.
+
 ## Review rules
 
+- Follow [`ENGAGEMENT_LABEL_GUIDE.md`](ENGAGEMENT_LABEL_GUIDE.md) for the
+  operational definitions and ambiguous classroom cases.
 - Watch the complete time window, not one still frame.
 - Count only students whose behavior can be judged from that camera.
-- Use `Uncertain` instead of forcing a state when the evidence is unclear.
+- Use `Uncertain` instead of forcing a state when the evidence is unclear;
+  it maps to TAGAD's `Unclassified` outcome for comparison.
 - Do not identify or name students.
 - Do not add counts from different cameras; the same student may appear in more
   than one view.

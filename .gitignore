@@ -78,6 +78,11 @@ pipeline/test_video/
 pipeline/benchmark_results/
 pipeline/camera_sources.local.json
 
+# Private classroom pilot and ground-truth material
+private_pilot_data/
+pilot_media/
+ground_truth_private/
+
 # Private keys, certificates, and local credentials
 *.pem
 *.key

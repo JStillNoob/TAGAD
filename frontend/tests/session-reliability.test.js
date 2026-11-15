@@ -7,6 +7,8 @@ import {
   restoreSlideIndex,
   startSessionWithRecovery,
   endSessionWithRecovery,
+  continueLessonWithRecovery,
+  finishLessonWithRecovery,
 } from '../src/sessionReliability.js'
 
 const active = {
@@ -86,4 +88,62 @@ test('end recovery preserves the original error when the session is still active
     }),
     (error) => error === original,
   )
+})
+
+test('prepared start recovery uses the exact meeting and preserves its current closed state', async () => {
+  const closed = { ...active, status: 'completed', ended_at: '2026-11-07T01:00:00Z', end_action: 'save' }
+  const recovered = await startSessionWithRecovery({
+    start: async () => { throw new Error('response lost') },
+    sessionId: 10, userId: 7, fetchSession: async id => { assert.equal(id, 10); return closed },
+  })
+  assert.equal(recovered, closed)
+})
+
+test('exact start recovery cannot restore a different class', async () => {
+  const original = new Error('start failed')
+  await assert.rejects(startSessionWithRecovery({
+    start: async () => { throw original }, sessionId: 10, userId: 7,
+    fetchSession: async () => ({ ...active, id: 20 }),
+  }), error => error === original)
+})
+
+test('lost save response recovers only its committed save action', async () => {
+  const saved = { ...active, status: 'completed', end_action: 'save', ended_at: '2026-11-07T01:00:00Z' }
+  const recovered = await endSessionWithRecovery({
+    sessionId: 10, action: 'save', end: async () => { throw new Error('response lost') },
+    fetchSession: async () => saved,
+  })
+  assert.equal(recovered, saved)
+  const original = new Error('response lost')
+  await assert.rejects(endSessionWithRecovery({
+    sessionId: 10, action: 'save', end: async () => { throw original },
+    fetchSession: async () => ({ ...saved, end_action: 'finish' }),
+  }), error => error === original && error.recoveredSession.end_action === 'finish')
+})
+
+test('unavailable recovery read retains an explicit pending state', async () => {
+  const original = new Error('response lost')
+  await assert.rejects(endSessionWithRecovery({
+    sessionId: 10, action: 'save', end: async () => { throw original },
+    fetchSession: async () => { throw new Error('still offline') },
+  }), error => error.recoveryPending === true)
+})
+
+test('continuation recovery matches both the lesson and request key', async () => {
+  const prepared = { ...active, id: 11, status: 'preparing', lesson: { id: 3 }, continuation_request_id: 'request-a' }
+  const parameters = {
+    prepare: async () => { throw new Error('response lost') }, lessonId: 3, requestId: 'request-a',
+    fetchLesson: async () => ({ id: 3, prepared_session: 11 }), fetchSession: async () => prepared,
+  }
+  assert.equal(await continueLessonWithRecovery(parameters), prepared)
+  await assert.rejects(continueLessonWithRecovery({ ...parameters, requestId: 'request-b' }),
+    error => error.recoveredSession === prepared)
+})
+
+test('saved lesson finish recovers completion and retains changed saved revisions', async () => {
+  const completed = { id: 3, state: 'completed', revision: 5 }
+  const parameters = { lessonId: 3, finish: async () => { throw new Error('response lost') }, fetchLesson: async () => completed }
+  assert.equal(await finishLessonWithRecovery(parameters), completed)
+  await assert.rejects(finishLessonWithRecovery({ ...parameters, fetchLesson: async () => ({ id: 3, state: 'saved', revision: 6 }) }),
+    error => error.recoveredLesson.revision === 6)
 })

@@ -18,6 +18,16 @@ from .worker import DEFAULT_MODEL_DIR, MANIFEST_PATH, PIPELINE_VERSION, model_pa
 
 CONTROLLER_VERSION = f'{PIPELINE_VERSION}-orchestrator-1'
 DEFAULT_CONFIG = Path(__file__).resolve().parents[1] / 'camera_sources.local.json'
+STARTUP_TIMEOUT_SECONDS = 60
+
+
+def open_capture(source):
+    if isinstance(source, str) and source.lower().startswith(('rtsp://', 'rtsps://')):
+        return cv2.VideoCapture(source, cv2.CAP_FFMPEG, [
+            cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 10000,
+            cv2.CAP_PROP_READ_TIMEOUT_MSEC, 5000,
+        ])
+    return cv2.VideoCapture(source)
 
 
 class StopFileSignal:
@@ -58,7 +68,7 @@ class CameraWorker:
         inference_lock,
         configuration,
         pipeline_factory=CameraPipeline,
-        capture_factory=cv2.VideoCapture,
+        capture_factory=open_capture,
         clock=time.monotonic,
     ):
         self.work = work
@@ -78,6 +88,8 @@ class CameraWorker:
         )
         self._work_lock = threading.Lock()
         self.registered = False
+        self._heartbeat_lock = threading.RLock()
+        self._last_heartbeat = ('starting', '', None, 0)
 
     @property
     def key(self):
@@ -94,7 +106,8 @@ class CameraWorker:
             self.work = work
 
     def stop(self, reason='shutdown'):
-        self.stop_reason = reason
+        if not self.stop_event.is_set():
+            self.stop_reason = reason
         self.stop_event.set()
 
     def join(self, timeout=None):
@@ -105,32 +118,54 @@ class CameraWorker:
             return dict(self.work)
 
     def _heartbeat(self, state, reason='', analysis=None, analysis_rate=0):
-        work = self._snapshot()
-        predictions = analysis.predictions if analysis else []
-        counts = diagnostic_counts(predictions)
-        try:
-            self.client.heartbeat({
-                'session_id': work['session_id'],
-                'camera_id': work['camera_id'],
-                'state': state,
-                'source_type': self.source.source_type,
-                'reason': reason,
-                'pipeline_version': CONTROLLER_VERSION,
-                'analysis_rate': round(analysis_rate, 2),
-                'yolo_candidates': analysis.yolo_candidates if analysis else 0,
-                'valid_faces': analysis.valid_faces if analysis else 0,
-                'confirmed_students': analysis.confirmed_students if analysis else 0,
-                'unclassified_students': sum(
-                    1 for item in predictions if item.get('label') is None
-                ),
-                'counts': counts,
-            })
-        except BackendRequestError:
-            # A temporary backend outage must not terminate camera processing.
-            return False
-        if state == 'starting':
-            self.registered = True
-        return True
+        with self._heartbeat_lock:
+            if state not in ('starting', 'stopped') and (
+                not self.registered or self._last_heartbeat[0] == 'stopped'
+                or (state == 'online' and self._last_heartbeat[0] == 'offline')
+            ):
+                if not self._heartbeat('starting'):
+                    return False
+            work = self._snapshot()
+            predictions = analysis.predictions if analysis else []
+            counts = diagnostic_counts(predictions)
+            try:
+                self.client.heartbeat({
+                    'session_id': work['session_id'],
+                    'camera_id': work['camera_id'],
+                    'state': state,
+                    'source_type': self.source.source_type,
+                    'reason': reason,
+                    'pipeline_version': CONTROLLER_VERSION,
+                    'analysis_rate': round(analysis_rate, 2),
+                    'yolo_candidates': analysis.yolo_candidates if analysis else 0,
+                    'valid_faces': analysis.valid_faces if analysis else 0,
+                    'confirmed_students': analysis.confirmed_students if analysis else 0,
+                    'unclassified_students': sum(
+                        1 for item in predictions if item.get('label') is None
+                    ),
+                    'counts': counts,
+                })
+            except BackendRequestError:
+                # A temporary backend outage must not terminate camera processing.
+                return False
+            if state == 'starting':
+                self.registered = True
+            self._last_heartbeat = (state, reason, analysis, analysis_rate)
+            return True
+
+    def _report_startup(self, started_at, completed):
+        timed_out = False
+        while not completed.wait(min(2.0, self.configuration.heartbeat_seconds)):
+            with self._heartbeat_lock:
+                if completed.is_set() or self.stop_event.is_set():
+                    return
+                if self.clock() - started_at >= STARTUP_TIMEOUT_SECONDS:
+                    if not timed_out:
+                        print(f'Camera worker {self.key[1]} preparation exceeded {STARTUP_TIMEOUT_SECONDS}s.', flush=True)
+                        timed_out = True
+                    self._heartbeat('offline', 'retry_exhausted')
+                else:
+                    self._heartbeat(*self._last_heartbeat)
 
     def _run_guarded(self):
         try:
@@ -146,8 +181,8 @@ class CameraWorker:
             )
 
     def run(self):
+        preparation_started = self.clock()
         self._heartbeat('starting')
-        pipeline = self.pipeline_factory(self.models)
         capture = None
         failures = 0
         injected_disconnect = False
@@ -156,9 +191,17 @@ class CameraWorker:
         analysis_started = self.clock()
         next_heartbeat = 0.0
         next_summary = 0.0
+        startup_completed = threading.Event()
+        startup_reporter = threading.Thread(
+            target=self._report_startup, args=(preparation_started, startup_completed),
+            name=f'camera-startup-{self.key[0]}-{self.key[1]}',
+        )
+        startup_reporter.start()
 
         try:
+            pipeline = self.pipeline_factory(self.models)
             while not self.stop_event.is_set():
+                opening_started = self.clock()
                 capture = self.capture_factory(source_value(self.source.source))
                 if not capture.isOpened():
                     capture.release()
@@ -185,14 +228,19 @@ class CameraWorker:
 
                 if not self.registered:
                     self._heartbeat('starting')
-                self._heartbeat('online', 'processing', latest)
-                fps = capture.get(cv2.CAP_PROP_FPS) or self.configuration.analysis_hz
-                frame_step = max(1, round(fps / self.configuration.analysis_hz))
+                opened_at = self.clock()
+                frame_step = 1
+                if self.source.source_type == 'simulated':
+                    fps = capture.get(cv2.CAP_PROP_FPS) or self.configuration.analysis_hz
+                    frame_step = max(1, round(fps / self.configuration.analysis_hz))
                 frame_number = 0
+                next_analysis = 0.0
                 processed_this_open = False
 
                 while not self.stop_event.is_set():
                     ok, frame = capture.read()
+                    if self.stop_event.is_set():
+                        break
                     if not ok:
                         if self.source.source_type == 'simulated' and self.source.loop:
                             if capture.set(cv2.CAP_PROP_POS_FRAMES, 0):
@@ -217,21 +265,42 @@ class CameraWorker:
                         self._heartbeat('reconnecting', 'read_failed', latest)
                         self.stop_event.wait(self.source.simulate_disconnect_seconds)
                         break
-                    if frame_number % frame_step:
+                    timestamp = self.clock()
+                    if self.source.source_type == 'live':
+                        if timestamp + 1e-9 < next_analysis:
+                            continue
+                        next_analysis = timestamp + 1 / self.configuration.analysis_hz
+                    elif processed_this_open and frame_number % frame_step:
                         continue
 
-                    timestamp = self.clock()
                     with self.inference_lock:
+                        if self.stop_event.is_set():
+                            break
+                        processing_started = self.clock()
                         latest = pipeline.process_frame(frame, timestamp)
-                    processed_this_open = True
+                    if self.stop_event.is_set():
+                        break
+                    completed_at = self.clock()
+                    if not startup_completed.is_set():
+                        startup_completed.set()
+                        startup_reporter.join()
+                        print(
+                            f'Camera worker {self.key[1]} ready in {completed_at - preparation_started:.2f}s '
+                            f'(open {opened_at - opening_started:.2f}s, '
+                            f'read {timestamp - opened_at:.2f}s, '
+                            f'AI wait {processing_started - timestamp:.2f}s, '
+                            f'processing {completed_at - processing_started:.2f}s).',
+                            flush=True,
+                        )
                     failures = 0
                     analyzed += 1
-                    elapsed = max(0.001, timestamp - analysis_started)
+                    elapsed = max(0.001, completed_at - analysis_started)
                     analysis_rate = analyzed / elapsed
 
-                    if timestamp >= next_heartbeat:
+                    if not processed_this_open or timestamp >= next_heartbeat:
                         self._heartbeat('online', 'processing', latest, analysis_rate)
                         next_heartbeat = timestamp + self.configuration.heartbeat_seconds
+                    processed_this_open = True
 
                     work = self._snapshot()
                     if (
@@ -246,11 +315,14 @@ class CameraWorker:
                             camera_id=work['camera_id'],
                             predictions=latest.predictions,
                             pipeline_version=CONTROLLER_VERSION,
+                            diagnostics=pipeline.diagnostics_snapshot(),
                         )
                         try:
                             self.client.submit(payload)
                         except BackendRequestError:
                             pass
+                        else:
+                            pipeline.reset_diagnostics()
                         next_summary = timestamp + self.configuration.summary_seconds
 
                 capture.release()
@@ -258,6 +330,8 @@ class CameraWorker:
                 if not self.stop_event.is_set():
                     self.stop_event.wait(self.configuration.reconnect_backoff_seconds)
         finally:
+            startup_completed.set()
+            startup_reporter.join()
             if capture is not None:
                 capture.release()
             self._heartbeat('stopped', self.stop_reason, latest)
@@ -297,15 +371,19 @@ class CameraController:
             if key not in desired:
                 worker.stop('session_ended')
                 worker.join(self.configuration.poll_seconds)
-                del self.workers[key]
+                if not worker.is_alive():
+                    del self.workers[key]
             elif not worker.is_alive():
                 worker.join()
                 del self.workers[key]
 
+        busy_sources = {worker.source.source for worker in self.workers.values()}
         for key, (work, source) in desired.items():
             worker = self.workers.get(key)
             if worker:
                 worker.update_work(work)
+                continue
+            if source.source in busy_sources:
                 continue
             worker = self.worker_factory(
                 work=work,
@@ -317,6 +395,7 @@ class CameraController:
             )
             self.workers[key] = worker
             worker.start()
+            busy_sources.add(source.source)
 
     def run(self, stop_event=None):
         stop_event = stop_event or threading.Event()

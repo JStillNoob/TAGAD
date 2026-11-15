@@ -36,4 +36,7 @@ test('camera state helpers distinguish recovery, stale, and online states', () =
   assert.match(cameraStateMessage({ state: 'reconnecting' }), /reconnecting/i)
   assert.match(cameraStateMessage({ state: 'offline', reason: 'heartbeat_stale' }), /stale/i)
   assert.match(cameraStateMessage({ state: 'online' }), /processing/i)
+  assert.match(cameraStateMessage({ state: 'starting' }), /Preparing camera/)
+  assert.match(cameraStateMessage({ state: 'offline' }, true), /Change setup to retry/)
+  assert.match(cameraStateMessage({ state: 'offline' }), /session continues/)
 })

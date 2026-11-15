@@ -268,7 +268,39 @@ class Presentation(ArchiveableModel):
         return self.title
 
 
+class LessonProgress(models.Model):
+    class State(models.TextChoices):
+        ACTIVE = 'active', 'Active'
+        SAVED = 'saved', 'Saved for Later'
+        COMPLETED = 'completed', 'Completed'
+
+    organization = models.ForeignKey(Organization, on_delete=models.PROTECT, related_name='lessons')
+    owner = models.ForeignKey(User, on_delete=models.PROTECT, related_name='lessons')
+    subject = models.ForeignKey(Subject, on_delete=models.PROTECT, related_name='lessons')
+    classroom = models.ForeignKey(Classroom, on_delete=models.PROTECT, related_name='lessons')
+    presentation = models.ForeignKey(Presentation, on_delete=models.PROTECT, related_name='lessons')
+    last_slide = models.ForeignKey('PresentationSlide', on_delete=models.PROTECT, related_name='lessons')
+    state = models.CharField(max_length=12, choices=State.choices, default=State.ACTIVE)
+    revision = models.PositiveIntegerField(default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'lesson_progress'
+        constraints = [
+            models.CheckConstraint(condition=Q(revision__gte=1), name='lesson_revision_positive'),
+            models.CheckConstraint(
+                condition=Q(state__in=('active', 'saved', 'completed')),
+                name='lesson_state_valid',
+            ),
+        ]
+
+
 class ClassroomSession(ArchiveableModel):
+    class EndAction(models.TextChoices):
+        SAVE = 'save', 'Save & Continue Later'
+        FINISH = 'finish', 'Finish Lesson'
+
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='sessions')
     subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name='sessions')
     presentation = models.ForeignKey(Presentation, on_delete=models.PROTECT, related_name='sessions')
@@ -276,6 +308,14 @@ class ClassroomSession(ArchiveableModel):
     prepared_at = models.DateTimeField(default=timezone.now)
     started_at = models.DateTimeField(null=True, blank=True)
     ended_at = models.DateTimeField(null=True, blank=True)
+    lesson = models.ForeignKey(
+        LessonProgress, on_delete=models.PROTECT, related_name='meetings', null=True, blank=True,
+    )
+    continued_from = models.ForeignKey(
+        'self', on_delete=models.PROTECT, related_name='continuations', null=True, blank=True,
+    )
+    continuation_request_id = models.UUIDField(null=True, blank=True)
+    end_action = models.CharField(max_length=6, choices=EndAction.choices, blank=True, default='')
 
     class Meta:
         db_table = 'classroom_sessions'
@@ -284,6 +324,42 @@ class ClassroomSession(ArchiveableModel):
                 fields=('user',),
                 condition=Q(ended_at__isnull=True),
                 name='one_active_session_per_user',
+            ),
+            models.UniqueConstraint(
+                fields=('lesson',),
+                condition=Q(lesson__isnull=False, ended_at__isnull=True),
+                name='one_open_meeting_per_lesson',
+            ),
+            models.UniqueConstraint(
+                fields=('continued_from',),
+                condition=Q(continued_from__isnull=False),
+                name='one_continuation_per_meeting',
+            ),
+            models.UniqueConstraint(
+                fields=('user', 'continuation_request_id'),
+                condition=Q(continuation_request_id__isnull=False),
+                name='continuation_request_unique',
+            ),
+            models.CheckConstraint(
+                condition=Q(end_action='') | Q(
+                    end_action__in=('save', 'finish'), lesson__isnull=False,
+                    started_at__isnull=False, ended_at__isnull=False,
+                ),
+                name='meeting_end_action_valid',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(continued_from__isnull=True, continuation_request_id__isnull=True)
+                    | Q(continued_from__isnull=False, continuation_request_id__isnull=False, lesson__isnull=False)
+                ),
+                name='meeting_continuation_valid',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(lesson__isnull=True) | Q(ended_at__isnull=True, end_action='')
+                    | Q(ended_at__isnull=False, started_at__isnull=False, end_action__in=('save', 'finish'))
+                ),
+                name='meeting_tracked_outcome',
             ),
         ]
 
@@ -357,6 +433,7 @@ class EngagementSummary(models.Model):
     ingestion_id = models.UUIDField(default=uuid4, unique=True, editable=False)
     schema_version = models.PositiveSmallIntegerField(default=1)
     pipeline_version = models.CharField(max_length=50, default='legacy')
+    diagnostics = models.JSONField(default=dict, blank=True)
 
     class Meta:
         db_table = 'engagement_summaries'

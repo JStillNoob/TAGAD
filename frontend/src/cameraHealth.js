@@ -10,12 +10,14 @@ export function cameraStateClass(state) {
   return stateClasses[state] || stateClasses.stopped
 }
 
-export function cameraStateMessage(camera) {
+export function cameraStateMessage(camera, preparing = false) {
   if (camera.state === 'online') return 'Worker is processing frames.'
-  if (camera.state === 'starting') return 'Worker is starting.'
+  if (camera.state === 'starting') return 'Preparing camera video and frame processing…'
   if (camera.state === 'reconnecting') return 'Source interrupted; reconnecting.'
   if (camera.reason === 'heartbeat_stale') return 'Worker heartbeat is stale.'
-  if (camera.state === 'offline') return 'Worker is offline; the session continues.'
+  if (camera.state === 'offline') return preparing
+    ? 'Camera is not ready. Check the connection and use Change setup to retry preparation.'
+    : 'Worker is offline; the session continues.'
   return 'Waiting for the camera controller.'
 }
 

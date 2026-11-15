@@ -1,4 +1,5 @@
 <script setup>
+import { lessonState, meetingOutcome } from '../sessionLabels'
 import { computed, onMounted, ref } from 'vue'
 import { currentUser } from '../auth'
 import { fetchDashboardSummary } from '../dashboard'
@@ -241,8 +242,9 @@ onMounted(loadDashboard)
                 </td>
                 <td class="px-6 py-3.5">
                   <span :class="session.status === 'completed' ? 'badge-engaged' : 'badge-attentive'">
-                    {{ session.status === 'completed' ? 'Completed' : 'Ongoing' }}
+                    {{ meetingOutcome(session) }}
                   </span>
+                  <p v-if="session.lesson_id" class="mt-1 text-xs text-gray-500">Lesson {{ lessonState(session) }}</p>
                 </td>
               </tr>
             </tbody>

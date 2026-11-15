@@ -1,6 +1,15 @@
-from django.db.models import Exists, OuterRef, Prefetch
+from django.db.models import Exists, OuterRef, Prefetch, Q
 
 from .models import ClassroomSession, Presentation, SlideEvent, Subject, User
+
+
+def meeting_context(session):
+    return {
+        'lesson_id': session.lesson_id,
+        'lesson_state': session.lesson.state if session.lesson_id else None,
+        'end_action': session.end_action,
+        'continued_from': session.continued_from_id,
+    }
 
 
 def presentations_for_user(user):
@@ -38,9 +47,16 @@ def sessions_for_user(user):
         'subject__classroom',
         'presentation',
         'presentation__user',
+        'lesson__owner',
+        'lesson__organization',
+        'lesson__subject',
+        'lesson__classroom',
+        'lesson__presentation__user',
+        'lesson__last_slide',
     ).prefetch_related(
         'session_cameras__camera',
         'presentation__slides',
+        'lesson__meetings',
         Prefetch(
             'slide_events',
             queryset=SlideEvent.objects.order_by('-entered_at', '-pk'),
@@ -49,6 +65,10 @@ def sessions_for_user(user):
     )
     if user.role == User.Role.SYSTEM_ADMIN:
         return sessions
+    sessions = sessions.filter(
+        Q(lesson__isnull=True, subject__classroom__organization_id=user.organization_id)
+        | Q(lesson__organization_id=user.organization_id)
+    )
     if user.role == User.Role.ORG_ADMIN:
-        return sessions.filter(subject__classroom__organization=user.organization)
+        return sessions
     return sessions.filter(user=user)

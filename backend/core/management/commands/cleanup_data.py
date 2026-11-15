@@ -37,6 +37,7 @@ class Command(BaseCommand):
                     days=settings.RETENTION_FAILED_PRESENTATION_DAYS,
                 ),
                 sessions__isnull=True,
+                lessons__isnull=True,
                 slides__slide_events__isnull=True,
             ).distinct().order_by('pk'),
             'reports': Report.objects.filter(
@@ -73,7 +74,7 @@ class Command(BaseCommand):
             for presentation_id in target_ids['failed presentations']:
                 # Recheck the protection condition while locked before touching files.
                 locked = Presentation.objects.select_for_update().get(pk=presentation_id)
-                if locked.sessions.exists() or locked.slides.filter(
+                if locked.lessons.exists() or locked.sessions.exists() or locked.slides.filter(
                     slide_events__isnull=False,
                 ).exists():
                     continue

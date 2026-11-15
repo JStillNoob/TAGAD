@@ -11,7 +11,7 @@ from .models import Report
 from .pagination import paginated_response
 from .permissions import IsOrganizationUser
 from .report_generation import generate_report_content, report_storage_name
-from .session_access import sessions_for_user
+from .session_access import meeting_context, sessions_for_user
 from .views import _log_activity
 
 
@@ -36,6 +36,7 @@ class ReportCreateSerializer(serializers.Serializer):
 def _report_data(report):
     labels = dict(REPORT_TYPES)
     return {
+        **meeting_context(report.session),
         'id': report.pk,
         'session': report.session_id,
         'subject_code': report.session.subject.subject_code,
@@ -56,14 +57,14 @@ def _download_name(report):
     code = report.session.subject.subject_code.lower().replace(' ', '-')
     date = report.session.session_date.isoformat()
     suffix = 'session-summary' if report.report_type == 'pdf' else 'engagement-data'
-    return f'{code}-{date}-{suffix}.{report.report_type}'
+    return f'{code}-{date}-class-{report.session_id}-{suffix}.{report.report_type}'
 
 
 def _reports_for_user(user):
     return (
         Report.objects.filter(session__in=sessions_for_user(user))
         .select_related(
-            'generated_by', 'session', 'session__subject', 'session__subject__classroom',
+            'generated_by', 'session', 'session__subject', 'session__subject__classroom', 'session__lesson',
         )
     )
 
@@ -78,6 +79,7 @@ class ReportOptionsView(APIView):
         ).order_by('-started_at')
         return paginated_response(request, sessions, lambda page: [
             {
+                **meeting_context(session),
                 'id': session.pk,
                 'subject_code': session.subject.subject_code,
                 'subject_name': session.subject.subject_name,

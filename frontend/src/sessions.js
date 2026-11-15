@@ -30,6 +30,31 @@ export function fetchSessionPage(parameters = {}) {
   return apiRequest(`/api/auth/sessions/${paginationQuery(parameters)}`)
 }
 
+export function fetchClassroomSession(sessionId) {
+  return apiRequest(`/api/auth/sessions/${sessionId}/`)
+}
+
+export function fetchLessonPage(parameters = {}) {
+  return apiRequest(`/api/auth/lessons/${paginationQuery(parameters)}`)
+}
+
+export function fetchLesson(lessonId) {
+  return apiRequest(`/api/auth/lessons/${lessonId}/`)
+}
+
+export function prepareLessonContinuation(lessonId, { requestId, revision, fromSession, cameras }) {
+  return apiRequest(`/api/auth/lessons/${lessonId}/continue/`, {
+    method: 'POST',
+    body: JSON.stringify({ request_id: requestId, expected_revision: revision, from_session: fromSession, cameras }),
+  })
+}
+
+export function finishSavedLesson(lessonId, revision) {
+  return apiRequest(`/api/auth/lessons/${lessonId}/finish/`, {
+    method: 'POST', body: JSON.stringify({ expected_revision: revision }),
+  })
+}
+
 export async function uploadPresentation({ title, file, requestId, onProgress }) {
   await ensureCsrfCookie()
   const body = new FormData()
@@ -103,23 +128,27 @@ export function prepareClassroomSession({ subject, presentation, cameras }) {
   })
 }
 
-export function startPreparedClassroomSession(sessionId) {
-  return apiRequest(`/api/auth/sessions/${sessionId}/start/`, { method: 'POST' })
+export function startPreparedClassroomSession(sessionId, revision) {
+  return apiRequest(`/api/auth/sessions/${sessionId}/start/`, {
+    method: 'POST', body: JSON.stringify({ expected_revision: revision }),
+  })
 }
 
 export function cancelPreparedClassroomSession(sessionId) {
   return apiRequest(`/api/auth/sessions/${sessionId}/prepare/`, { method: 'DELETE' })
 }
 
-export function enterSessionSlide(sessionId, slideId) {
+export function enterSessionSlide(sessionId, slideId, revision) {
   return apiRequest(`/api/auth/sessions/${sessionId}/enter-slide/`, {
     method: 'POST',
-    body: JSON.stringify({ slide: slideId }),
+    body: JSON.stringify({ slide: slideId, expected_revision: revision }),
   })
 }
 
-export function endClassroomSession(sessionId) {
-  return apiRequest(`/api/auth/sessions/${sessionId}/end/`, { method: 'POST' })
+export function endClassroomSession(sessionId, action = 'finish', revision) {
+  return apiRequest(`/api/auth/sessions/${sessionId}/end/`, {
+    method: 'POST', body: JSON.stringify({ action, expected_revision: revision }),
+  })
 }
 
 export function archiveClassroomSession(sessionId) {

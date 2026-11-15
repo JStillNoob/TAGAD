@@ -8,6 +8,7 @@ import pymupdf
 from django.conf import settings
 from django.core.files import File
 from django.core.files.base import ContentFile
+from django.db import transaction
 
 from .models import Presentation, PresentationSlide
 
@@ -127,6 +128,8 @@ def _render_pdf(presentation, pdf_path):
 
 
 def _clear_generated_files(presentation):
+    if presentation.lessons.exists():
+        raise PresentationProcessingError('This presentation belongs to lesson history. Its slide files are protected.')
     for slide in presentation.slides.all():
         if slide.image_path:
             slide.image_path.delete(save=False)
@@ -136,13 +139,19 @@ def _clear_generated_files(presentation):
         presentation.preview_path = ''
 
 
+@transaction.atomic
 def delete_presentation_files(presentation):
+    Presentation.objects.select_for_update().get(pk=presentation.pk)
     _clear_generated_files(presentation)
     if presentation.file_path:
         presentation.file_path.delete(save=False)
 
 
+@transaction.atomic
 def process_presentation(presentation):
+    Presentation.objects.select_for_update().get(pk=presentation.pk)
+    if presentation.lessons.exists():
+        raise PresentationProcessingError('This presentation belongs to lesson history. Its slide files are protected.')
     presentation.processing_status = Presentation.ProcessingStatus.PROCESSING
     presentation.processing_error = ''
     presentation.save(update_fields=['processing_status', 'processing_error'])

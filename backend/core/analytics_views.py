@@ -9,7 +9,7 @@ from .lifecycle import filter_lifecycle
 from .pagination import paginated_response
 from .permissions import IsOrganizationUser
 from .report_generation import analytics_csv_content
-from .session_access import sessions_for_user
+from .session_access import meeting_context, sessions_for_user
 from .views import _log_activity
 
 
@@ -61,6 +61,7 @@ class AnalyticsSessionListView(APIView):
         def serialize(page):
             return [
                 {
+                    **meeting_context(session),
                     'id': session.pk,
                     'subject_code': session.subject.subject_code,
                     'subject_name': session.subject.subject_name,

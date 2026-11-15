@@ -35,6 +35,7 @@ class TrackingTests(unittest.TestCase):
         tracker.update([], timestamp=1, frame_width=10, frame_height=10)
         tracker.update([], timestamp=2, frame_width=10, frame_height=10)
         self.assertEqual(tracker.tracks, {})
+        self.assertEqual(tracker.last_expired_count, 1)
 
 
 if __name__ == '__main__':

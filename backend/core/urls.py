@@ -55,6 +55,7 @@ from .analytics_views import (
     SessionAnalyticsCsvView,
     SessionAnalyticsView,
 )
+from .lesson_views import LessonContinueView, LessonDetailView, LessonFinishView, LessonListView, SessionDetailView
 from .report_views import ReportDetailView, ReportDownloadView, ReportListCreateView, ReportOptionsView
 from .password_reset_views import (
     PasswordResetConfirmView,
@@ -130,6 +131,11 @@ urlpatterns = [
     path('session-subjects/', SessionSubjectListView.as_view(), name='session-subject-list'),
     path('sessions/', SessionListCreateView.as_view(), name='session-list'),
     path('sessions/prepare/', SessionPrepareView.as_view(), name='session-prepare'),
+    path('sessions/<int:pk>/', SessionDetailView.as_view(), name='session-detail'),
+    path('lessons/', LessonListView.as_view(), name='lesson-list'),
+    path('lessons/<int:pk>/', LessonDetailView.as_view(), name='lesson-detail'),
+    path('lessons/<int:pk>/continue/', LessonContinueView.as_view(), name='lesson-continue'),
+    path('lessons/<int:pk>/finish/', LessonFinishView.as_view(), name='lesson-finish'),
     path('sessions/<int:pk>/start/', SessionStartView.as_view(), name='session-start'),
     path(
         'sessions/<int:pk>/prepare/',

@@ -1,7 +1,6 @@
 import mimetypes
 import socket
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timedelta
 
 from django.db import IntegrityError, transaction
 from django.db.models import Case, IntegerField, Q, Value, When
@@ -15,7 +14,7 @@ from rest_framework import serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Camera, CameraWorkerStatus, ClassroomSession, Presentation, SlideEvent
+from .models import Camera, ClassroomSession, LessonProgress, Presentation, SlideEvent
 from .lifecycle import archive_record, filter_lifecycle, restore_record
 from .pagination import paginated_response
 from .permissions import IsOrganizationUser
@@ -31,6 +30,13 @@ from .session_serializers import (
     PresentationSerializer,
     PresentationUploadSerializer,
     SessionCreateSerializer,
+    LessonRevisionSerializer,
+    SessionEndSerializer,
+    SessionSlideSerializer,
+)
+from .session_lifecycle import (
+    cancel_preparation, end_meeting, locked_meeting, save_progress,
+    start_meeting, validate_revision,
 )
 from .session_preparation import expire_prepared_sessions
 from .views import _log_activity
@@ -116,6 +122,8 @@ class PresentationDetailView(APIView):
                 raise serializers.ValidationError({
                     'detail': 'End the active classroom session before archiving this presentation.',
                 })
+            if presentation.lessons.exclude(state=LessonProgress.State.COMPLETED).exists():
+                raise serializers.ValidationError({'detail': 'Finish the saved lesson before archiving its presentation.'})
             if presentation.sessions.exists():
                 if archive_record(presentation, request.user):
                     _log_activity(
@@ -167,6 +175,8 @@ class PresentationRetryView(APIView):
                     PresentationSerializer(presentation).data,
                     status=status.HTTP_202_ACCEPTED,
                 )
+            if presentation.lessons.exists():
+                raise serializers.ValidationError({'detail': 'This presentation belongs to lesson history. Restore its original files before continuing.'})
             presentation.processing_status = Presentation.ProcessingStatus.PROCESSING
             presentation.processing_error = ''
             presentation.save(update_fields=['processing_status', 'processing_error'])
@@ -344,6 +354,8 @@ class SessionListCreateView(APIView):
             sessions_for_user(request.user),
             request.query_params.get('lifecycle'),
         )
+        if request.query_params.get('owner') == 'me':
+            sessions = sessions.filter(user=request.user)
         search = request.query_params.get('search', '').strip()
         if search:
             sessions = sessions.filter(
@@ -353,6 +365,9 @@ class SessionListCreateView(APIView):
                 | Q(presentation__title__icontains=search)
                 | Q(user__username__icontains=search)
             )
+        if 'lesson' in request.query_params:
+            lesson_id = serializers.IntegerField(min_value=1).run_validation(request.query_params['lesson'])
+            sessions = sessions.filter(lesson_id=lesson_id)
         session_status = request.query_params.get('status', '').strip()
         if session_status == 'preparing':
             sessions = sessions.filter(started_at__isnull=True, ended_at__isnull=True)
@@ -366,6 +381,8 @@ class SessionListCreateView(APIView):
         else:
             sessions = sessions.filter(started_at__isnull=False)
             sessions = sessions.order_by('-started_at', '-pk')
+        if 'lesson' in request.query_params:
+            sessions = sessions.order_by('started_at', 'pk')
         return paginated_response(
             request,
             sessions,
@@ -417,84 +434,41 @@ class SessionPrepareView(APIView):
 class OwnedSessionMixin:
     permission_classes = [IsOrganizationUser]
 
-    def get_session(self, request, pk, *, for_update=False):
-        sessions = sessions_for_user(request.user).filter(user=request.user)
-        if for_update:
-            sessions = sessions.select_for_update()
-        return get_object_or_404(sessions, pk=pk)
-
 
 class SessionStartView(OwnedSessionMixin, APIView):
     def post(self, request, pk):
         expire_prepared_sessions(user=request.user)
-        with transaction.atomic():
-            session = self.get_session(request, pk, for_update=True)
-            if session.ended_at:
-                raise serializers.ValidationError({'detail': 'This session has already ended.'})
-            if session.started_at:
-                return Response(ClassroomSessionSerializer(session).data)
-
-            camera_ids = list(
-                session.session_cameras.values_list('camera_id', flat=True),
-            )
-            if camera_ids:
-                heartbeat_cutoff = timezone.now() - timedelta(
-                    seconds=max(1, settings.PIPELINE_HEARTBEAT_TIMEOUT_SECONDS),
-                )
-                online_camera_count = CameraWorkerStatus.objects.filter(
-                    session=session,
-                    camera_id__in=camera_ids,
-                    state=CameraWorkerStatus.State.ONLINE,
-                    last_heartbeat__gte=heartbeat_cutoff,
-                ).count()
-                if online_camera_count != len(camera_ids):
-                    raise serializers.ValidationError({
-                        'detail': 'Wait for all selected cameras to become Online before starting.',
-                    })
-
-            started_at = timezone.now()
-            session.started_at = started_at
-            session.session_date = timezone.localdate(started_at)
-            session.save(update_fields=['started_at', 'session_date'])
-            first_slide = session.presentation.slides.order_by('slide_number').first()
-            if first_slide:
-                SlideEvent.objects.create(
-                    session=session,
-                    slide=first_slide,
-                    entered_at=started_at,
-                )
-            _log_activity(request, f'Started classroom session {session.pk}.')
-        return Response(ClassroomSessionSerializer(session).data)
+        data = LessonRevisionSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        with locked_meeting(pk, user=request.user) as session:
+            was_started = bool(session.started_at)
+            start_meeting(session, revision=data.validated_data.get('expected_revision'))
+            if not was_started:
+                _log_activity(request, f'Started classroom session {session.pk}.')
+            payload = ClassroomSessionSerializer(session).data
+        return Response(payload)
 
 
 class SessionPreparationCancelView(OwnedSessionMixin, APIView):
     def delete(self, request, pk):
         expire_prepared_sessions(user=request.user)
-        with transaction.atomic():
-            session = self.get_session(request, pk, for_update=True)
-            if session.started_at or session.ended_at:
-                raise serializers.ValidationError({
-                    'detail': 'Only an unfinished session preparation can be cancelled.',
-                })
+        with locked_meeting(pk, user=request.user) as session:
             session_id = session.pk
-            session.delete()
+            cancel_preparation(session)
             _log_activity(request, f'Cancelled classroom session preparation {session_id}.')
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class SessionEndView(OwnedSessionMixin, APIView):
     def post(self, request, pk):
-        with transaction.atomic():
-            session = self.get_session(request, pk, for_update=True)
-            if session.started_at is None:
-                raise serializers.ValidationError({
-                    'detail': 'Cancel this preparation instead of ending it.',
-                })
-            if session.ended_at is None:
-                session.ended_at = timezone.now()
-                session.save(update_fields=['ended_at'])
+        data = SessionEndSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        with locked_meeting(pk, user=request.user) as session:
+            changed = end_meeting(session, data.validated_data['action'], data.validated_data.get('expected_revision'))
+            if changed:
                 _log_activity(request, f'Ended classroom session {session.pk}.')
-        return Response(ClassroomSessionSerializer(session).data)
+            payload = ClassroomSessionSerializer(session).data
+        return Response(payload)
 
 
 class SessionLifecycleView(APIView):
@@ -504,13 +478,13 @@ class SessionLifecycleView(APIView):
         return get_object_or_404(sessions_for_user(request.user), pk=pk)
 
     def delete(self, request, pk):
-        session = self.get_session(request, pk)
-        if session.ended_at is None:
-            raise serializers.ValidationError({
-                'detail': 'End this classroom session before archiving it.',
-            })
-        if archive_record(session, request.user):
-            _log_activity(request, f'Archived classroom session {session.pk}.')
+        with locked_meeting(pk, user=request.user, owner_only=False) as session:
+            if session.ended_at is None:
+                raise serializers.ValidationError({'detail': 'End this classroom session before archiving it.'})
+            if session.lesson_id and session.lesson.state != session.lesson.State.COMPLETED:
+                raise serializers.ValidationError({'detail': 'Finish the saved lesson before archiving its meeting.'})
+            if archive_record(session, request.user):
+                _log_activity(request, f'Archived classroom session {session.pk}.')
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def post(self, request, pk):
@@ -522,25 +496,34 @@ class SessionLifecycleView(APIView):
 
 class SessionEnterSlideView(OwnedSessionMixin, APIView):
     def post(self, request, pk):
-        with transaction.atomic():
-            session = self.get_session(request, pk, for_update=True)
+        data = SessionSlideSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        with locked_meeting(pk, user=request.user) as session:
             if session.ended_at:
                 raise serializers.ValidationError({'detail': 'This session has already ended.'})
             if session.started_at is None:
                 raise serializers.ValidationError({'detail': 'Start the session before changing slides.'})
             slide = get_object_or_404(
                 session.presentation.slides,
-                pk=request.data.get('slide'),
+                pk=data.validated_data['slide'],
             )
             current_event = session.slide_events.order_by('-entered_at', '-pk').first()
             if current_event and current_event.slide_id == slide.pk:
-                return Response({'id': current_event.pk, 'created': False})
+                return Response({
+                    'id': current_event.pk, 'created': False,
+                    'lesson_revision': session.lesson.revision if session.lesson_id else None,
+                })
+            if session.lesson_id:
+                validate_revision(session.lesson, data.validated_data.get('expected_revision'))
             event = SlideEvent.objects.create(
                 session=session,
                 slide=slide,
                 entered_at=timezone.now(),
             )
+            if session.lesson_id:
+                session.lesson.last_slide = slide
+                save_progress(session.lesson)
         return Response(
-            {'id': event.pk, 'created': True},
+            {'id': event.pk, 'created': True, 'lesson_revision': session.lesson.revision if session.lesson_id else None},
             status=status.HTTP_201_CREATED,
         )

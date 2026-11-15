@@ -30,6 +30,7 @@ from .lifecycle import (
 )
 from .permissions import CanAccessClassManagement, CanManageUsers, IsOrganizationUser
 from .pagination import StandardResultsSetPagination, paginated_response
+from .session_access import meeting_context, sessions_for_user
 from .auth_throttling import (
     clear_login_failures,
     login_throttle_state,
@@ -1060,10 +1061,6 @@ class DashboardSummaryView(APIView):
                 archived_at__isnull=True,
                 classroom__archived_at__isnull=True,
             )
-            sessions = ClassroomSession.objects.filter(
-                subject__classroom__organization=user.organization,
-                archived_at__isnull=True,
-            )
         else:
             subjects = Subject.objects.filter(teacher=user, archived_at__isnull=True)
             classrooms = Classroom.objects.filter(
@@ -1077,17 +1074,12 @@ class DashboardSummaryView(APIView):
                 classroom__archived_at__isnull=True,
                 classroom__subjects__archived_at__isnull=True,
             ).distinct()
-            sessions = ClassroomSession.objects.filter(
-                user=user,
-                archived_at__isnull=True,
-            )
-
-        sessions = sessions.filter(started_at__isnull=False)
+        sessions = sessions_for_user(user).filter(archived_at__isnull=True, started_at__isnull=False)
 
         today = timezone.localdate()
         today_sessions = sessions.filter(session_date=today)
         recent_sessions = sessions.select_related(
-            'subject', 'subject__classroom',
+            'subject', 'subject__classroom', 'lesson',
         ).order_by('-started_at')[:5]
         recent_data = []
         for session in recent_sessions:
@@ -1098,6 +1090,7 @@ class DashboardSummaryView(APIView):
             if session.ended_at:
                 duration = round((session.ended_at - session.started_at).total_seconds() / 60)
             recent_data.append({
+                **meeting_context(session),
                 'id': session.pk,
                 'subject_name': session.subject.subject_name,
                 'subject_code': session.subject.subject_code,

@@ -4,18 +4,15 @@ import zipfile
 
 from django.conf import settings
 from django.urls import reverse
-from django.utils import timezone
 from rest_framework import serializers
 
 from .models import (
-    Camera,
     ClassroomSession,
+    LessonProgress,
     Presentation,
     PresentationSlide,
-    SessionCamera,
-    SlideEvent,
 )
-from .session_access import presentations_for_user, subjects_for_user
+from .session_lifecycle import create_meeting, lesson_blocker, resolve_resources
 
 
 PRESENTATION_MIME_TYPES = {
@@ -150,78 +147,96 @@ class SessionCreateSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         user = self.context['request'].user
-        errors = {}
-        subject = subjects_for_user(user).filter(pk=attrs['subject']).first()
-        presentation = presentations_for_user(user).filter(pk=attrs['presentation']).first()
-
-        if subject is None:
-            errors['subject'] = 'Select a subject available to your account.'
-        elif (
-            subject.is_archived
-            or subject.classroom.is_archived
-            or subject.classroom.organization.is_archived
-        ):
-            errors['subject'] = 'Select an active subject and classroom.'
-        if presentation is None:
-            errors['presentation'] = 'Select a presentation available to your account.'
-        elif presentation.is_archived:
-            errors['presentation'] = 'Restore this presentation before using it.'
-        elif presentation.processing_status != Presentation.ProcessingStatus.READY:
-            errors['presentation'] = 'The presentation must finish processing before use.'
-
-        camera_ids = attrs.get('cameras', [])
-        if len(camera_ids) != len(set(camera_ids)):
-            errors['cameras'] = 'Do not select the same camera more than once.'
-        elif subject:
-            cameras = list(Camera.objects.filter(pk__in=camera_ids))
-            if len(cameras) != len(camera_ids) or any(
-                camera.classroom_id != subject.classroom_id
-                or camera.status != Camera.Status.ACTIVE
-                or camera.is_archived
-                for camera in cameras
-            ):
-                errors['cameras'] = 'Select only active cameras configured for this classroom.'
-            else:
-                attrs['camera_objects'] = cameras
-
+        resolve_resources(user, attrs['subject'], attrs['presentation'], attrs.get('cameras', []))
         if ClassroomSession.objects.filter(user=user, ended_at__isnull=True).exists():
-            errors['detail'] = 'End your active session before starting another one.'
-
-        if errors:
-            raise serializers.ValidationError(errors)
-        attrs['subject_object'] = subject
-        attrs['presentation_object'] = presentation
+            raise serializers.ValidationError({'detail': 'End your active session before starting another one.'})
         return attrs
 
     def create(self, validated_data):
-        user = self.context['request'].user
-        prepared = self.context.get('prepared', False)
-        started_at = None if prepared else timezone.now()
-        session = ClassroomSession.objects.create(
-            user=user,
-            subject=validated_data['subject_object'],
-            presentation=validated_data['presentation_object'],
-            session_date=timezone.localdate(),
-            started_at=started_at,
+        return create_meeting(
+            self.context['request'].user, validated_data['subject'],
+            validated_data['presentation'], validated_data.get('cameras', []),
+            prepared=self.context.get('prepared', False),
         )
-        SessionCamera.objects.bulk_create([
-            SessionCamera(session=session, camera=camera)
-            for camera in validated_data.get('camera_objects', [])
-        ])
-        first_slide = (
-            session.presentation.slides.order_by('slide_number').first()
-            if started_at else None
+
+
+class StrictPositiveIntegerField(serializers.IntegerField):
+    def __init__(self, **kwargs):
+        super().__init__(min_value=1, **kwargs)
+
+    def to_internal_value(self, data):
+        if type(data) is not int:
+            self.fail('invalid')
+        return super().to_internal_value(data)
+
+
+class LessonRevisionSerializer(serializers.Serializer):
+    expected_revision = StrictPositiveIntegerField(required=False)
+
+
+class SessionEndSerializer(LessonRevisionSerializer):
+    action = serializers.ChoiceField(choices=ClassroomSession.EndAction.choices, default=ClassroomSession.EndAction.FINISH)
+
+
+class SessionSlideSerializer(LessonRevisionSerializer):
+    slide = StrictPositiveIntegerField()
+
+
+class LessonContinueSerializer(serializers.Serializer):
+    request_id = serializers.UUIDField()
+    expected_revision = StrictPositiveIntegerField()
+    from_session = StrictPositiveIntegerField()
+    cameras = serializers.ListField(child=StrictPositiveIntegerField(), default=list)
+
+    def validate_cameras(self, value):
+        if len(value) != len(set(value)):
+            raise serializers.ValidationError('Do not select the same camera more than once.')
+        return value
+
+
+class LessonProgressSerializer(serializers.ModelSerializer):
+    subject_name = serializers.CharField(source='subject.subject_name', read_only=True)
+    classroom_name = serializers.CharField(source='classroom.room_code', read_only=True)
+    presentation_title = serializers.CharField(source='presentation.title', read_only=True)
+    last_slide_number = serializers.IntegerField(source='last_slide.slide_number', read_only=True)
+    total_slides = serializers.IntegerField(source='presentation.total_slides', read_only=True)
+
+    class Meta:
+        model = LessonProgress
+        fields = (
+            'id', 'organization', 'owner', 'subject', 'subject_name', 'classroom',
+            'classroom_name', 'presentation', 'presentation_title', 'last_slide',
+            'last_slide_number', 'total_slides', 'state', 'revision', 'created_at', 'updated_at',
         )
-        if first_slide:
-            SlideEvent.objects.create(
-                session=session,
-                slide=first_slide,
-                entered_at=started_at,
-            )
-        return session
+        read_only_fields = fields
+
+    def to_representation(self, lesson):
+        data = super().to_representation(lesson)
+        meetings = list(lesson.meetings.all())
+        prepared = next((meeting for meeting in meetings if not meeting.started_at and not meeting.ended_at), None)
+        active = next((meeting for meeting in meetings if meeting.started_at and not meeting.ended_at), None)
+        taught = [meeting for meeting in meetings if meeting.started_at]
+        latest = max(taught, key=lambda meeting: (meeting.started_at, meeting.pk), default=None)
+        reason = None
+        if lesson.state != LessonProgress.State.SAVED:
+            reason = 'This lesson is complete.' if lesson.state == LessonProgress.State.COMPLETED else 'This lesson has an active class.'
+        elif prepared:
+            reason = 'A continuation is already prepared. Start it or cancel preparation.'
+        else:
+            reason = lesson_blocker(lesson)
+        data.update(
+            prepared_session=prepared.pk if prepared else None,
+            active_session=active.pk if active else None,
+            latest_session=latest.pk if latest else None,
+            last_taught_at=(latest.ended_at or latest.started_at) if latest else None,
+            display_state='Preparing to Continue' if prepared else lesson.get_state_display(),
+            can_continue=reason is None, blocking_reason=reason,
+        )
+        return data
 
 
 class ClassroomSessionSerializer(serializers.ModelSerializer):
+    lesson = LessonProgressSerializer(read_only=True)
     subject_name = serializers.CharField(source='subject.subject_name', read_only=True)
     subject_code = serializers.CharField(source='subject.subject_code', read_only=True)
     classroom = serializers.CharField(source='subject.classroom.room_code', read_only=True)
@@ -254,6 +269,10 @@ class ClassroomSessionSerializer(serializers.ModelSerializer):
             'duration_minutes',
             'archived_at',
             'is_archived',
+            'lesson',
+            'continued_from',
+            'continuation_request_id',
+            'end_action',
         )
         read_only_fields = fields
 
@@ -286,7 +305,7 @@ class ClassroomSessionSerializer(serializers.ModelSerializer):
             event = session.slide_events.order_by('-entered_at', '-pk').first()
         else:
             event = ordered_events[0] if ordered_events else None
-        return event.slide_id if event else None
+        return event.slide_id if event else (session.lesson.last_slide_id if session.lesson_id else None)
 
     def get_duration_minutes(self, session):
         if not session.started_at or not session.ended_at:
