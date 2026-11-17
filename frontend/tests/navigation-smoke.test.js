@@ -9,6 +9,8 @@ const sessionSource = await readFile(new URL('../src/views/SessionView.vue', imp
 const analyticsSource = await readFile(new URL('../src/views/AnalyticsView.vue', import.meta.url), 'utf8')
 const stylesSource = await readFile(new URL('../src/assets/main.css', import.meta.url), 'utf8')
 const reportsSource = await readFile(new URL('../src/views/ReportsView.vue', import.meta.url), 'utf8')
+const logsSource = await readFile(new URL('../src/views/SystemLogsView.vue', import.meta.url), 'utf8')
+const settingsSource = await readFile(new URL('../src/views/SettingsView.vue', import.meta.url), 'utf8')
 const classesSource = await readFile(new URL('../src/views/StudentsView.vue', import.meta.url), 'utf8')
 const classManagementSource = await readFile(new URL('../src/classManagement.js', import.meta.url), 'utf8')
 const userManagementSource = await readFile(new URL('../src/views/UserManagementView.vue', import.meta.url), 'utf8')
@@ -18,6 +20,12 @@ test('authenticated shell keeps its core navigation and logout actions', () => {
   assert.match(routerSource, /path: '\/dashboard'/)
   assert.match(layoutSource, /to="\/settings"/)
   assert.match(layoutSource, /@click="handleLogout"/)
+})
+
+test('every authenticated route exposes a page-level heading', () => {
+  for (const source of [dashboardSource, analyticsSource, reportsSource, logsSource, settingsSource]) {
+    assert.match(source, /<h1/)
+  }
 })
 
 test('system administrators have a dedicated platform management UI', () => {
@@ -56,10 +64,19 @@ test('page heroes share the compact Live Session dimensions', () => {
 test('record tables keep rows visually distinct from their card background', () => {
   assert.match(dashboardSource, /class="app-data-table/)
   assert.match(analyticsSource, /class="app-data-table/)
-  assert.match(classesSource, /class="app-data-table classes-data-table/)
+  assert.match(classesSource, /class="app-data-table [^"]*classes-data-table/)
   assert.match(stylesSource, /\.app-data-table thead \{ background:/)
   assert.match(stylesSource, /\.app-data-table tbody tr:nth-child\(even\)/)
   assert.match(stylesSource, /\.app-data-table tbody td \{ border-bottom:/)
+})
+
+test('data-heavy pages share the responsive labeled-record contract', () => {
+  assert.match(stylesSource, /\.responsive-data-table tbody td::before/)
+  assert.match(stylesSource, /content: attr\(data-label\)/)
+  for (const source of [dashboardSource, analyticsSource, reportsSource, classesSource, logsSource]) {
+    assert.match(source, /responsive-data-table/)
+    assert.match(source, /data-label=/)
+  }
 })
 
 test('live session connects to engagement WebSocket and exposes the development simulator', () => {
@@ -123,7 +140,8 @@ test('summary card values are right-aligned', () => {
 })
 
 test('ending a session opens analytics and the stacked bar chart uses its data', () => {
-  assert.match(sessionSource, /window\.confirm/)
+  assert.match(sessionSource, /AppConfirmDialog/)
+  assert.doesNotMatch(sessionSource, /window\.confirm/)
   assert.match(sessionSource, /endSessionWithRecovery/)
   assert.match(sessionSource, /router\.push\(\{ path: '\/analytics', query: \{ session: String\(ended\.id\) \} \}\)/)
 
@@ -184,4 +202,8 @@ test('administrative records use archive, restore, deactivation, and intentional
   assert.match(organizationsSource, /archiveRecord/)
   assert.match(organizationsSource, /restoreRecord/)
   assert.match(userManagementSource, /Deactivate/)
+  for (const source of [reportsSource, classesSource, userManagementSource, organizationsSource]) {
+    assert.doesNotMatch(source, /window\.confirm/)
+    assert.match(source, /AppConfirmDialog/)
+  }
 })

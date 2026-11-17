@@ -1,7 +1,10 @@
 <script setup>
-import { onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import AppConfirmDialog from '../components/AppConfirmDialog.vue'
+import AppDialog from '../components/AppDialog.vue'
 import AppLayout from '../layouts/AppLayout.vue'
 import PaginationControls from '../components/PaginationControls.vue'
+import { useConfirmation } from '../useConfirmation'
 import {
   archiveOrganization,
   createOrganization,
@@ -24,6 +27,7 @@ const pageError = ref('')
 const success = ref('')
 const formError = ref('')
 const fieldErrors = ref({})
+const { confirmation, requestConfirmation, acceptConfirmation, cancelConfirmation } = useConfirmation()
 
 const blankForm = () => ({
   organization_name: '',
@@ -102,13 +106,20 @@ async function saveOrganization() {
   } catch (error) {
     formError.value = error.message
     fieldErrors.value = error.fields || {}
+    await nextTick()
+    document.querySelector('.app-dialog [aria-invalid="true"]')?.focus()
   } finally {
     saving.value = false
   }
 }
 
 async function archiveRecord(organization) {
-  if (!window.confirm(`Archive ${organization.organization_name}? Its users will be unable to sign in until it is restored.`)) return
+  const confirmed = await requestConfirmation({
+    title: 'Archive organization?',
+    description: `${organization.organization_name} will be archived. Its users will be unable to sign in until the organization is restored.`,
+    confirmLabel: 'Archive organization',
+  })
+  if (!confirmed) return
   pageError.value = ''
   success.value = ''
   try {
@@ -153,7 +164,7 @@ onUnmounted(() => clearTimeout(filterTimer))
             <span class="text-xl leading-none" aria-hidden="true">+</span> Add Organization
           </button>
         </div>
-        <img src="/illustrations/organizations.png" alt="" aria-hidden="true" class="platform-management-hero-art">
+        <img src="/illustrations/organizations.png" width="1536" height="1024" alt="" aria-hidden="true" class="platform-management-hero-art">
       </section>
 
       <p v-if="pageError" class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">{{ pageError }}</p>
@@ -222,37 +233,44 @@ onUnmounted(() => clearTimeout(filterTimer))
       </section>
     </div>
 
-    <div v-if="showForm" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4" @click.self="closeForm">
-      <form role="dialog" aria-labelledby="organization-form-title" class="platform-management-dialog max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-xl" @submit.prevent="saveOrganization">
+    <AppDialog
+      :open="showForm"
+      labelledby="organization-form-title"
+      describedby="organization-form-description"
+      panel-class="platform-management-dialog max-w-2xl"
+      :busy="saving"
+      @close="closeForm"
+    >
+      <form @submit.prevent="saveOrganization">
         <div class="flex items-center justify-between border-b border-gray-200 px-6 py-4">
           <div>
             <h2 id="organization-form-title" class="text-lg font-bold text-gray-900">{{ editingId ? 'Edit Organization' : 'Add Organization' }}</h2>
-            <p class="mt-1 text-xs text-gray-500">Fields marked with * are required.</p>
+            <p id="organization-form-description" class="mt-1 text-xs text-gray-500">Fields marked with * are required.</p>
           </div>
           <button type="button" class="rounded-lg p-2 text-gray-400 hover:bg-gray-100" aria-label="Close" @click="closeForm">✕</button>
         </div>
 
         <div class="grid gap-4 p-6 sm:grid-cols-2">
-          <div v-if="formError" class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 sm:col-span-2">{{ formError }}</div>
+          <div v-if="formError" class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 sm:col-span-2" role="alert">{{ formError }}</div>
           <label class="text-sm font-medium text-gray-700">Organization name *
-            <input v-model.trim="form.organization_name" required maxlength="150" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
-            <span v-if="firstError('organization_name')" class="mt-1 block text-xs text-red-600">{{ firstError('organization_name') }}</span>
+            <input id="organization-name" v-model.trim="form.organization_name" required maxlength="150" :aria-invalid="Boolean(firstError('organization_name'))" :aria-describedby="firstError('organization_name') ? 'organization-name-error' : undefined" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
+            <span v-if="firstError('organization_name')" id="organization-name-error" class="mt-1 block text-xs text-red-600">{{ firstError('organization_name') }}</span>
           </label>
           <label class="text-sm font-medium text-gray-700">Organization code *
-            <input v-model.trim="form.organization_code" required maxlength="20" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 uppercase outline-none focus:border-indigo-500" />
-            <span v-if="firstError('organization_code')" class="mt-1 block text-xs text-red-600">{{ firstError('organization_code') }}</span>
+            <input id="organization-code" v-model.trim="form.organization_code" required maxlength="20" :aria-invalid="Boolean(firstError('organization_code'))" :aria-describedby="firstError('organization_code') ? 'organization-code-error' : undefined" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 uppercase outline-none focus:border-indigo-500" />
+            <span v-if="firstError('organization_code')" id="organization-code-error" class="mt-1 block text-xs text-red-600">{{ firstError('organization_code') }}</span>
           </label>
           <label class="text-sm font-medium text-gray-700 sm:col-span-2">Address
-            <input v-model.trim="form.address" maxlength="255" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
-            <span v-if="firstError('address')" class="mt-1 block text-xs text-red-600">{{ firstError('address') }}</span>
+            <input id="organization-address" v-model.trim="form.address" maxlength="255" :aria-invalid="Boolean(firstError('address'))" :aria-describedby="firstError('address') ? 'organization-address-error' : undefined" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
+            <span v-if="firstError('address')" id="organization-address-error" class="mt-1 block text-xs text-red-600">{{ firstError('address') }}</span>
           </label>
           <label class="text-sm font-medium text-gray-700">Contact email
-            <input v-model.trim="form.contact_email" type="email" maxlength="100" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
-            <span v-if="firstError('contact_email')" class="mt-1 block text-xs text-red-600">{{ firstError('contact_email') }}</span>
+            <input id="organization-contact-email" v-model.trim="form.contact_email" type="email" maxlength="100" :aria-invalid="Boolean(firstError('contact_email'))" :aria-describedby="firstError('contact_email') ? 'organization-contact-email-error' : undefined" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
+            <span v-if="firstError('contact_email')" id="organization-contact-email-error" class="mt-1 block text-xs text-red-600">{{ firstError('contact_email') }}</span>
           </label>
           <label class="text-sm font-medium text-gray-700">Contact number
-            <input v-model.trim="form.contact_no" maxlength="20" inputmode="tel" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
-            <span v-if="firstError('contact_no')" class="mt-1 block text-xs text-red-600">{{ firstError('contact_no') }}</span>
+            <input id="organization-contact-number" v-model.trim="form.contact_no" maxlength="20" inputmode="tel" :aria-invalid="Boolean(firstError('contact_no'))" :aria-describedby="firstError('contact_no') ? 'organization-contact-number-error' : undefined" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
+            <span v-if="firstError('contact_no')" id="organization-contact-number-error" class="mt-1 block text-xs text-red-600">{{ firstError('contact_no') }}</span>
           </label>
         </div>
 
@@ -261,6 +279,12 @@ onUnmounted(() => clearTimeout(filterTimer))
           <button type="submit" class="btn-primary" :disabled="saving">{{ saving ? 'Saving…' : (editingId ? 'Save Changes' : 'Create Organization') }}</button>
         </div>
       </form>
-    </div>
+    </AppDialog>
+    <AppConfirmDialog
+      :open="Boolean(confirmation)"
+      v-bind="confirmation || {}"
+      @confirm="acceptConfirmation"
+      @cancel="cancelConfirmation"
+    />
   </AppLayout>
 </template>

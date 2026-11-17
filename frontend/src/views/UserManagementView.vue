@@ -1,11 +1,14 @@
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import AppConfirmDialog from '../components/AppConfirmDialog.vue'
+import AppDialog from '../components/AppDialog.vue'
 import AppLayout from '../layouts/AppLayout.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import SearchablePicker from '../components/SearchablePicker.vue'
 import { currentUser } from '../auth'
 import { fetchConfigurationOptions } from '../configurationOptions'
+import { useConfirmation } from '../useConfirmation'
 import {
   createManagedUser,
   deactivateManagedUser,
@@ -31,6 +34,7 @@ const roleFilter = ref('')
 const statusFilter = ref('')
 const showForm = ref(false)
 const editingId = ref(null)
+const { confirmation, requestConfirmation, acceptConfirmation, cancelConfirmation } = useConfirmation()
 
 const blankForm = () => ({
   username: '',
@@ -61,6 +65,11 @@ watch(() => route.query.search, (value) => {
 
 function labelFor(items, value) {
   return items.find((item) => item.value === value)?.label || value
+}
+
+function firstError(field) {
+  const value = fieldErrors.value[field]
+  return Array.isArray(value) ? value[0] : value || ''
 }
 
 function resetForm() {
@@ -161,13 +170,20 @@ async function saveUser() {
   } catch (error) {
     formError.value = error.message
     fieldErrors.value = error.fields || {}
+    await nextTick()
+    document.querySelector('.app-dialog [aria-invalid="true"]')?.focus()
   } finally {
     saving.value = false
   }
 }
 
 async function deactivateUser(user) {
-  if (!window.confirm(`Deactivate ${user.username}? They will no longer be able to sign in.`)) return
+  const confirmed = await requestConfirmation({
+    title: 'Deactivate user?',
+    description: `${user.username} will no longer be able to sign in. Their account and historical records will remain available for reactivation.`,
+    confirmLabel: 'Deactivate user',
+  })
+  if (!confirmed) return
   pageError.value = ''
   try {
     await deactivateManagedUser(user.id)
@@ -206,7 +222,7 @@ onUnmounted(() => {
             <span class="text-xl leading-none" aria-hidden="true">+</span> {{ isSystemAdmin ? 'Add Organization Admin' : 'Add User' }}
           </button>
         </div>
-        <img src="/illustrations/administrators.png" alt="" aria-hidden="true" class="platform-management-hero-art">
+        <img src="/illustrations/administrators.png" width="1536" height="1024" alt="" aria-hidden="true" class="platform-management-hero-art">
       </section>
 
       <div v-if="pageError" class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -282,48 +298,55 @@ onUnmounted(() => {
 
     </div>
 
-    <div v-if="showForm" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4" @click.self="closeForm">
-      <form role="dialog" aria-labelledby="user-form-title" class="platform-management-dialog w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white shadow-xl" @submit.prevent="saveUser">
+    <AppDialog
+      :open="showForm"
+      labelledby="user-form-title"
+      describedby="user-form-description"
+      panel-class="platform-management-dialog max-w-3xl"
+      :busy="saving"
+      @close="closeForm"
+    >
+      <form @submit.prevent="saveUser">
         <div class="flex items-center justify-between border-b border-gray-200 px-6 py-4">
           <div>
             <h2 id="user-form-title" class="text-lg font-bold text-gray-900">{{ isEditing ? 'Edit User' : 'Add User' }}</h2>
-            <p class="text-xs text-gray-500 mt-1">Fields marked with * are required.</p>
+            <p id="user-form-description" class="text-xs text-gray-500 mt-1">Fields marked with * are required.</p>
           </div>
           <button type="button" class="rounded-lg p-2 text-gray-400 hover:bg-gray-100" aria-label="Close" @click="closeForm">✕</button>
         </div>
 
         <div class="p-6 grid gap-4 sm:grid-cols-2">
-          <div v-if="formError" class="sm:col-span-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ formError }}</div>
+          <div v-if="formError" class="sm:col-span-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">{{ formError }}</div>
 
           <label class="text-sm font-medium text-gray-700">First name *
-            <input v-model.trim="form.first_name" required maxlength="150" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
-            <span v-if="fieldErrors.first_name" class="mt-1 block text-xs text-red-600">{{ fieldErrors.first_name[0] }}</span>
+            <input id="user-first-name" v-model.trim="form.first_name" required maxlength="150" :aria-invalid="Boolean(firstError('first_name'))" :aria-describedby="firstError('first_name') ? 'user-first-name-error' : undefined" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
+            <span v-if="firstError('first_name')" id="user-first-name-error" class="mt-1 block text-xs text-red-600">{{ firstError('first_name') }}</span>
           </label>
           <label class="text-sm font-medium text-gray-700">Last name *
-            <input v-model.trim="form.last_name" required maxlength="150" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
-            <span v-if="fieldErrors.last_name" class="mt-1 block text-xs text-red-600">{{ fieldErrors.last_name[0] }}</span>
+            <input id="user-last-name" v-model.trim="form.last_name" required maxlength="150" :aria-invalid="Boolean(firstError('last_name'))" :aria-describedby="firstError('last_name') ? 'user-last-name-error' : undefined" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
+            <span v-if="firstError('last_name')" id="user-last-name-error" class="mt-1 block text-xs text-red-600">{{ firstError('last_name') }}</span>
           </label>
           <label class="text-sm font-medium text-gray-700">Middle name
-            <input v-model.trim="form.middle_name" maxlength="50" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
-            <span v-if="fieldErrors.middle_name" class="mt-1 block text-xs text-red-600">{{ fieldErrors.middle_name[0] }}</span>
+            <input id="user-middle-name" v-model.trim="form.middle_name" maxlength="50" :aria-invalid="Boolean(firstError('middle_name'))" :aria-describedby="firstError('middle_name') ? 'user-middle-name-error' : undefined" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
+            <span v-if="firstError('middle_name')" id="user-middle-name-error" class="mt-1 block text-xs text-red-600">{{ firstError('middle_name') }}</span>
           </label>
           <label class="text-sm font-medium text-gray-700">Contact number
-            <input v-model.trim="form.contact_no" maxlength="20" inputmode="tel" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
-            <span v-if="fieldErrors.contact_no" class="mt-1 block text-xs text-red-600">{{ fieldErrors.contact_no[0] }}</span>
+            <input id="user-contact-number" v-model.trim="form.contact_no" maxlength="20" inputmode="tel" :aria-invalid="Boolean(firstError('contact_no'))" :aria-describedby="firstError('contact_no') ? 'user-contact-number-error' : undefined" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
+            <span v-if="firstError('contact_no')" id="user-contact-number-error" class="mt-1 block text-xs text-red-600">{{ firstError('contact_no') }}</span>
           </label>
           <label class="text-sm font-medium text-gray-700">Username *
-            <input v-model.trim="form.username" required maxlength="150" autocomplete="off" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
-            <span v-if="fieldErrors.username" class="mt-1 block text-xs text-red-600">{{ fieldErrors.username[0] }}</span>
+            <input id="user-username" v-model.trim="form.username" required maxlength="150" autocomplete="off" :aria-invalid="Boolean(firstError('username'))" :aria-describedby="firstError('username') ? 'user-username-error' : undefined" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
+            <span v-if="firstError('username')" id="user-username-error" class="mt-1 block text-xs text-red-600">{{ firstError('username') }}</span>
           </label>
           <label class="text-sm font-medium text-gray-700">Email address *
-            <input v-model.trim="form.email" required type="email" maxlength="254" autocomplete="off" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
-            <span v-if="fieldErrors.email" class="mt-1 block text-xs text-red-600">{{ fieldErrors.email[0] }}</span>
+            <input id="user-email" v-model.trim="form.email" required type="email" maxlength="254" autocomplete="off" :aria-invalid="Boolean(firstError('email'))" :aria-describedby="firstError('email') ? 'user-email-error' : undefined" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
+            <span v-if="firstError('email')" id="user-email-error" class="mt-1 block text-xs text-red-600">{{ firstError('email') }}</span>
           </label>
           <label class="text-sm font-medium text-gray-700">Role *
-            <select v-model="form.role" required :disabled="isEditing && editingId === currentUser?.id" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 bg-white disabled:bg-gray-100">
+            <select id="user-role" v-model="form.role" required :disabled="isEditing && editingId === currentUser?.id" :aria-invalid="Boolean(firstError('role'))" :aria-describedby="firstError('role') ? 'user-role-error' : undefined" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 bg-white disabled:bg-gray-100">
               <option v-for="role in options.roles" :key="role.value" :value="role.value">{{ role.label }}</option>
             </select>
-            <span v-if="fieldErrors.role" class="mt-1 block text-xs text-red-600">{{ fieldErrors.role[0] }}</span>
+            <span v-if="firstError('role')" id="user-role-error" class="mt-1 block text-xs text-red-600">{{ firstError('role') }}</span>
           </label>
           <label class="text-sm font-medium text-gray-700">Organization {{ organizationRequired ? '*' : '' }}
             <SearchablePicker
@@ -335,19 +358,22 @@ onUnmounted(() => {
               select-label="Organization"
               search-label="Search organizations"
               search-placeholder="Search organization name or code…"
+              control-id="user-organization"
+              :invalid="Boolean(firstError('organization'))"
+              :describedby="firstError('organization') ? 'user-organization-error' : ''"
             />
-            <span v-if="fieldErrors.organization" class="mt-1 block text-xs text-red-600">{{ fieldErrors.organization[0] }}</span>
+            <span v-if="firstError('organization')" id="user-organization-error" class="mt-1 block text-xs text-red-600">{{ firstError('organization') }}</span>
           </label>
           <label v-if="isEditing" class="text-sm font-medium text-gray-700">Status *
-            <select v-model="form.status" required :disabled="editingId === currentUser?.id" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 bg-white disabled:bg-gray-100">
+            <select id="user-status" v-model="form.status" required :disabled="editingId === currentUser?.id" :aria-invalid="Boolean(firstError('status'))" :aria-describedby="firstError('status') ? 'user-status-error' : undefined" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 bg-white disabled:bg-gray-100">
               <option v-for="status in options.statuses" :key="status.value" :value="status.value">{{ status.label }}</option>
             </select>
-            <span v-if="fieldErrors.status" class="mt-1 block text-xs text-red-600">{{ fieldErrors.status[0] }}</span>
+            <span v-if="firstError('status')" id="user-status-error" class="mt-1 block text-xs text-red-600">{{ firstError('status') }}</span>
           </label>
           <label class="text-sm font-medium text-gray-700" :class="isEditing ? '' : 'sm:col-span-2'">{{ isEditing ? 'New password' : 'Password *' }}
-            <input v-model="form.password" :required="!isEditing" type="password" autocomplete="new-password" minlength="12" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
-            <span class="mt-1 block text-xs text-gray-500">{{ isEditing ? 'Leave blank to keep the current password.' : 'Use at least 12 characters and avoid common or personal passwords.' }}</span>
-            <span v-if="fieldErrors.password" class="mt-1 block text-xs text-red-600">{{ fieldErrors.password[0] }}</span>
+            <input id="user-password" v-model="form.password" :required="!isEditing" type="password" autocomplete="new-password" minlength="12" :aria-invalid="Boolean(firstError('password'))" :aria-describedby="firstError('password') ? 'user-password-help user-password-error' : 'user-password-help'" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-indigo-500" />
+            <span id="user-password-help" class="mt-1 block text-xs text-gray-500">{{ isEditing ? 'Leave blank to keep the current password.' : 'Use at least 12 characters and avoid common or personal passwords.' }}</span>
+            <span v-if="firstError('password')" id="user-password-error" class="mt-1 block text-xs text-red-600">{{ firstError('password') }}</span>
           </label>
         </div>
 
@@ -356,6 +382,12 @@ onUnmounted(() => {
           <button type="submit" class="btn-primary" :disabled="saving">{{ saving ? 'Saving…' : (isEditing ? 'Save Changes' : 'Create User') }}</button>
         </div>
       </form>
-    </div>
+    </AppDialog>
+    <AppConfirmDialog
+      :open="Boolean(confirmation)"
+      v-bind="confirmation || {}"
+      @confirm="acceptConfirmation"
+      @cancel="cancelConfirmation"
+    />
   </AppLayout>
 </template>

@@ -24,8 +24,11 @@ import { createSessionCountdown } from '../sessionCountdown'
 import { lessonState, meetingOutcome } from '../sessionLabels'
 import { cameraStateClass, cameraStateMessage, mergeCameraHealth } from '../cameraHealth'
 import AppLayout from '../layouts/AppLayout.vue'
+import AppConfirmDialog from '../components/AppConfirmDialog.vue'
+import AppDialog from '../components/AppDialog.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import SessionEndDialog from '../components/SessionEndDialog.vue'
+import { useConfirmation } from '../useConfirmation'
 import {
   archiveClassroomSession,
   cancelPreparedClassroomSession,
@@ -91,6 +94,7 @@ const sessionPageSize = 5
 const sessionPageLoading = ref(false)
 const historyHeading = ref(null)
 const sessionLifecycle = ref('active')
+const supportPanel = ref(route.query.lesson ? 'history' : 'presentations')
 const selectedSubjectId = ref('')
 const selectedPresentationId = ref('')
 const selectedCameraIds = ref([])
@@ -114,6 +118,7 @@ const countdownSeconds = ref(null)
 const cameraHealth = ref([])
 const cameraHealthStatus = ref('idle')
 const cameraAvailability = ref({})
+const { confirmation, requestConfirmation, acceptConfirmation, cancelConfirmation } = useConfirmation()
 let timer = null
 let cameraHealthTimer = null
 let cameraHealthRequestActive = false
@@ -135,7 +140,7 @@ const sessionCountdown = createSessionCountdown({
 })
 
 const engagementCategories = [
-  { key: 'engaged', label: 'Engaged', color: 'linear-gradient(180deg, var(--primary), var(--primary-dark))', textColor: 'var(--primary-dark)' },
+  { key: 'engaged', label: 'Engaged', color: 'var(--state-engaged)', textColor: 'var(--primary-dark)' },
   { key: 'attentive', label: 'Attentive', color: 'var(--state-attentive)', textColor: 'var(--primary-dark)' },
   { key: 'confused', label: 'Confused', color: 'var(--state-confused)', textColor: 'var(--text-muted)' },
   { key: 'bored', label: 'Bored', color: 'var(--state-bored)', textColor: 'var(--text-muted)' },
@@ -690,6 +695,7 @@ async function changeSessionPage(page) {
 }
 
 async function showLessonHistory(lessonId) {
+  supportPanel.value = 'history'
   await router.replace({ query: { ...route.query, lesson: lessonId || undefined } })
   await nextTick()
   historyHeading.value?.focus()
@@ -783,7 +789,12 @@ async function deletePresentation(presentation) {
   const detail = presentation.in_use
     ? 'Completed sessions and reports will be preserved.'
     : 'The original, preview, and generated slides will be removed. This cannot be undone.'
-  if (!window.confirm(`${action} “${presentation.title}”? ${detail}`)) return
+  const confirmed = await requestConfirmation({
+    title: `${action} presentation?`,
+    description: `${presentation.title}: ${detail}`,
+    confirmLabel: action,
+  })
+  if (!confirmed) return
   presentationBusyId.value = presentation.id
   error.value = ''
   try {
@@ -822,7 +833,12 @@ async function restoreArchivedPresentation(presentation) {
 }
 
 async function archiveSession(session) {
-  if (!window.confirm(`Archive the ${session.subject_code} session? Analytics and reports will be preserved.`)) return
+  const confirmed = await requestConfirmation({
+    title: 'Archive classroom session?',
+    description: `${session.subject_code} will move to archived sessions. Its analytics and reports stay available.`,
+    confirmLabel: 'Archive session',
+  })
+  if (!confirmed) return
   error.value = ''
   try {
     await archiveClassroomSession(session.id)
@@ -921,7 +937,12 @@ async function startPreparedSession() {
 
 async function cancelPreparation() {
   if (!preparedSession.value || actionBusy.value || pendingAction.value) return
-  if (!window.confirm('Cancel this session preparation? The camera worker will stop.')) return
+  const confirmed = await requestConfirmation({
+    title: 'Cancel session preparation?',
+    description: 'The camera worker will stop. Saved lesson progress remains available and no classroom timing or analytics will start.',
+    confirmLabel: 'Cancel preparation',
+  })
+  if (!confirmed) return
   actionBusy.value = true
   error.value = ''
   const sessionId = preparedSession.value.id
@@ -1128,7 +1149,7 @@ onUnmounted(() => {
         <h1>Live Session</h1>
         <p>Prepare, upload, and manage your classroom session and presentations.</p>
       </div>
-      <img src="/illustrations/teacher-hero.png" alt="" aria-hidden="true" class="teacher-session-hero-art">
+      <img src="/illustrations/teacher-hero.png" width="1536" height="1024" alt="" aria-hidden="true" class="teacher-session-hero-art">
     </section>
     <section class="page-card mb-6 p-6" role="region" aria-labelledby="saved-lessons-title">
       <div class="flex flex-wrap items-center justify-between gap-3">
@@ -1268,6 +1289,11 @@ onUnmounted(() => {
       </div>
 
       <aside class="space-y-5">
+        <div class="session-support-tabs page-card" role="tablist" aria-label="Session support panels">
+          <button id="presentations-tab" type="button" role="tab" :aria-selected="supportPanel === 'presentations'" aria-controls="presentations-panel" :class="{ active: supportPanel === 'presentations' }" @click="supportPanel = 'presentations'">Presentations</button>
+          <button id="history-tab" type="button" role="tab" :aria-selected="supportPanel === 'history'" aria-controls="history-panel" :class="{ active: supportPanel === 'history' }" @click="supportPanel = 'history'">Class history</button>
+        </div>
+        <div v-if="supportPanel === 'presentations'" id="presentations-panel" class="space-y-5" role="tabpanel" aria-labelledby="presentations-tab">
         <section class="page-card p-5" :class="isTeacher ? 'teacher-session-upload' : ''">
           <div class="teacher-session-card-heading">
             <span v-if="isTeacher" class="teacher-panel-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18H5a3 3 0 0 1-.4-6A7.5 7.5 0 0 1 19 10.5a3.8 3.8 0 0 1 0 7.5h-1M12 21V10m-4 4 4-4 4 4" /></svg></span>
@@ -1346,7 +1372,9 @@ onUnmounted(() => {
           </div>
         </section>
 
-        <section class="page-card p-5" :class="isTeacher ? 'teacher-session-recent' : ''" aria-labelledby="recent-sessions-title">
+        </div>
+
+        <section v-if="supportPanel === 'history'" id="history-panel" class="page-card p-5" :class="isTeacher ? 'teacher-session-recent' : ''" role="tabpanel" aria-labelledby="history-tab recent-sessions-title">
           <div class="mb-3 flex items-center justify-between gap-3">
             <div class="teacher-session-card-heading">
               <span v-if="isTeacher" class="teacher-panel-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg></span>
@@ -1363,7 +1391,7 @@ onUnmounted(() => {
             <button type="button" class="btn-secondary mt-2" @click="showLessonHistory(null)">Show recent classes</button>
           </div>
           <div v-if="!sessions.length" class="py-6 text-center text-sm text-gray-400" :class="isTeacher ? 'teacher-session-list-empty' : ''">
-            <img v-if="isTeacher" src="/illustrations/teacher-sessions-empty.png" alt="" aria-hidden="true">
+            <img v-if="isTeacher" src="/illustrations/teacher-sessions-empty.png" width="1536" height="1024" alt="" aria-hidden="true">
             <p>{{ route.query.lesson ? 'No class meetings match this filter.' : 'No sessions recorded yet.' }}</p>
           </div>
           <div v-else class="space-y-3">
@@ -1398,7 +1426,7 @@ onUnmounted(() => {
           <h2 class="font-semibold text-navy">{{ monitoredSession.presentation_title }}</h2>
           <p v-if="preparedSession" class="mt-1 text-xs text-amber-700">Review mode · session timing and analytics have not started</p>
         </div>
-        <div class="flex items-center gap-4">
+        <div class="flex items-center gap-4" :class="{ 'session-ready-actions': canStartPrepared }">
           <span class="font-mono text-lg font-semibold text-navy">{{ elapsedDisplay }}</span>
           <button v-if="preparedSession" type="button" class="rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-600 disabled:opacity-50" :disabled="actionBusy || Boolean(pendingAction)" @click="cancelPreparation">
             Change setup
@@ -1511,30 +1539,25 @@ onUnmounted(() => {
       @choose="finishSession"
       @recover="checkPendingAction"
     />
-    <Teleport to="body">
-      <div
-        v-if="countdownSeconds !== null"
-        class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/90 px-6"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="session-countdown-title"
-        @keydown.esc="cancelSessionCountdown"
-      >
-        <div class="w-full max-w-lg rounded-2xl border border-white/10 bg-slate-900 p-10 text-center text-white shadow-2xl">
-          <p class="text-sm font-semibold uppercase tracking-[0.25em] text-indigo-300">Get Ready</p>
-          <h2 id="session-countdown-title" class="mt-3 text-2xl font-semibold">Your classroom session is about to begin</h2>
-          <p class="mt-8 text-8xl font-bold tabular-nums" aria-live="assertive">{{ countdownSeconds }}</p>
-          <p class="mt-6 text-sm text-slate-300">Session timing and analytics will start after the countdown.</p>
-          <button
-            type="button"
-            class="mt-8 rounded-lg border border-white/25 px-5 py-2.5 text-sm font-semibold text-white hover:bg-white/10"
-            autofocus
-            @click="cancelSessionCountdown"
-          >
-            Cancel session start
-          </button>
-        </div>
-      </div>
-    </Teleport>
+    <AppConfirmDialog
+      :open="Boolean(confirmation)"
+      v-bind="confirmation || {}"
+      @confirm="acceptConfirmation"
+      @cancel="cancelConfirmation"
+    />
+    <AppDialog
+      :open="countdownSeconds !== null"
+      labelledby="session-countdown-title"
+      describedby="session-countdown-description"
+      panel-class="session-countdown-panel"
+      initial-focus="[data-countdown-cancel]"
+      @close="cancelSessionCountdown"
+    >
+      <p class="session-countdown-eyebrow">Get Ready</p>
+      <h2 id="session-countdown-title">Your classroom session is about to begin</h2>
+      <p class="session-countdown-value" aria-live="assertive">{{ countdownSeconds }}</p>
+      <p id="session-countdown-description" class="session-countdown-description">Session timing and analytics will start after the countdown.</p>
+      <button type="button" class="session-countdown-cancel" data-countdown-cancel @click="cancelSessionCountdown">Cancel session start</button>
+    </AppDialog>
   </AppLayout>
 </template>

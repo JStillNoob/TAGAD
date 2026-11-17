@@ -1,19 +1,20 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import LoginView    from '../views/LoginView.vue'
-import RegisterView from '../views/RegisterView.vue'
-import DashboardView from '../views/DashboardView.vue'
-import SessionView  from '../views/SessionView.vue'
-import AnalyticsView from '../views/AnalyticsView.vue'
-import ClassesView from '../views/StudentsView.vue'
-import ReportsView from '../views/ReportsView.vue'
-import SystemLogsView from '../views/SystemLogsView.vue'
-import SettingsView from '../views/SettingsView.vue'
-import UserManagementView from '../views/UserManagementView.vue'
-import OrganizationsView from '../views/OrganizationsView.vue'
-import ForgotPasswordView from '../views/ForgotPasswordView.vue'
-import ResetPasswordView from '../views/ResetPasswordView.vue'
-import NotFoundView from '../views/NotFoundView.vue'
 import { fetchCurrentUser } from '../auth'
+
+const LoginView = () => import('../views/LoginView.vue')
+const RegisterView = () => import('../views/RegisterView.vue')
+const DashboardView = () => import('../views/DashboardView.vue')
+const SessionView = () => import('../views/SessionView.vue')
+const AnalyticsView = () => import('../views/AnalyticsView.vue')
+const ClassesView = () => import('../views/StudentsView.vue')
+const ReportsView = () => import('../views/ReportsView.vue')
+const SystemLogsView = () => import('../views/SystemLogsView.vue')
+const SettingsView = () => import('../views/SettingsView.vue')
+const UserManagementView = () => import('../views/UserManagementView.vue')
+const OrganizationsView = () => import('../views/OrganizationsView.vue')
+const ForgotPasswordView = () => import('../views/ForgotPasswordView.vue')
+const ResetPasswordView = () => import('../views/ResetPasswordView.vue')
+const NotFoundView = () => import('../views/NotFoundView.vue')
 
 export const router = createRouter({
   history: createWebHistory(),

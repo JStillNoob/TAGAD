@@ -1,20 +1,6 @@
 <template>
-  <div class="min-h-screen grid md:grid-cols-2">
-    <ThemeToggle class="fixed right-5 top-5 z-20 bg-white shadow-sm" />
-    <div
-      class="auth-brand-panel hidden md:flex flex-col items-center justify-center text-center px-12"
-    >
-      <img src="/tagad_logo.svg" alt="TAGAD Logo" class="w-64 mb-6 drop-shadow-xl" />
-      <h1 class="text-4xl font-bold text-white tracking-widest mb-4">TAGAD</h1>
-      <p class="auth-brand-accent text-xl font-medium mb-3">Create your teacher account</p>
-      <p class="auth-brand-copy text-sm leading-relaxed max-w-sm">
-        Join your organization using the code provided by your administrator.
-      </p>
-    </div>
-
-    <div class="auth-content flex items-center justify-center px-6 py-10">
-      <div class="w-full max-w-xl">
-        <form class="bg-white rounded-2xl shadow-sm p-8" @submit.prevent="handleSubmit">
+  <AuthShell wide accent="Create your teacher account" description="Join your organization using the code provided by your administrator.">
+        <form class="login-card" @submit.prevent="handleSubmit">
           <div class="mb-6">
             <h2 class="text-2xl font-bold mb-1 text-navy">Create Account</h2>
             <p class="text-sm text-gray-400">All fields are required.</p>
@@ -47,21 +33,19 @@
             {{ submitting ? 'Creating account…' : 'Create Account' }}
           </button>
 
-          <div class="text-center mt-5 text-sm text-gray-500">
+          <div class="auth-footer-link text-center mt-5 text-sm text-gray-500">
             Already have an account?
             <RouterLink to="/" class="font-medium text-brand">Sign in</RouterLink>
           </div>
         </form>
-      </div>
-    </div>
-  </div>
+  </AuthShell>
 </template>
 
 <script setup>
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import FormField from '../components/FormField.vue'
-import ThemeToggle from '../components/ThemeToggle.vue'
+import AuthShell from '../components/AuthShell.vue'
 import { register } from '../auth'
 
 const router = useRouter()

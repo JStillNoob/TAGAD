@@ -1,20 +1,5 @@
 <template>
-  <div class="login-page">
-    <ThemeToggle class="login-theme-toggle" />
-    <div class="login-frame">
-      <section class="login-brand-panel" aria-labelledby="login-brand-title">
-        <div class="login-brand-content">
-          <img src="/illustrations/login-classroom.png" alt="" aria-hidden="true" class="login-illustration">
-          <h1 id="login-brand-title" class="login-brand-title">TAGAD</h1>
-          <p class="login-brand-accent">AI Classroom Monitoring System</p>
-          <p class="login-brand-copy">Real-time multimodal descriptive analytics for monitoring classroom engagement.</p>
-          <div class="login-brand-dots" aria-hidden="true"><span></span><span></span><span></span></div>
-        </div>
-      </section>
-
-      <main class="auth-content login-content">
-        <div class="login-card-wrap">
-          <div class="login-logo-lockup"><img src="/tagad_logo.svg" alt=""><span>TAGAD</span></div>
+  <AuthShell accent="AI Classroom Monitoring System" description="Real-time multimodal descriptive analytics for monitoring classroom engagement.">
           <form class="login-card" @submit.prevent="handleSubmit">
             <div class="login-card-heading">
               <h2>Welcome Back</h2>
@@ -49,21 +34,18 @@
             </div>
 
             <p v-if="errorMessage" class="mb-4 text-sm text-red-600" role="alert">{{ errorMessage }}</p>
-            <button type="submit" class="btn-primary login-submit" :disabled="submitting">{{ submitting ? 'Signing in…' : 'Start Session' }}</button>
+            <button type="submit" class="btn-primary login-submit" :disabled="submitting">{{ submitting ? 'Signing in…' : 'Sign in' }}</button>
             <div class="login-support-link"><RouterLink to="/forgot-password">Forgot password?</RouterLink></div>
             <div class="login-register-link">Need an account? <RouterLink to="/register">Register</RouterLink></div>
           </form>
-        </div>
-      </main>
-    </div>
-  </div>
+  </AuthShell>
 </template>
 
 <script setup>
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { login } from '../auth'
-import ThemeToggle from '../components/ThemeToggle.vue'
+import AuthShell from '../components/AuthShell.vue'
 
 const route = useRoute()
 const router = useRouter()

@@ -19,7 +19,7 @@ test('registration, login, logout, and password recovery use real browser naviga
   await expect(page.getByRole('status')).toContainText('Account created successfully')
   await page.getByLabel('Email or Username').fill('e2e.registrant')
   await page.getByLabel('Password', { exact: true }).fill('Zebra!Cloud#4827')
-  await page.locator('form').getByRole('button', { name: 'Start Session' }).click()
+  await page.locator('form').getByRole('button', { name: 'Sign in' }).click()
   await expect(page).toHaveURL(/\/dashboard$/)
   await logout(page)
 
@@ -41,16 +41,16 @@ test('repeated failed sign-ins are restricted without blocking another identity'
   for (let attempt = 0; attempt < 5; attempt += 1) {
     await page.getByLabel('Email or Username').fill('e2e.missing')
     await page.getByLabel('Password', { exact: true }).fill('WrongPassword!9')
-    await page.locator('form').getByRole('button', { name: 'Start Session' }).click()
+    await page.locator('form').getByRole('button', { name: 'Sign in' }).click()
     await expect(page.getByRole('alert')).toContainText('Invalid credentials')
   }
 
-  await page.locator('form').getByRole('button', { name: 'Start Session' }).click()
+  await page.locator('form').getByRole('button', { name: 'Sign in' }).click()
   await expect(page.getByRole('alert')).toContainText('Too many sign-in attempts')
 
   await page.getByLabel('Email or Username').fill(accounts.systemAdmin)
   await page.getByLabel('Password', { exact: true }).fill('BrowserTest!2026')
-  await page.locator('form').getByRole('button', { name: 'Start Session' }).click()
+  await page.locator('form').getByRole('button', { name: 'Sign in' }).click()
   await expect(page).toHaveURL(/\/dashboard$/)
 })
 

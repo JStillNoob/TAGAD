@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { currentUser, logout } from "../auth";
 import ThemeToggle from "../components/ThemeToggle.vue";
@@ -11,9 +11,18 @@ const props = defineProps({
 
 const route = useRoute();
 const router = useRouter();
-const sidebarOpen = ref(window.innerWidth >= 768);
+const sidebar = ref(null);
+const sidebarToggle = ref(null);
+const viewportWidth = ref(window.innerWidth);
+const sidebarOpen = ref(window.innerWidth >= 1024);
 const logoutPending = ref(false);
 const logoutError = ref("");
+
+const isPhone = computed(() => viewportWidth.value < 768);
+const sidebarToggleLabel = computed(() => {
+  if (isPhone.value) return sidebarOpen.value ? "Close navigation" : "Open navigation";
+  return sidebarOpen.value ? "Collapse sidebar" : "Expand sidebar";
+});
 
 const displayName = computed(() => {
   const fullName = [currentUser.value?.first_name, currentUser.value?.last_name]
@@ -44,10 +53,79 @@ const usePastelShell = computed(() => ["system_admin", "org_admin", "teacher"].i
 watch(
   () => props.focusMode,
   (val) => {
-    // Collapse sidebar when session goes live; restore when it ends
-    sidebarOpen.value = !val && window.innerWidth >= 768;
+    sidebarOpen.value = !val && window.innerWidth >= 1024;
   },
 );
+
+watch(
+  () => route.fullPath,
+  () => {
+    if (isPhone.value) sidebarOpen.value = false;
+  },
+);
+
+function viewportBand(width) {
+  if (width < 768) return "phone";
+  if (width < 1024) return "tablet";
+  return "desktop";
+}
+
+let activeViewportBand = viewportBand(window.innerWidth);
+
+function handleViewportResize() {
+  const width = window.innerWidth;
+  const nextBand = viewportBand(width);
+  viewportWidth.value = width;
+  if (nextBand !== activeViewportBand) {
+    sidebarOpen.value = !props.focusMode && nextBand === "desktop";
+    activeViewportBand = nextBand;
+  }
+}
+
+function focusFirstNavigationLink() {
+  sidebar.value?.querySelector(".nav-link")?.focus();
+}
+
+async function toggleSidebar() {
+  sidebarOpen.value = !sidebarOpen.value;
+  if (isPhone.value && sidebarOpen.value) {
+    await nextTick();
+    focusFirstNavigationLink();
+  }
+}
+
+function closeMobileSidebar({ restoreFocus = false } = {}) {
+  if (!isPhone.value || !sidebarOpen.value) return;
+  sidebarOpen.value = false;
+  if (restoreFocus) nextTick(() => sidebarToggle.value?.focus());
+}
+
+function handleSidebarKeydown(event) {
+  if (!isPhone.value || !sidebarOpen.value) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeMobileSidebar({ restoreFocus: true });
+    return;
+  }
+  if (event.key !== "Tab") return;
+
+  const focusable = Array.from(
+    sidebar.value?.querySelectorAll('a[href], button:not([disabled]), summary, [tabindex]:not([tabindex="-1"])') || [],
+  );
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+onMounted(() => window.addEventListener("resize", handleViewportResize));
+onBeforeUnmount(() => window.removeEventListener("resize", handleViewportResize));
 
 const isActive = (path) => route.path === path;
 
@@ -66,11 +144,30 @@ async function handleLogout() {
 </script>
 
 <template>
-  <div class="app-shell min-h-screen flex bg-bg-main overflow-x-hidden" :class="usePastelShell ? 'platform-shell' : ''">
+  <div class="app-shell min-h-screen flex bg-bg-main" :class="usePastelShell ? 'platform-shell' : ''">
     <!-- ── Sidebar: expanded or icon rail, hidden only in focus mode ── -->
+    <div
+      v-if="isPhone && sidebarOpen && !focusMode"
+      class="app-sidebar-backdrop"
+      aria-hidden="true"
+      @click="closeMobileSidebar({ restoreFocus: true })"
+    ></div>
+
     <aside
+      id="app-navigation"
+      ref="sidebar"
       class="app-sidebar fixed top-0 left-0 h-full w-64 flex flex-col z-30 bg-white border-r border-gray-200 transition-transform duration-500 ease-in-out"
-      :class="[focusMode ? '-translate-x-full' : 'translate-x-0', sidebarOpen ? 'app-sidebar-expanded' : 'app-sidebar-collapsed']"
+      :class="[
+        focusMode || (isPhone && !sidebarOpen) ? '-translate-x-full' : 'translate-x-0',
+        sidebarOpen ? 'app-sidebar-expanded' : 'app-sidebar-collapsed',
+        isPhone ? 'app-sidebar-mobile' : '',
+      ]"
+      :role="isPhone && sidebarOpen ? 'dialog' : undefined"
+      :aria-modal="isPhone && sidebarOpen ? 'true' : undefined"
+      :aria-label="isPhone && sidebarOpen ? 'Main navigation' : undefined"
+      :aria-hidden="isPhone && !sidebarOpen ? 'true' : undefined"
+      :inert="isPhone && !sidebarOpen"
+      @keydown="handleSidebarKeydown"
     >
       <!-- Logo -->
       <div
@@ -317,11 +414,13 @@ async function handleLogout() {
       >
         <!-- Hamburger -->
         <button
+          ref="sidebarToggle"
           class="app-sidebar-toggle p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-500 flex-shrink-0"
-          @click="sidebarOpen = !sidebarOpen"
-          :title="sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'"
-          :aria-label="sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'"
+          @click="toggleSidebar"
+          :title="sidebarToggleLabel"
+          :aria-label="sidebarToggleLabel"
           :aria-expanded="sidebarOpen"
+          aria-controls="app-navigation"
         >
           <svg
             v-if="!sidebarOpen"

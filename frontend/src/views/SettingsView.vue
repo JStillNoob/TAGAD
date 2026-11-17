@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import AppLayout from '../layouts/AppLayout.vue'
 import { fetchCurrentUser } from '../auth'
 import { changePassword, fetchSettings, updateOrganization, updateProfile } from '../settings'
@@ -46,6 +46,11 @@ const passwordReady = computed(() => Boolean(passwordForm.current_password) && p
 function firstError(errors, field) {
   const value = errors.value?.[field]
   return Array.isArray(value) ? value[0] : value || ''
+}
+
+async function focusFirstInvalid(formName) {
+  await nextTick()
+  document.querySelector(`[data-settings-form="${formName}"] [aria-invalid="true"]`)?.focus()
 }
 
 function fillProfileForm() {
@@ -98,6 +103,7 @@ async function saveProfile() {
     editingProfile.value = false
   } catch (error) {
     profileErrors.value = error.fields || {}
+    await focusFirstInvalid('profile')
   } finally {
     profilePending.value = false
   }
@@ -121,6 +127,7 @@ async function saveOrganization() {
     editingOrganization.value = false
   } catch (error) {
     organizationErrors.value = error.fields || {}
+    await focusFirstInvalid('organization')
   } finally {
     organizationPending.value = false
   }
@@ -139,6 +146,7 @@ async function savePassword() {
     passwordMessage.value = 'Password changed successfully. You remain signed in.'
   } catch (error) {
     passwordErrors.value = error.fields || {}
+    await focusFirstInvalid('password')
   } finally {
     passwordPending.value = false
   }
@@ -149,9 +157,10 @@ onMounted(loadSettings)
 
 <template>
   <AppLayout page-title="Settings">
-    <div v-if="loading" class="page-card p-10 text-center text-sm text-gray-400">Loading settings…</div>
+    <h1 class="sr-only">Settings</h1>
+    <div v-if="loading" class="page-card p-10 text-center text-sm text-gray-400" role="status">Loading settings…</div>
     <div v-else-if="loadError" class="page-card p-10 text-center">
-      <p class="text-sm text-red-600">{{ loadError }}</p>
+      <p class="text-sm text-red-600" role="alert">{{ loadError }}</p>
       <button class="btn-secondary mt-4" @click="loadSettings">Try again</button>
     </div>
 
@@ -175,14 +184,14 @@ onMounted(loadSettings)
             <span class="badge-engaged ml-auto">{{ user.status_label }}</span>
           </div>
 
-          <form class="grid grid-cols-1 sm:grid-cols-2 gap-4" @submit.prevent="saveProfile">
+          <form data-settings-form="profile" class="grid grid-cols-1 sm:grid-cols-2 gap-4" @submit.prevent="saveProfile">
             <label v-for="field in [
               ['first_name', 'First name'], ['middle_name', 'Middle name'], ['last_name', 'Last name'],
               ['email', 'Email address'], ['contact_no', 'Contact number'],
             ]" :key="field[0]" class="text-xs font-medium text-gray-600" :class="field[0] === 'email' ? 'sm:col-span-2' : ''">
               {{ field[1] }}
-              <input v-model.trim="profileForm[field[0]]" :type="field[0] === 'email' ? 'email' : 'text'" :maxlength="field[0] === 'middle_name' ? 50 : field[0] === 'contact_no' ? 20 : field[0] === 'email' ? 254 : 150" :inputmode="field[0] === 'contact_no' ? 'tel' : undefined" :disabled="!editingProfile" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm disabled:bg-gray-50 disabled:text-gray-500 outline-none focus:border-brand">
-              <span v-if="firstError(profileErrors, field[0])" class="block mt-1 text-xs text-red-600">{{ firstError(profileErrors, field[0]) }}</span>
+              <input v-model.trim="profileForm[field[0]]" :id="`profile-${field[0]}`" :type="field[0] === 'email' ? 'email' : 'text'" :maxlength="field[0] === 'middle_name' ? 50 : field[0] === 'contact_no' ? 20 : field[0] === 'email' ? 254 : 150" :inputmode="field[0] === 'contact_no' ? 'tel' : undefined" :disabled="!editingProfile" :aria-invalid="Boolean(firstError(profileErrors, field[0]))" :aria-describedby="firstError(profileErrors, field[0]) ? `profile-${field[0]}-error` : undefined" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm disabled:bg-gray-50 disabled:text-gray-500 outline-none focus:border-brand">
+              <span v-if="firstError(profileErrors, field[0])" :id="`profile-${field[0]}-error`" class="block mt-1 text-xs text-red-600">{{ firstError(profileErrors, field[0]) }}</span>
             </label>
             <div v-if="editingProfile" class="sm:col-span-2 flex justify-end gap-2 pt-2">
               <button type="button" class="px-4 py-2 rounded-lg border border-gray-200 text-sm" :disabled="profilePending" @click="cancelProfile">Cancel</button>
@@ -210,11 +219,11 @@ onMounted(loadSettings)
               </div>
               <span class="badge-engaged">{{ organization.status_label }}</span>
             </div>
-            <form class="space-y-4" @submit.prevent="saveOrganization">
+            <form data-settings-form="organization" class="space-y-4" @submit.prevent="saveOrganization">
               <label v-for="field in [['address', 'Address'], ['contact_email', 'Contact email'], ['contact_no', 'Contact number']]" :key="field[0]" class="block text-xs font-medium text-gray-600">
                 {{ field[1] }}
-                <input v-model.trim="organizationForm[field[0]]" :type="field[0] === 'contact_email' ? 'email' : 'text'" :maxlength="field[0] === 'address' ? 255 : field[0] === 'contact_email' ? 100 : 20" :inputmode="field[0] === 'contact_no' ? 'tel' : undefined" :disabled="!editingOrganization" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm disabled:bg-gray-50 disabled:text-gray-500 outline-none focus:border-brand">
-                <span v-if="firstError(organizationErrors, field[0])" class="block mt-1 text-xs text-red-600">{{ firstError(organizationErrors, field[0]) }}</span>
+                <input v-model.trim="organizationForm[field[0]]" :id="`organization-${field[0]}`" :type="field[0] === 'contact_email' ? 'email' : 'text'" :maxlength="field[0] === 'address' ? 255 : field[0] === 'contact_email' ? 100 : 20" :inputmode="field[0] === 'contact_no' ? 'tel' : undefined" :disabled="!editingOrganization" :aria-invalid="Boolean(firstError(organizationErrors, field[0]))" :aria-describedby="firstError(organizationErrors, field[0]) ? `organization-${field[0]}-error` : undefined" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm disabled:bg-gray-50 disabled:text-gray-500 outline-none focus:border-brand">
+                <span v-if="firstError(organizationErrors, field[0])" :id="`organization-${field[0]}-error`" class="block mt-1 text-xs text-red-600">{{ firstError(organizationErrors, field[0]) }}</span>
               </label>
               <p v-if="!canEditOrganization" class="text-xs text-gray-400">Only an organization administrator can edit these details.</p>
               <div v-if="editingOrganization" class="flex justify-end gap-2 pt-2">
@@ -232,19 +241,19 @@ onMounted(loadSettings)
           <h3 class="text-sm font-semibold text-navy">Change Password</h3>
           <p class="text-xs text-gray-400 mt-1">Confirm your current password and meet every requirement below</p>
         </div>
-        <form class="grid grid-cols-1 lg:grid-cols-2 gap-6" @submit.prevent="savePassword">
+        <form data-settings-form="password" class="grid grid-cols-1 lg:grid-cols-2 gap-6" @submit.prevent="savePassword">
           <div class="space-y-4">
             <label class="block text-xs font-medium text-gray-600">Current password
-              <input v-model="passwordForm.current_password" type="password" autocomplete="current-password" required class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-brand">
-              <span v-if="firstError(passwordErrors, 'current_password')" class="block mt-1 text-xs text-red-600">{{ firstError(passwordErrors, 'current_password') }}</span>
+              <input id="current-password" v-model="passwordForm.current_password" type="password" autocomplete="current-password" required :aria-invalid="Boolean(firstError(passwordErrors, 'current_password'))" :aria-describedby="firstError(passwordErrors, 'current_password') ? 'current-password-error' : undefined" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-brand">
+              <span v-if="firstError(passwordErrors, 'current_password')" id="current-password-error" class="block mt-1 text-xs text-red-600">{{ firstError(passwordErrors, 'current_password') }}</span>
             </label>
             <label class="block text-xs font-medium text-gray-600">New password
-              <input v-model="passwordForm.new_password" type="password" autocomplete="new-password" required class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-brand">
-              <span v-if="firstError(passwordErrors, 'new_password')" class="block mt-1 text-xs text-red-600">{{ firstError(passwordErrors, 'new_password') }}</span>
+              <input id="new-password" v-model="passwordForm.new_password" type="password" autocomplete="new-password" required :aria-invalid="Boolean(firstError(passwordErrors, 'new_password'))" :aria-describedby="firstError(passwordErrors, 'new_password') ? 'new-password-error' : undefined" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-brand">
+              <span v-if="firstError(passwordErrors, 'new_password')" id="new-password-error" class="block mt-1 text-xs text-red-600">{{ firstError(passwordErrors, 'new_password') }}</span>
             </label>
             <label class="block text-xs font-medium text-gray-600">Confirm new password
-              <input v-model="passwordForm.password_confirmation" type="password" autocomplete="new-password" required class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-brand">
-              <span v-if="firstError(passwordErrors, 'password_confirmation')" class="block mt-1 text-xs text-red-600">{{ firstError(passwordErrors, 'password_confirmation') }}</span>
+              <input id="password-confirmation" v-model="passwordForm.password_confirmation" type="password" autocomplete="new-password" required :aria-invalid="Boolean(firstError(passwordErrors, 'password_confirmation'))" :aria-describedby="firstError(passwordErrors, 'password_confirmation') ? 'password-confirmation-error' : undefined" class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-brand">
+              <span v-if="firstError(passwordErrors, 'password_confirmation')" id="password-confirmation-error" class="block mt-1 text-xs text-red-600">{{ firstError(passwordErrors, 'password_confirmation') }}</span>
             </label>
           </div>
 

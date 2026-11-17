@@ -13,11 +13,11 @@ Chart.register(...registerables)
 const route = useRoute()
 
 const categories = [
-  { key: 'engaged', label: 'Engaged', color: '#2D8FE8' },
-  { key: 'attentive', label: 'Attentive', color: '#20C7A4' },
-  { key: 'confused', label: 'Confused', color: '#F3B337' },
-  { key: 'bored', label: 'Bored', color: '#E85591' },
-  { key: 'disengaged', label: 'Disengaged', color: '#785BE5' },
+  { key: 'engaged', label: 'Engaged', color: 'var(--state-engaged)' },
+  { key: 'attentive', label: 'Attentive', color: 'var(--state-attentive)' },
+  { key: 'confused', label: 'Confused', color: 'var(--state-confused)' },
+  { key: 'bored', label: 'Bored', color: 'var(--state-bored)' },
+  { key: 'disengaged', label: 'Disengaged', color: 'var(--state-disengaged)' },
 ]
 const sessions = ref([])
 const sessionCount = ref(0)
@@ -52,6 +52,13 @@ function percentage(value) {
   return value === null || value === undefined ? '—' : `${value}%`
 }
 
+function resolvedColor(value) {
+  const token = value.startsWith('var(') ? value.slice(4, -1) : value
+  return token.startsWith('--')
+    ? getComputedStyle(document.documentElement).getPropertyValue(token).trim()
+    : token
+}
+
 function dataSourceClass(type) {
   return {
     pipeline: 'bg-emerald-50 text-emerald-700',
@@ -73,13 +80,6 @@ function sessionLabel(session) {
   return `${session.subject_code} — ${session.subject_name} · ${formatDate(session.session_date)} · Class #${session.id} · ${meetingOutcome(session)}`
 }
 
-function engagementColor(value) {
-  if (value === null || value === undefined) return 'var(--text-muted)'
-  if (value >= 80) return 'var(--primary-dark)'
-  if (value >= 65) return 'var(--primary-dark)'
-  return 'var(--text-muted)'
-}
-
 function destroyChart() {
   if (chart) chart.destroy()
   chart = null
@@ -90,7 +90,6 @@ async function renderChart() {
   if (!analytics.value?.has_data || !analytics.value.slides.length) return
   await nextTick()
   if (!chartCanvas.value) return
-  const dark = currentTheme.value === 'dark'
   chart = new Chart(chartCanvas.value, {
     type: 'bar',
     data: {
@@ -98,7 +97,7 @@ async function renderChart() {
       datasets: categories.map(category => ({
         label: category.label,
         data: analytics.value.slides.map(slide => slide[category.key] ?? 0),
-        backgroundColor: category.color,
+        backgroundColor: resolvedColor(category.color),
         categoryPercentage: 0.68,
         barPercentage: 0.82,
       })),
@@ -112,13 +111,13 @@ async function renderChart() {
         tooltip: { callbacks: { label: context => `${context.dataset.label}: ${context.parsed.y}%` } },
       },
       scales: {
-        x: { stacked: true, grid: { display: false }, ticks: { color: dark ? '#CBD5E1' : '#323958' } },
+        x: { stacked: true, grid: { display: false }, ticks: { color: resolvedColor('var(--text-muted)') } },
         y: {
           stacked: true,
           beginAtZero: true,
           max: 100,
-          grid: { color: dark ? '#293548' : '#E7EBFA' },
-          ticks: { color: dark ? '#CBD5E1' : '#323958', callback: value => `${value}%` },
+          grid: { color: resolvedColor('var(--border)') },
+          ticks: { color: resolvedColor('var(--text-muted)'), callback: value => `${value}%` },
         },
       },
     },
@@ -175,6 +174,7 @@ onBeforeUnmount(destroyChart)
 
 <template>
   <AppLayout page-title="Analytics">
+    <h1 class="sr-only">Analytics</h1>
     <div class="analytics-page">
     <div class="analytics-toolbar flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
       <div class="min-w-0">
@@ -237,7 +237,7 @@ onBeforeUnmount(destroyChart)
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.6 2.2 18a2 2 0 0 0 1.7 3h16.2a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0Z" /><path d="M12 9v5m0 3h.01" /></svg>
         <div><p class="text-sm font-semibold">Data quality: {{ analytics.data_quality.label }}</p><p class="mt-1 text-xs">{{ analytics.data_quality.explanation }}</p></div>
       </div>
-      <div class="analytics-stats grid grid-cols-2 md:grid-cols-4 gap-5 mb-6">
+      <div v-if="analytics.has_data" class="analytics-stats grid grid-cols-2 md:grid-cols-4 gap-5 mb-6">
         <div class="stat-card analytics-stat-card"><span class="analytics-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3" /><circle cx="17" cy="9" r="2" /><path d="M3 19a6 6 0 0 1 12 0m-1.5-4.3A5 5 0 0 1 21 19" /></svg></span><div class="analytics-stat-copy"><div class="analytics-stat-title">Peak Detections</div><div class="analytics-stat-value">{{ analytics.summary.students_detected }}</div><div class="analytics-stat-note">Highest in one camera sample</div></div></div>
         <div class="stat-card analytics-stat-card"><span class="analytics-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg></span><div class="analytics-stat-copy"><div class="analytics-stat-title">Session Duration</div><div class="analytics-stat-value">{{ formatDuration(analytics.session.duration_seconds) }}</div><div class="analytics-stat-note">{{ analytics.session.slides_covered }} slides covered</div></div></div>
         <div class="stat-card analytics-stat-card"><span class="analytics-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h4l2-6 4 12 2-6h8" /></svg></span><div class="analytics-stat-copy"><div class="analytics-stat-title">Avg. Engagement</div><div class="analytics-stat-value">{{ percentage(analytics.summary.average_engagement) }}</div><div class="analytics-stat-note"><template v-if="analytics.summary.engagement_change !== null">{{ analytics.summary.engagement_change >= 0 ? '▲' : '▼' }} {{ Math.abs(analytics.summary.engagement_change) }}% vs previous session</template><template v-else>No previous comparison</template></div></div></div>
@@ -286,23 +286,21 @@ onBeforeUnmount(destroyChart)
 
       <div class="page-card analytics-breakdown">
         <div class="analytics-breakdown-heading px-6 py-5 border-b border-gray-50"><span class="analytics-breakdown-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18M8 9v11" /></svg></span><h3 class="font-semibold text-sm text-navy">Slide-by-Slide Breakdown</h3></div>
-        <div class="overflow-x-auto">
-          <table class="app-data-table w-full text-sm">
-            <thead><tr class="border-b border-gray-50"><th v-for="heading in ['Slide', 'Topic', 'Timestamp', 'Duration', 'Detected', 'Unclassified', 'Engaged', 'Attentive', 'Confused', 'Bored', 'Disengaged']" :key="heading" class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">{{ heading }}</th></tr></thead>
+        <div class="responsive-data-scroll overflow-x-auto">
+          <table class="app-data-table responsive-data-table analytics-breakdown-table w-full text-sm">
+            <thead><tr class="border-b border-gray-50"><th v-for="heading in ['Slide', 'Topic', 'Duration', 'Samples', 'Engagement distribution']" :key="heading" class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">{{ heading }}</th></tr></thead>
             <tbody class="divide-y divide-gray-50">
-              <tr v-if="!analytics.slides.length"><td colspan="11" class="px-6 py-10 text-center text-gray-400">No slide activity was recorded.</td></tr>
+              <tr v-if="!analytics.slides.length"><td colspan="5" class="px-6 py-10 text-center text-gray-400">No slide activity was recorded.</td></tr>
               <tr v-for="row in analytics.slides" :key="row.slide_id" class="hover:bg-gray-50/50 transition-colors">
-                <td class="px-6 py-3 text-gray-400 font-mono text-xs">{{ String(row.slide_number).padStart(2, '0') }}</td>
-                <td class="px-6 py-3 font-medium text-navy">{{ row.title }}</td>
-                <td class="px-6 py-3 text-gray-400 whitespace-nowrap">{{ formatTime(row.entered_at) }}</td>
-                <td class="px-6 py-3 text-gray-500">{{ formatDuration(row.duration_seconds) }}</td>
-                <td class="px-6 py-3 text-gray-500">{{ row.has_data ? row.detected : '—' }}</td>
-                <td class="px-6 py-3 text-gray-500">{{ row.unclassified }}</td>
-                <td class="px-6 py-3 font-semibold" :style="{ color: engagementColor(row.engaged) }">{{ percentage(row.engaged) }}</td>
-                <td class="px-6 py-3 text-gray-500">{{ percentage(row.attentive) }}</td>
-                <td class="px-6 py-3" :class="row.confused >= 30 ? 'font-semibold text-amber-600' : 'text-gray-500'">{{ percentage(row.confused) }}</td>
-                <td class="px-6 py-3 text-gray-500">{{ percentage(row.bored) }}</td>
-                <td class="px-6 py-3" :class="row.disengaged >= 15 ? 'font-semibold text-rose-600' : 'text-gray-500'">{{ percentage(row.disengaged) }}</td>
+                <td data-label="Slide" data-primary class="px-6 py-3 text-gray-400 font-mono text-xs"><span class="font-semibold text-navy">{{ String(row.slide_number).padStart(2, '0') }}</span><span class="block mt-1 font-sans font-normal text-gray-400">{{ formatTime(row.entered_at) }}</span></td>
+                <td data-label="Topic" class="px-6 py-3 font-medium text-navy">{{ row.title }}</td>
+                <td data-label="Duration" class="px-6 py-3 text-gray-500">{{ formatDuration(row.duration_seconds) }}</td>
+                <td data-label="Samples" class="px-6 py-3 text-gray-500"><span>{{ row.has_data ? row.detected : '—' }} detected</span><span class="block mt-1 text-xs text-gray-400">{{ row.unclassified }} unclassified</span></td>
+                <td data-label="Engagement distribution" class="px-6 py-3 text-gray-500">
+                  <span class="analytics-distribution-list">
+                    <span v-for="category in categories" :key="category.key"><span class="analytics-legend-dot" :style="{ background: category.color }" aria-hidden="true"></span>{{ category.label }} {{ percentage(row[category.key]) }}</span>
+                  </span>
+                </td>
               </tr>
             </tbody>
           </table>

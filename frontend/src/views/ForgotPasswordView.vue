@@ -1,23 +1,14 @@
 <template>
-  <div class="min-h-screen grid md:grid-cols-2">
-    <ThemeToggle class="fixed right-5 top-5 z-20 bg-white shadow-sm" />
-    <div class="auth-brand-panel hidden md:flex flex-col items-center justify-center text-center px-12">
-      <img src="/tagad_logo.svg" alt="TAGAD Logo" class="w-64 mb-6 drop-shadow-xl">
-      <h1 class="text-4xl font-bold text-white tracking-widest mb-4">TAGAD</h1>
-      <p class="auth-brand-accent text-xl font-medium mb-3">Secure account recovery</p>
-      <p class="auth-brand-copy text-sm leading-relaxed max-w-sm">Request a time-limited link to choose a new password.</p>
-    </div>
-
-    <div class="auth-content flex items-center justify-center px-6 py-12">
-      <div class="w-full max-w-md bg-white rounded-2xl shadow-sm p-10">
-        <template v-if="sent">
+  <AuthShell accent="Secure account recovery" description="Request a time-limited link to choose a new password.">
+      <div class="login-card">
+        <div v-if="sent" role="status">
           <div class="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mb-5">
             <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
           </div>
           <h2 class="text-2xl font-bold text-navy">Check your email</h2>
           <p class="text-sm text-gray-500 mt-3 leading-relaxed">If an active account matches that email, a password reset link has been sent. In development, check the Django terminal for the email.</p>
           <RouterLink to="/" class="btn-primary w-full justify-center mt-7">Return to sign in</RouterLink>
-        </template>
+        </div>
 
         <form v-else @submit.prevent="handleSubmit">
           <h2 class="text-2xl font-bold text-navy">Forgot your password?</h2>
@@ -27,17 +18,16 @@
           </label>
           <p v-if="error" class="mt-4 text-sm text-red-600" role="alert">{{ error }}</p>
           <button type="submit" class="btn-primary w-full justify-center mt-6 disabled:opacity-50" :disabled="submitting">{{ submitting ? 'Sending…' : 'Send reset link' }}</button>
-          <div class="text-center mt-5"><RouterLink to="/" class="text-sm font-medium text-brand">Back to sign in</RouterLink></div>
+          <div class="auth-footer-link text-center mt-5"><RouterLink to="/" class="text-sm font-medium text-brand">Back to sign in</RouterLink></div>
         </form>
       </div>
-    </div>
-  </div>
+  </AuthShell>
 </template>
 
 <script setup>
 import { ref } from 'vue'
 import { requestPasswordReset } from '../passwordRecovery'
-import ThemeToggle from '../components/ThemeToggle.vue'
+import AuthShell from '../components/AuthShell.vue'
 
 const email = ref('')
 const submitting = ref(false)

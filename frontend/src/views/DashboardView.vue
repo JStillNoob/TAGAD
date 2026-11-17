@@ -58,7 +58,7 @@ const platformCards = computed(() => [
 const engagementBars = computed(() => {
   const distribution = dashboard.value.engagement.distribution
   return [
-    { key: 'engaged', label: 'Engaged', color: 'linear-gradient(180deg, var(--primary), var(--primary-dark))', textColor: 'var(--primary-dark)' },
+    { key: 'engaged', label: 'Engaged', color: 'var(--state-engaged)', textColor: 'var(--primary-dark)' },
     { key: 'attentive', label: 'Attentive', color: 'var(--state-attentive)', textColor: 'var(--primary-dark)' },
     { key: 'confused', label: 'Confused', color: 'var(--state-confused)', textColor: 'var(--text-muted)' },
     { key: 'bored', label: 'Bored', color: 'var(--state-bored)', textColor: 'var(--text-muted)' },
@@ -98,18 +98,18 @@ onMounted(loadDashboard)
   <AppLayout page-title="Dashboard">
     <div v-if="isTeacher" class="app-page-hero teacher-dashboard-hero page-card mb-6">
       <div class="teacher-dashboard-hero-copy">
-        <h2>{{ greeting }}, {{ displayName }}!</h2>
+        <h1>{{ greeting }}, {{ displayName }}!</h1>
         <p>Here is the latest data available to your account.</p>
         <RouterLink to="/session" class="btn-primary"><span class="text-xl leading-none" aria-hidden="true">+</span> Start New Session</RouterLink>
       </div>
-      <img class="teacher-dashboard-hero-art" src="/illustrations/teacher-hero.png" alt="" aria-hidden="true">
+      <img class="teacher-dashboard-hero-art" src="/illustrations/teacher-hero.png" width="1536" height="1024" alt="" aria-hidden="true">
     </div>
     <div v-else class="app-page-hero flex items-center justify-between gap-4 mb-6" :class="isSystemAdmin ? 'platform-hero' : 'dashboard-hero'">
       <div>
-        <h2 class="text-xl font-bold text-navy">{{ isSystemAdmin ? 'Platform overview' : `${greeting}, ${displayName}` }}</h2>
+        <h1 class="text-xl font-bold text-navy">{{ isSystemAdmin ? 'Platform overview' : `${greeting}, ${displayName}` }}</h1>
         <p class="text-sm text-gray-400 mt-0.5">{{ isSystemAdmin ? 'Create organizations and assign their administrators.' : 'Here is the latest data available to your account.' }}</p>
       </div>
-      <img v-if="isSystemAdmin" class="platform-hero-art" src="/illustrations/platform-hero.png" alt="" aria-hidden="true">
+      <img v-if="isSystemAdmin" class="platform-hero-art" src="/illustrations/platform-hero.png" width="1536" height="1024" alt="" aria-hidden="true">
       <RouterLink :to="isSystemAdmin ? '/organizations' : '/session'" class="btn-primary">{{ isSystemAdmin ? 'Manage Organizations' : 'Start New Session' }}</RouterLink>
     </div>
 
@@ -154,7 +154,7 @@ onMounted(loadDashboard)
           <h3 class="text-base font-semibold text-navy">Organizations</h3>
           <p class="mt-2 text-sm text-gray-500">Add, update, archive, or restore organizations.</p>
           <div class="platform-link-body">
-            <img src="/illustrations/organizations.png" alt="" aria-hidden="true">
+            <img src="/illustrations/organizations.png" width="1536" height="1024" alt="" aria-hidden="true">
             <ul>
               <li v-for="item in ['Create new organizations', 'Update organization details', 'Archive or restore organizations']" :key="item">
                 <span class="platform-check-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4.5 4.5L19 7" /></svg></span>
@@ -168,7 +168,7 @@ onMounted(loadDashboard)
           <h3 class="text-base font-semibold text-navy">Organization Administrators</h3>
           <p class="mt-2 text-sm text-gray-500">Create the administrator account responsible for each organization’s setup.</p>
           <div class="platform-link-body">
-            <img src="/illustrations/administrators.png" alt="" aria-hidden="true">
+            <img src="/illustrations/administrators.png" width="1536" height="1024" alt="" aria-hidden="true">
             <ul>
               <li v-for="item in ['Assign organization admins', 'Manage administrator access', 'Maintain setup and permissions']" :key="item">
                 <span class="platform-check-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4.5 4.5L19 7" /></svg></span>
@@ -202,7 +202,7 @@ onMounted(loadDashboard)
       </div>
 
       <div class="grid grid-cols-1 xl:grid-cols-3 gap-6" :class="isTeacher ? 'teacher-dashboard-grid' : ''">
-        <div class="xl:col-span-2 page-card overflow-x-auto" :class="isTeacher ? 'teacher-recent-sessions' : ''">
+        <div class="xl:col-span-2 page-card overflow-x-auto responsive-data-scroll" :class="isTeacher ? 'teacher-recent-sessions' : ''">
           <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
             <div class="teacher-panel-heading">
               <span v-if="isTeacher" class="teacher-panel-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg></span>
@@ -211,13 +211,13 @@ onMounted(loadDashboard)
               <p class="text-xs text-gray-400 mt-0.5">Your five most recent accessible sessions</p>
               </div>
             </div>
-            <RouterLink to="/analytics" class="text-xs font-semibold text-brand">View all →</RouterLink>
+            <RouterLink to="/analytics" class="app-action-link text-xs font-semibold text-brand">View all →</RouterLink>
           </div>
           <div v-if="!dashboard.recent_sessions.length" class="px-6 py-12 text-center text-sm text-gray-500">
-            <img v-if="isTeacher" class="teacher-sessions-empty-art" src="/illustrations/teacher-sessions-empty.png" alt="" aria-hidden="true">
+            <img v-if="isTeacher" class="teacher-sessions-empty-art" src="/illustrations/teacher-sessions-empty.png" width="1536" height="1024" alt="" aria-hidden="true">
             <p>No classroom sessions have been recorded yet.</p>
           </div>
-          <table v-else class="app-data-table w-full min-w-[760px] text-sm" :class="isTeacher ? 'teacher-sessions-table' : ''">
+          <table v-else class="app-data-table responsive-data-table w-full min-w-[760px] text-sm" :class="isTeacher ? 'teacher-sessions-table' : ''">
             <thead>
               <tr class="border-b border-gray-100">
                 <th class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase">Subject</th>
@@ -230,17 +230,17 @@ onMounted(loadDashboard)
             </thead>
             <tbody class="divide-y divide-gray-100">
               <tr v-for="session in dashboard.recent_sessions" :key="session.id" class="hover:bg-gray-50">
-                <td class="px-6 py-3.5 font-medium text-navy">
+                <td class="px-6 py-3.5 font-medium text-navy" data-label="Subject" data-primary>
                   {{ session.subject_name }}
                   <span class="block text-xs font-normal text-gray-400">{{ session.subject_code }}</span>
                 </td>
-                <td class="px-6 py-3.5 text-gray-500">{{ session.classroom }}</td>
-                <td class="px-6 py-3.5 text-gray-500">{{ formatDate(session.date) }}</td>
-                <td class="px-6 py-3.5 text-gray-500">{{ formatDuration(session.duration_minutes) }}</td>
-                <td class="px-6 py-3.5 font-semibold text-brand">
+                <td class="px-6 py-3.5 text-gray-500" data-label="Class">{{ session.classroom }}</td>
+                <td class="px-6 py-3.5 text-gray-500" data-label="Date">{{ formatDate(session.date) }}</td>
+                <td class="px-6 py-3.5 text-gray-500" data-label="Duration">{{ formatDuration(session.duration_minutes) }}</td>
+                <td class="px-6 py-3.5 font-semibold text-brand" data-label="Average engagement">
                   {{ session.average_engagement === null ? '—' : `${session.average_engagement}%` }}
                 </td>
-                <td class="px-6 py-3.5">
+                <td class="px-6 py-3.5" data-label="Status">
                   <span :class="session.status === 'completed' ? 'badge-engaged' : 'badge-attentive'">
                     {{ meetingOutcome(session) }}
                   </span>
@@ -279,7 +279,7 @@ onMounted(loadDashboard)
               </div>
             </div>
             <div v-else class="teacher-engagement-empty py-8 text-center text-sm text-gray-500">
-              <img v-if="isTeacher" src="/illustrations/teacher-engagement-empty.png" alt="" aria-hidden="true">
+              <img v-if="isTeacher" src="/illustrations/teacher-engagement-empty.png" width="1536" height="1024" alt="" aria-hidden="true">
               <p>No engagement data has been recorded today.</p>
             </div>
           </div>

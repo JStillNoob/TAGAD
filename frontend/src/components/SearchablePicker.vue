@@ -11,6 +11,9 @@ const props = defineProps({
   required: Boolean,
   disabled: Boolean,
   refreshKey: { type: [String, Number, Boolean], default: '' },
+  controlId: { type: String, default: '' },
+  invalid: Boolean,
+  describedby: { type: String, default: '' },
 })
 
 const emit = defineEmits(['update:modelValue', 'selected'])
@@ -113,8 +116,11 @@ onUnmounted(() => {
       class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 disabled:bg-gray-100"
     >
     <select
+      :id="controlId || undefined"
       :value="modelValue"
       :aria-label="selectLabel"
+      :aria-invalid="invalid || undefined"
+      :aria-describedby="describedby || undefined"
       :required="required"
       :disabled="disabled || loading"
       class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 disabled:bg-gray-100"
@@ -125,7 +131,7 @@ onUnmounted(() => {
         {{ option.label }}
       </option>
     </select>
-    <p v-if="error" class="text-xs text-red-600">{{ error }}</p>
+    <p v-if="error" class="text-xs text-red-600" role="alert">{{ error }}</p>
     <div v-else class="flex items-center justify-between gap-3 text-xs text-gray-400">
       <span>{{ count }} result{{ count === 1 ? '' : 's' }} · Page {{ page }} of {{ pages }}</span>
       <span class="flex gap-2">

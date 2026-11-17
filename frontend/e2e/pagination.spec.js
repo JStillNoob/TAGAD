@@ -16,7 +16,7 @@ test('growing lists navigate to page two without crossing organization scope', a
   await expect(page.getByText('1 result · Page 1 of 1')).toBeVisible()
 
   await page.getByRole('link', { name: 'Classes', exact: true }).click()
-  const subjects = page.getByRole('region', { name: 'Subjects' })
+  const subjects = page.locator('#subjects-panel')
   await expect(subjects.getByText(/2[2-3] results · Page 1 of 2/)).toBeVisible()
   await subjects.getByRole('button', { name: 'Next' }).click()
   await expect(subjects.getByText(/2[2-3] results · Page 2 of 2/)).toBeVisible()
@@ -24,7 +24,8 @@ test('growing lists navigate to page two without crossing organization scope', a
   await subjects.getByRole('button', { name: 'Previous' }).click()
   await expect(subjects.getByText(/2[2-3] results · Page 1 of 2/)).toBeVisible()
 
-  const classrooms = page.getByRole('region', { name: 'Classrooms' })
+  await page.getByRole('tab', { name: /Classrooms/ }).click()
+  const classrooms = page.locator('#classrooms-panel')
   await expect(classrooms.getByText(/2[2-4] results · Page 1 of 2/)).toBeVisible()
   await classrooms.getByRole('button', { name: 'Next' }).click()
   await expect(classrooms.getByText(/2[2-4] results · Page 2 of 2/)).toBeVisible()
@@ -32,10 +33,11 @@ test('growing lists navigate to page two without crossing organization scope', a
   await classrooms.getByRole('button', { name: 'Previous' }).click()
   await expect(classrooms.getByText(/2[2-4] results · Page 1 of 2/)).toBeVisible()
   await classrooms.getByRole('button', { name: 'Next' }).click()
-  await page.getByPlaceholder('Search classes and subjects…').fill('E2E-SCALE-021')
+  await page.getByPlaceholder('Search records…').fill('E2E-SCALE-021')
   await expect(classrooms.getByText('1 result · Page 1 of 1')).toBeVisible()
 
-  const cameras = page.getByRole('region', { name: 'Camera Setup' })
+  await page.getByRole('tab', { name: /Cameras/ }).click()
+  const cameras = page.locator('#cameras-panel')
   await expect(cameras.getByText(/2[2-3] results · Page 1 of 2/)).toBeVisible()
   await cameras.getByRole('button', { name: 'Next' }).click()
   await expect(cameras.getByText(/2[2-3] results · Page 2 of 2/)).toBeVisible()
@@ -64,7 +66,8 @@ test('teacher presentation, analytics, and report lists navigate to page two', a
   await presentations.getByRole('button', { name: 'Previous' }).click()
   await expect(presentations.getByText(/2[1-2] results · Page 1 of 2/)).toBeVisible()
 
-  const recentSessions = page.getByRole('region', { name: 'Recent Sessions' })
+  await page.getByRole('tab', { name: 'Class history' }).click()
+  const recentSessions = page.locator('#history-panel')
   await expect(recentSessions.getByText(/2[1-2] results · Page 1 of 5/)).toBeVisible()
   await recentSessions.getByRole('button', { name: 'Next' }).click()
   await expect(recentSessions.getByText(/2[1-2] results · Page 2 of 5/)).toBeVisible()
@@ -72,10 +75,11 @@ test('teacher presentation, analytics, and report lists navigate to page two', a
   await expect(recentSessions.getByText(/2[1-2] results · Page 1 of 5/)).toBeVisible()
 
   await page.getByRole('link', { name: 'Analytics', exact: true }).click()
+  const analyticsPagination = page.locator('.analytics-pagination')
   await expect(page.getByText(/2[1-2] results · Page 1 of 2/)).toBeVisible()
-  await page.getByRole('button', { name: 'Next' }).click()
+  await analyticsPagination.getByRole('button', { name: 'Next' }).click()
   await expect(page.getByText(/2[1-2] results · Page 2 of 2/)).toBeVisible()
-  await page.getByRole('button', { name: 'Previous' }).click()
+  await analyticsPagination.getByRole('button', { name: 'Previous' }).click()
   await expect(page.getByText(/2[1-2] results · Page 1 of 2/)).toBeVisible()
 
   await page.getByRole('link', { name: 'Reports' }).click()

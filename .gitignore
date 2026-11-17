@@ -61,7 +61,11 @@ Desktop.ini
 
 # Local agent instructions
 AGENTS.md
+.codex/
 .codex-remote-attachments/
+
+# Local UI/UX audit and planning documents
+jessie/
 
 # Local machine-learning artifacts (configure paths through backend/.env)
 backend/model_artifacts/
